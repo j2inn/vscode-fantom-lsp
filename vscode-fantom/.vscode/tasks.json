@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: compile",
+      "type": "shell",
+      "command": "source ~/.nvm/nvm.sh && nvm use v24.11.0 && npm run compile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": "$tsc",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "npm: watch",
+      "type": "shell",
+      "command": "source ~/.nvm/nvm.sh && nvm use v24.11.0 && npm run watch",
+      "isBackground": true,
+      "group": {
+        "kind": "build"
+      },
+      "problemMatcher": "$tsc-watch",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    }
+  ]
+}

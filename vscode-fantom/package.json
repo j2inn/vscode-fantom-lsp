@@ -1,0 +1,133 @@
+{
+  "name": "fantom-language-support",
+  "displayName": "Fantom Language Support",
+  "description": "Language support for Fantom with syntax highlighting, diagnostics, and autocompletion",
+  "version": "0.4.1",
+  "publisher": "fantom",
+  "license": "AFL-3.0",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "fantom",
+    "language-server",
+    "autocompletion",
+    "diagnostics"
+  ],
+  "activationEvents": [
+    "onLanguage:fantom",
+    "workspaceContains:build.fan",
+    "workspaceContains:*/build.fan",
+    "workspaceContains:fan.config.json"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "fantom",
+        "aliases": [
+          "Fantom",
+          "fantom"
+        ],
+        "extensions": [
+          ".fan"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/fantom-icon.png",
+          "dark": "./icons/fantom-icon.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fantom",
+        "scopeName": "source.fantom",
+        "path": "./syntaxes/fantom.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "fantom.removeUnusedImports",
+        "title": "Remove Unused Imports in File",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.removeUnusedImportsInProject",
+        "title": "Remove Unused Imports in Project",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.removeUnusedVariables",
+        "title": "Remove Unused Variables in File",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.removeUnusedVariablesInProject",
+        "title": "Remove Unused Variables in Project",
+        "category": "Fantom"
+      }
+    ],
+    "configuration": {
+      "title": "Fantom",
+      "properties": {
+        "fantom.javaPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to java executable (defaults to $JAVA_HOME/bin/java)"
+        },
+        "fantom.useBuiltInLspPod": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the LSP pod bundled with this extension. When false, the lsp pod must already be installed in your fan environment."
+        },
+        "fantom.pedanticMode": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Warn on variable declarations that lack explicit type annotations (no type on left side and no 'as' cast on right side)."
+        },
+        "fantom.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace communication between VSCode and the language server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile && npm run bundle-lsp",
+    "compile": "tsc -p ./",
+    "bundle-lsp": "node scripts/bundle-lsp.js",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "test:extension": "node out/test/declarationRange.test.js",
+    "test:grammar": "vscode-tmgrammar-snap -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",
+    "test:grammar:update": "vscode-tmgrammar-snap -u -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\""
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.x",
+    "@typescript-eslint/parser": "^6.x",
+    "eslint": "^8.x",
+    "typescript": "^5.3.0",
+    "vscode-tmgrammar-test": "^0.1.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fantom-lang/fantom"
+  }
+}

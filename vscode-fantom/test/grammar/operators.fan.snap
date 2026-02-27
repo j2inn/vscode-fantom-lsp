@@ -1,0 +1,205 @@
+>class OpTest
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  Void test()
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^^ source.fantom entity.name.function.fantom
+#           ^ source.fantom punctuation.section.parens.begin.fantom
+#            ^ source.fantom punctuation.section.parens.end.fantom
+>  {
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.begin.fantom
+>    a := 10
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^^ source.fantom constant.numeric.integer.fantom
+>    b := a + 1
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^^^ source.fantom
+#           ^ source.fantom keyword.operator.fantom
+#            ^ source.fantom
+#             ^ source.fantom constant.numeric.integer.fantom
+>    c := a - 1
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^^^ source.fantom
+#           ^ source.fantom keyword.operator.fantom
+#            ^ source.fantom
+#             ^ source.fantom constant.numeric.integer.fantom
+>    d := a * 2
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^^^ source.fantom
+#           ^ source.fantom keyword.operator.fantom
+#            ^ source.fantom
+#             ^ source.fantom constant.numeric.integer.fantom
+>    e := a / 2
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^^^ source.fantom
+#           ^ source.fantom keyword.operator.fantom
+#            ^ source.fantom
+#             ^ source.fantom constant.numeric.integer.fantom
+>    f := a % 3
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^^^ source.fantom
+#           ^ source.fantom keyword.operator.fantom
+#            ^ source.fantom
+#             ^ source.fantom constant.numeric.integer.fantom
+>
+>    eq := a == b
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^^^ source.fantom
+#            ^^ source.fantom keyword.operator.fantom
+#              ^^^ source.fantom
+>    ne := a != b
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^^^ source.fantom
+#            ^^ source.fantom keyword.operator.fantom
+#              ^^^ source.fantom
+>    lt := a < b
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^^^ source.fantom
+#            ^ source.fantom keyword.operator.fantom
+#             ^^^ source.fantom
+>    gt := a > b
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^^^ source.fantom
+#            ^ source.fantom keyword.operator.fantom
+#             ^^^ source.fantom
+>    le := a <= b
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^^^ source.fantom
+#            ^^ source.fantom keyword.operator.fantom
+#              ^^^ source.fantom
+>    ge := a >= b
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^^^ source.fantom
+#            ^^ source.fantom keyword.operator.fantom
+#              ^^^ source.fantom
+>    se := a === b
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^^^ source.fantom
+#            ^^^ source.fantom keyword.operator.fantom
+#               ^^^ source.fantom
+>    sne := a !== b
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^^^ source.fantom
+#             ^^^ source.fantom keyword.operator.fantom
+#                ^^^ source.fantom
+>
+>    x := true && false
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^^^^ source.fantom constant.language.fantom
+#             ^ source.fantom
+#              ^^ source.fantom keyword.operator.fantom
+#                ^ source.fantom
+#                 ^^^^^ source.fantom constant.language.fantom
+>    y := true || false
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^^^^ source.fantom constant.language.fantom
+#             ^ source.fantom
+#              ^^ source.fantom keyword.operator.fantom
+#                ^ source.fantom
+#                 ^^^^^ source.fantom constant.language.fantom
+>    z := !true
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom keyword.operator.fantom
+#          ^^^^ source.fantom constant.language.fantom
+>
+>    a += 1
+#^^^^^^ source.fantom
+#      ^ source.fantom keyword.operator.fantom
+#       ^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom constant.numeric.integer.fantom
+>    a -= 1
+#^^^^^^ source.fantom
+#      ^ source.fantom keyword.operator.fantom
+#       ^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom constant.numeric.integer.fantom
+>    a *= 2
+#^^^^^^ source.fantom
+#      ^ source.fantom keyword.operator.fantom
+#       ^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom constant.numeric.integer.fantom
+>
+>    r := 0..10
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom constant.numeric.integer.fantom
+#          ^^ source.fantom keyword.operator.fantom
+#            ^^ source.fantom constant.numeric.integer.fantom
+>    r2 := 0..<10
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^ source.fantom
+#          ^ source.fantom constant.numeric.integer.fantom
+#           ^^ source.fantom keyword.operator.fantom
+#             ^ source.fantom keyword.operator.fantom
+#              ^^ source.fantom constant.numeric.integer.fantom
+>    cmp := a <=> b
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^^^ source.fantom
+#             ^^^ source.fantom keyword.operator.fantom
+#                ^^^ source.fantom
+>
+>    val := x ?: "default"
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^^^ source.fantom
+#             ^^ source.fantom keyword.operator.fantom
+#               ^ source.fantom
+#                ^ source.fantom string.quoted.double.fantom
+#                 ^^^^^^^ source.fantom string.quoted.double.fantom
+#                        ^ source.fantom string.quoted.double.fantom
+>    safe := obj?.method
+#^^^^^^^^^ source.fantom
+#         ^^ source.fantom keyword.operator.fantom
+#           ^^^^ source.fantom
+#               ^^ source.fantom keyword.operator.fantom
+#                 ^^^^^^^ source.fantom
+>
+>    arrow := |->| {}
+#^^^^^^^^^^ source.fantom
+#          ^^ source.fantom keyword.operator.fantom
+#            ^ source.fantom
+#             ^ source.fantom keyword.operator.fantom
+#              ^ source.fantom keyword.operator.fantom
+#               ^ source.fantom keyword.operator.fantom
+#                ^ source.fantom keyword.operator.fantom
+#                 ^ source.fantom
+#                  ^ source.fantom punctuation.section.braces.begin.fantom
+#                   ^ source.fantom punctuation.section.braces.end.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>

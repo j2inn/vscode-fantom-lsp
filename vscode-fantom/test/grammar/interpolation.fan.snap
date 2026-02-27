@@ -1,0 +1,482 @@
+>class InterpolationTest
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^^^^^^^^^^^^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  Void test()
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^^ source.fantom entity.name.function.fantom
+#           ^ source.fantom punctuation.section.parens.begin.fantom
+#            ^ source.fantom punctuation.section.parens.end.fantom
+>  {
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.begin.fantom
+>    // Simple variable interpolation
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    a := "value is $name"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                   ^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                        ^ source.fantom string.quoted.double.fantom
+>    b := "value is $obj.field.sub"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                   ^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                                 ^ source.fantom string.quoted.double.fantom
+>
+>    // Simple expression interpolation
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    c := "hello ${name}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^ source.fantom string.quoted.double.fantom
+#                ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                  ^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                       ^ source.fantom string.quoted.double.fantom
+>    d := "value is ${expr + 1}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                   ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                     ^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                          ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom keyword.operator.fantom
+#                           ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                            ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom constant.numeric.integer.fantom
+#                             ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                              ^ source.fantom string.quoted.double.fantom
+>
+>    // Multiple interpolations in one string
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    e := "${tagRef} == ${refId.toCode} and ${modelTag} == ${modelVal.toCode}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#            ^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                  ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                   ^^^^ source.fantom string.quoted.double.fantom
+#                       ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                         ^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                     ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                      ^^^^^ source.fantom string.quoted.double.fantom
+#                                           ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                             ^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                     ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                      ^^^^ source.fantom string.quoted.double.fantom
+#                                                          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                            ^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                                           ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                                            ^ source.fantom string.quoted.double.fantom
+>    f := "${floorRef} == ${floorId.toCode} and ${floorModelTag} == ${modelId.toCode}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#            ^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                    ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                     ^^^^ source.fantom string.quoted.double.fantom
+#                         ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                           ^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                         ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                          ^^^^^ source.fantom string.quoted.double.fantom
+#                                               ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                 ^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                              ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                               ^^^^ source.fantom string.quoted.double.fantom
+#                                                                   ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                                     ^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                                                   ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                                                    ^ source.fantom string.quoted.double.fantom
+>
+>    // Interpolation with method calls
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    g := "id == ${schedId.toCode} and ${actionTag} == ${modelId.toCode}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^ source.fantom string.quoted.double.fantom
+#                ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                  ^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                 ^^^^^ source.fantom string.quoted.double.fantom
+#                                      ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                        ^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                 ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                  ^^^^ source.fantom string.quoted.double.fantom
+#                                                      ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                        ^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                                       ^ source.fantom string.quoted.double.fantom
+>    h := "${entityRef} == ${entityId.toCode} and ${modelName} == ${modelVal.toCode}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#            ^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                     ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                      ^^^^ source.fantom string.quoted.double.fantom
+#                          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                            ^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                           ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                            ^^^^^ source.fantom string.quoted.double.fantom
+#                                                 ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                   ^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                            ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                             ^^^^ source.fantom string.quoted.double.fantom
+#                                                                 ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                                   ^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                                                  ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                                                   ^ source.fantom string.quoted.double.fantom
+>
+>    // Interpolation with string concatenation
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    i := "${prefix}${suffix}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#            ^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                  ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                   ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                     ^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                           ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                            ^ source.fantom string.quoted.double.fantom
+>    j := "${modbusAddr}-${moduleId}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#            ^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                       ^ source.fantom string.quoted.double.fantom
+#                        ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                          ^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                  ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                   ^ source.fantom string.quoted.double.fantom
+>
+>    // Interpolation with member access
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    k := "Error for [${connId.dis}]"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                     ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                       ^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                 ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                  ^ source.fantom string.quoted.double.fantom
+#                                   ^ source.fantom string.quoted.double.fantom
+>    l := "Data is `${value.typeof.name}` instead of `Str`"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                   ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                     ^^^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                       ^^^^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                                                         ^ source.fantom string.quoted.double.fantom
+>
+>    // Interpolation inside Err/throw
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    m := "Invalid address: ${address}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                           ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                             ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                    ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                     ^ source.fantom string.quoted.double.fantom
+>    n := "No config found for unit with ID ${unitId}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                                           ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                             ^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                   ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                    ^ source.fantom string.quoted.double.fantom
+>    o := "There should be exactly 1 alarm for '$errorCode' instead of '${alarms.size()}'\n$alarms"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                                               ^^^^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                                                         ^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                                                                       ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                                         ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                                                ^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom entity.name.function.fantom
+#                                                                                    ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.parens.begin.fantom
+#                                                                                     ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.parens.end.fantom
+#                                                                                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                                                       ^ source.fantom string.quoted.double.fantom
+#                                                                                        ^^ source.fantom string.quoted.double.fantom constant.character.escape.fantom
+#                                                                                          ^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                                                                                                 ^ source.fantom string.quoted.double.fantom
+>
+>    // Interpolation with arithmetic
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    p := "Unit ${idx + 1}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^ source.fantom string.quoted.double.fantom
+#               ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                 ^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                     ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom keyword.operator.fantom
+#                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                       ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom constant.numeric.integer.fantom
+#                        ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                         ^ source.fantom string.quoted.double.fantom
+>    q := "IDU ${oduIdx + 1}-${iduIdx + 1}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^ source.fantom string.quoted.double.fantom
+#              ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                       ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom keyword.operator.fantom
+#                        ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                         ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom constant.numeric.integer.fantom
+#                          ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                           ^ source.fantom string.quoted.double.fantom
+#                            ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                              ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                     ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom keyword.operator.fantom
+#                                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                       ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom constant.numeric.integer.fantom
+#                                        ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                         ^ source.fantom string.quoted.double.fantom
+>
+>    // Simple dollar var in query strings
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    r := "point and $model and $tag"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                    ^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                          ^^^^^ source.fantom string.quoted.double.fantom
+#                               ^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                                   ^ source.fantom string.quoted.double.fantom
+>    s := "$refTag == ${tenantId.toCode}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                 ^^^^ source.fantom string.quoted.double.fantom
+#                     ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                       ^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                       ^ source.fantom string.quoted.double.fantom
+>
+>    // Static const with interpolation
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    static const Str REF_TAG := "${EntityType.site}Ref"
+#^^^^ source.fantom
+#    ^^^^^^ source.fantom keyword.other.fantom
+#          ^ source.fantom
+#           ^^^^^ source.fantom keyword.other.fantom
+#                ^ source.fantom
+#                 ^^^ source.fantom storage.type.fantom
+#                    ^ source.fantom
+#                     ^^^^^^^ source.fantom entity.name.type.fantom
+#                            ^ source.fantom
+#                             ^^ source.fantom keyword.operator.fantom
+#                               ^ source.fantom
+#                                ^ source.fantom string.quoted.double.fantom
+#                                 ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                   ^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom entity.name.type.fantom
+#                                             ^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                  ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                   ^^^ source.fantom string.quoted.double.fantom
+#                                                      ^ source.fantom string.quoted.double.fantom
+>
+>    // Backtick interpolation in error messages
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    t := "`${pointName}`: ${err.msg}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^ source.fantom string.quoted.double.fantom
+#           ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#             ^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                       ^^^ source.fantom string.quoted.double.fantom
+#                          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                            ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                   ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                    ^ source.fantom string.quoted.double.fantom
+>    u := "`${pointName}`: ${value}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^ source.fantom string.quoted.double.fantom
+#           ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#             ^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                       ^^^ source.fantom string.quoted.double.fantom
+#                          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                            ^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                 ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                  ^ source.fantom string.quoted.double.fantom
+>
+>    // Mixed dollar and dollar-brace
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    v := "Setup $moduleName ${settingVal}..."
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^ source.fantom string.quoted.double.fantom
+#                ^^^^^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                           ^ source.fantom string.quoted.double.fantom
+#                            ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                              ^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                        ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                         ^^^ source.fantom string.quoted.double.fantom
+#                                            ^ source.fantom string.quoted.double.fantom
+>    w := "id == ${it.toCode}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^ source.fantom string.quoted.double.fantom
+#                ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                  ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom keyword.other.fantom
+#                    ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                           ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                            ^ source.fantom string.quoted.double.fantom
+>
+>    // Interpolation with map/closure result
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    x := "v${counter++}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^ source.fantom string.quoted.double.fantom
+#           ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#             ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                    ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom keyword.operator.fantom
+#                      ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                       ^ source.fantom string.quoted.double.fantom
+>
+>    // Arrow access in interpolation
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    y := "${connTag} and ${refArg} == ${moduleRef.toCode}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#            ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                   ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                    ^^^^^ source.fantom string.quoted.double.fantom
+#                         ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                           ^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                 ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                  ^^^^ source.fantom string.quoted.double.fantom
+#                                      ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                        ^^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                        ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                         ^ source.fantom string.quoted.double.fantom
+>
+>    // Interpolation at start and end
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    z := "${prefix}Ref"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#            ^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                  ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                   ^^^ source.fantom string.quoted.double.fantom
+#                      ^ source.fantom string.quoted.double.fantom
+>    aa := "point and ${modelId} == $id.toCode and ${modelTag}==$tagId.toCode"
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^ source.fantom
+#          ^ source.fantom string.quoted.double.fantom
+#           ^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                     ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                       ^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                              ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                               ^^^^ source.fantom string.quoted.double.fantom
+#                                   ^^^^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                                             ^^^^^ source.fantom string.quoted.double.fantom
+#                                                  ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                                                    ^^^^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                                                            ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                                                             ^^ source.fantom string.quoted.double.fantom
+#                                                               ^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                                                                            ^ source.fantom string.quoted.double.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>

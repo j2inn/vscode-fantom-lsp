@@ -1,0 +1,188 @@
+>class BracketTest
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^^^^^^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  // Parentheses
+#^^ source.fantom
+#  ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#    ^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>  Void test(Int a, Str b) { }
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^^ source.fantom entity.name.function.fantom
+#           ^ source.fantom punctuation.section.parens.begin.fantom
+#            ^^^ source.fantom storage.type.fantom
+#               ^^^^ source.fantom
+#                   ^^^ source.fantom storage.type.fantom
+#                      ^^ source.fantom
+#                        ^ source.fantom punctuation.section.parens.end.fantom
+#                         ^ source.fantom
+#                          ^ source.fantom punctuation.section.braces.begin.fantom
+#                           ^ source.fantom
+#                            ^ source.fantom punctuation.section.braces.end.fantom
+>  Int calc() { return (1 + 2) * (3 + 4) }
+#^^ source.fantom
+#  ^^^ source.fantom storage.type.fantom
+#     ^ source.fantom
+#      ^^^^ source.fantom entity.name.function.fantom
+#          ^ source.fantom punctuation.section.parens.begin.fantom
+#           ^ source.fantom punctuation.section.parens.end.fantom
+#            ^ source.fantom
+#             ^ source.fantom punctuation.section.braces.begin.fantom
+#              ^ source.fantom
+#               ^^^^^^ source.fantom keyword.control.fantom
+#                     ^ source.fantom
+#                      ^ source.fantom punctuation.section.parens.begin.fantom
+#                       ^ source.fantom constant.numeric.integer.fantom
+#                        ^ source.fantom
+#                         ^ source.fantom keyword.operator.fantom
+#                          ^ source.fantom
+#                           ^ source.fantom constant.numeric.integer.fantom
+#                            ^ source.fantom punctuation.section.parens.end.fantom
+#                             ^ source.fantom
+#                              ^ source.fantom keyword.operator.fantom
+#                               ^ source.fantom
+#                                ^ source.fantom punctuation.section.parens.begin.fantom
+#                                 ^ source.fantom constant.numeric.integer.fantom
+#                                  ^ source.fantom
+#                                   ^ source.fantom keyword.operator.fantom
+#                                    ^ source.fantom
+#                                     ^ source.fantom constant.numeric.integer.fantom
+#                                      ^ source.fantom punctuation.section.parens.end.fantom
+#                                       ^ source.fantom
+#                                        ^ source.fantom punctuation.section.braces.end.fantom
+>
+>  // Square brackets
+#^^ source.fantom
+#  ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#    ^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>  Int[] list := [1, 2, 3]
+#^^ source.fantom
+#  ^^^ source.fantom storage.type.fantom
+#     ^ source.fantom punctuation.section.brackets.begin.fantom
+#      ^ source.fantom punctuation.section.brackets.end.fantom
+#       ^^^^^^ source.fantom
+#             ^^ source.fantom keyword.operator.fantom
+#               ^ source.fantom
+#                ^ source.fantom punctuation.section.brackets.begin.fantom
+#                 ^ source.fantom constant.numeric.integer.fantom
+#                  ^^ source.fantom
+#                    ^ source.fantom constant.numeric.integer.fantom
+#                     ^^ source.fantom
+#                       ^ source.fantom constant.numeric.integer.fantom
+#                        ^ source.fantom punctuation.section.brackets.end.fantom
+>  Str val := list[0]
+#^^ source.fantom
+#  ^^^ source.fantom storage.type.fantom
+#     ^^^^^ source.fantom
+#          ^^ source.fantom keyword.operator.fantom
+#            ^^^^^ source.fantom
+#                 ^ source.fantom punctuation.section.brackets.begin.fantom
+#                  ^ source.fantom constant.numeric.integer.fantom
+#                   ^ source.fantom punctuation.section.brackets.end.fantom
+>  [Str:Int] map := ["a":1]
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.brackets.begin.fantom
+#   ^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^ source.fantom storage.type.fantom
+#          ^ source.fantom punctuation.section.brackets.end.fantom
+#           ^^^^^ source.fantom
+#                ^^ source.fantom keyword.operator.fantom
+#                  ^ source.fantom
+#                   ^ source.fantom punctuation.section.brackets.begin.fantom
+#                    ^ source.fantom string.quoted.double.fantom
+#                     ^ source.fantom string.quoted.double.fantom
+#                      ^ source.fantom string.quoted.double.fantom
+#                       ^ source.fantom
+#                        ^ source.fantom constant.numeric.integer.fantom
+#                         ^ source.fantom punctuation.section.brackets.end.fantom
+>
+>  // Curly braces
+#^^ source.fantom
+#  ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#    ^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>  Void method() { if (true) { doSomething() } }
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^^^^ source.fantom entity.name.function.fantom
+#             ^ source.fantom punctuation.section.parens.begin.fantom
+#              ^ source.fantom punctuation.section.parens.end.fantom
+#               ^ source.fantom
+#                ^ source.fantom punctuation.section.braces.begin.fantom
+#                 ^ source.fantom
+#                  ^^ source.fantom keyword.control.fantom
+#                    ^ source.fantom
+#                     ^ source.fantom punctuation.section.parens.begin.fantom
+#                      ^^^^ source.fantom constant.language.fantom
+#                          ^ source.fantom punctuation.section.parens.end.fantom
+#                           ^ source.fantom
+#                            ^ source.fantom punctuation.section.braces.begin.fantom
+#                             ^ source.fantom
+#                              ^^^^^^^^^^^ source.fantom entity.name.function.fantom
+#                                         ^ source.fantom punctuation.section.parens.begin.fantom
+#                                          ^ source.fantom punctuation.section.parens.end.fantom
+#                                           ^ source.fantom
+#                                            ^ source.fantom punctuation.section.braces.end.fantom
+#                                             ^ source.fantom
+#                                              ^ source.fantom punctuation.section.braces.end.fantom
+>
+>  // Nested brackets
+#^^ source.fantom
+#  ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#    ^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>  Int[][] nested := [[1, 2], [3, 4]]
+#^^ source.fantom
+#  ^^^ source.fantom storage.type.fantom
+#     ^ source.fantom punctuation.section.brackets.begin.fantom
+#      ^ source.fantom punctuation.section.brackets.end.fantom
+#       ^ source.fantom punctuation.section.brackets.begin.fantom
+#        ^ source.fantom punctuation.section.brackets.end.fantom
+#         ^^^^^^^^ source.fantom
+#                 ^^ source.fantom keyword.operator.fantom
+#                   ^ source.fantom
+#                    ^ source.fantom punctuation.section.brackets.begin.fantom
+#                     ^ source.fantom punctuation.section.brackets.begin.fantom
+#                      ^ source.fantom constant.numeric.integer.fantom
+#                       ^^ source.fantom
+#                         ^ source.fantom constant.numeric.integer.fantom
+#                          ^ source.fantom punctuation.section.brackets.end.fantom
+#                           ^^ source.fantom
+#                             ^ source.fantom punctuation.section.brackets.begin.fantom
+#                              ^ source.fantom constant.numeric.integer.fantom
+#                               ^^ source.fantom
+#                                 ^ source.fantom constant.numeric.integer.fantom
+#                                  ^ source.fantom punctuation.section.brackets.end.fantom
+#                                   ^ source.fantom punctuation.section.brackets.end.fantom
+>  Void complex() { list.each |Int v| { echo(v) } }
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^^^^^ source.fantom entity.name.function.fantom
+#              ^ source.fantom punctuation.section.parens.begin.fantom
+#               ^ source.fantom punctuation.section.parens.end.fantom
+#                ^ source.fantom
+#                 ^ source.fantom punctuation.section.braces.begin.fantom
+#                  ^^^^^^^^^^^ source.fantom
+#                             ^ source.fantom keyword.operator.fantom
+#                              ^^^ source.fantom storage.type.fantom
+#                                 ^^ source.fantom
+#                                   ^ source.fantom keyword.operator.fantom
+#                                    ^ source.fantom
+#                                     ^ source.fantom punctuation.section.braces.begin.fantom
+#                                      ^ source.fantom
+#                                       ^^^^ source.fantom entity.name.function.fantom
+#                                           ^ source.fantom punctuation.section.parens.begin.fantom
+#                                            ^ source.fantom
+#                                             ^ source.fantom punctuation.section.parens.end.fantom
+#                                              ^ source.fantom
+#                                               ^ source.fantom punctuation.section.braces.end.fantom
+#                                                ^ source.fantom
+#                                                 ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>

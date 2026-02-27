@@ -1,0 +1,62 @@
+>// Line comment
+#^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#  ^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>// Another line comment
+#^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#  ^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>
+>** Doc comment for class
+#^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>** It's a description with apostrophe
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>** @param foo the parameter
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>class Foo
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  ** Doc comment for method
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** It's safe to use apostrophes here
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  Void bar() {}
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^ source.fantom entity.name.function.fantom
+#          ^ source.fantom punctuation.section.parens.begin.fantom
+#           ^ source.fantom punctuation.section.parens.end.fantom
+#            ^ source.fantom
+#             ^ source.fantom punctuation.section.braces.begin.fantom
+#              ^ source.fantom punctuation.section.braces.end.fantom
+>
+>  /* Block comment */
+#^^ source.fantom
+#  ^^ source.fantom comment.block.fantom punctuation.definition.comment.fantom
+#    ^^^^^^^^^^^^^^^ source.fantom comment.block.fantom
+#                   ^^ source.fantom comment.block.fantom punctuation.definition.comment.fantom
+>
+>  /** Block doc comment
+#^^ source.fantom
+#  ^^^ source.fantom comment.block.documentation.fantom punctuation.definition.comment.fantom
+#     ^^^^^^^^^^^^^^^^^^^ source.fantom comment.block.documentation.fantom
+>   *  multi-line
+#^^^^^^^^^^^^^^^^^ source.fantom comment.block.documentation.fantom
+>   */
+#^^^ source.fantom comment.block.documentation.fantom
+#   ^^ source.fantom comment.block.documentation.fantom punctuation.definition.comment.fantom
+>  Void baz() {}
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^ source.fantom entity.name.function.fantom
+#          ^ source.fantom punctuation.section.parens.begin.fantom
+#           ^ source.fantom punctuation.section.parens.end.fantom
+#            ^ source.fantom
+#             ^ source.fantom punctuation.section.braces.begin.fantom
+#              ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>

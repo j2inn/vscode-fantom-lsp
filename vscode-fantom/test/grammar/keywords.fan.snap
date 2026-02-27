@@ -1,0 +1,198 @@
+>using concurrent
+#^^^^^ source.fantom keyword.other.fantom
+#     ^^^^^^^^^^^^ source.fantom
+>
+>abstract class Base
+#^^^^^^^^ source.fantom keyword.other.fantom
+#        ^ source.fantom
+#         ^^^^^ source.fantom keyword.other.fantom
+#              ^ source.fantom
+#               ^^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  virtual Void doSomething() {}
+#^^ source.fantom
+#  ^^^^^^^ source.fantom keyword.other.fantom
+#         ^ source.fantom
+#          ^^^^ source.fantom storage.type.fantom
+#              ^ source.fantom
+#               ^^^^^^^^^^^ source.fantom entity.name.function.fantom
+#                          ^ source.fantom punctuation.section.parens.begin.fantom
+#                           ^ source.fantom punctuation.section.parens.end.fantom
+#                            ^ source.fantom
+#                             ^ source.fantom punctuation.section.braces.begin.fantom
+#                              ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>
+>class Example : Base
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^^^^ source.fantom entity.name.type.fantom
+#             ^^^ source.fantom
+#                ^^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  const static Int MAX := 100
+#^^ source.fantom
+#  ^^^^^ source.fantom keyword.other.fantom
+#       ^ source.fantom
+#        ^^^^^^ source.fantom keyword.other.fantom
+#              ^ source.fantom
+#               ^^^ source.fantom storage.type.fantom
+#                  ^ source.fantom
+#                   ^^^ source.fantom entity.name.type.fantom
+#                      ^ source.fantom
+#                       ^^ source.fantom keyword.operator.fantom
+#                         ^ source.fantom
+#                          ^^^ source.fantom constant.numeric.integer.fantom
+>  private Str name
+#^^ source.fantom
+#  ^^^^^^^ source.fantom keyword.other.fantom
+#         ^ source.fantom
+#          ^^^ source.fantom storage.type.fantom
+#             ^^^^^^ source.fantom
+>
+>  override Void doSomething()
+#^^ source.fantom
+#  ^^^^^^^^ source.fantom keyword.other.fantom
+#          ^ source.fantom
+#           ^^^^ source.fantom storage.type.fantom
+#               ^ source.fantom
+#                ^^^^^^^^^^^ source.fantom entity.name.function.fantom
+#                           ^ source.fantom punctuation.section.parens.begin.fantom
+#                            ^ source.fantom punctuation.section.parens.end.fantom
+>  {
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.begin.fantom
+>    if (true)
+#^^^^ source.fantom
+#    ^^ source.fantom keyword.control.fantom
+#      ^ source.fantom
+#       ^ source.fantom punctuation.section.parens.begin.fantom
+#        ^^^^ source.fantom constant.language.fantom
+#            ^ source.fantom punctuation.section.parens.end.fantom
+>    {
+#^^^^ source.fantom
+#    ^ source.fantom punctuation.section.braces.begin.fantom
+>      for (i := 0; i < MAX; i++) break
+#^^^^^^ source.fantom
+#      ^^^ source.fantom keyword.control.fantom
+#         ^ source.fantom
+#          ^ source.fantom punctuation.section.parens.begin.fantom
+#           ^^ source.fantom
+#             ^^ source.fantom keyword.operator.fantom
+#               ^ source.fantom
+#                ^ source.fantom constant.numeric.integer.fantom
+#                 ^^^^ source.fantom
+#                     ^ source.fantom keyword.operator.fantom
+#                      ^ source.fantom
+#                       ^^^ source.fantom entity.name.type.fantom
+#                          ^^^ source.fantom
+#                             ^^ source.fantom keyword.operator.fantom
+#                               ^ source.fantom punctuation.section.parens.end.fantom
+#                                ^ source.fantom
+#                                 ^^^^^ source.fantom keyword.control.fantom
+>    }
+#^^^^ source.fantom
+#    ^ source.fantom punctuation.section.braces.end.fantom
+>    else
+#^^^^ source.fantom
+#    ^^^^ source.fantom keyword.control.fantom
+>    {
+#^^^^ source.fantom
+#    ^ source.fantom punctuation.section.braces.begin.fantom
+>      while (false) continue
+#^^^^^^ source.fantom
+#      ^^^^^ source.fantom keyword.control.fantom
+#           ^ source.fantom
+#            ^ source.fantom punctuation.section.parens.begin.fantom
+#             ^^^^^ source.fantom constant.language.fantom
+#                  ^ source.fantom punctuation.section.parens.end.fantom
+#                   ^ source.fantom
+#                    ^^^^^^^^ source.fantom keyword.control.fantom
+>    }
+#^^^^ source.fantom
+#    ^ source.fantom punctuation.section.braces.end.fantom
+>
+>    try { throw Err("oops") }
+#^^^^ source.fantom
+#    ^^^ source.fantom keyword.control.fantom
+#       ^ source.fantom
+#        ^ source.fantom punctuation.section.braces.begin.fantom
+#         ^ source.fantom
+#          ^^^^^ source.fantom keyword.control.fantom
+#               ^ source.fantom
+#                ^^^ source.fantom entity.name.type.fantom
+#                   ^ source.fantom punctuation.section.parens.begin.fantom
+#                    ^ source.fantom string.quoted.double.fantom
+#                     ^^^^ source.fantom string.quoted.double.fantom
+#                         ^ source.fantom string.quoted.double.fantom
+#                          ^ source.fantom punctuation.section.parens.end.fantom
+#                           ^ source.fantom
+#                            ^ source.fantom punctuation.section.braces.end.fantom
+>    catch (Err e) {}
+#^^^^ source.fantom
+#    ^^^^^ source.fantom keyword.control.fantom
+#         ^ source.fantom
+#          ^ source.fantom punctuation.section.parens.begin.fantom
+#           ^^^ source.fantom entity.name.type.fantom
+#              ^^ source.fantom
+#                ^ source.fantom punctuation.section.parens.end.fantom
+#                 ^ source.fantom
+#                  ^ source.fantom punctuation.section.braces.begin.fantom
+#                   ^ source.fantom punctuation.section.braces.end.fantom
+>    finally {}
+#^^^^ source.fantom
+#    ^^^^^^^ source.fantom keyword.control.fantom
+#           ^ source.fantom
+#            ^ source.fantom punctuation.section.braces.begin.fantom
+#             ^ source.fantom punctuation.section.braces.end.fantom
+>
+>    val := true
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^^ source.fantom constant.language.fantom
+>    nul := null
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^^ source.fantom constant.language.fantom
+>    no := false
+#^^^^^^^ source.fantom
+#       ^^ source.fantom keyword.operator.fantom
+#         ^ source.fantom
+#          ^^^^^ source.fantom constant.language.fantom
+>
+>    switch (val)
+#^^^^ source.fantom
+#    ^^^^^^ source.fantom keyword.control.fantom
+#          ^ source.fantom
+#           ^ source.fantom punctuation.section.parens.begin.fantom
+#            ^^^ source.fantom
+#               ^ source.fantom punctuation.section.parens.end.fantom
+>    {
+#^^^^ source.fantom
+#    ^ source.fantom punctuation.section.braces.begin.fantom
+>      case true: return
+#^^^^^^ source.fantom
+#      ^^^^ source.fantom keyword.control.fantom
+#          ^ source.fantom
+#           ^^^^ source.fantom constant.language.fantom
+#               ^^ source.fantom
+#                 ^^^^^^ source.fantom keyword.control.fantom
+>      default: return
+#^^^^^^ source.fantom
+#      ^^^^^^^ source.fantom keyword.control.fantom
+#             ^^ source.fantom
+#               ^^^^^^ source.fantom keyword.control.fantom
+>    }
+#^^^^ source.fantom
+#    ^ source.fantom punctuation.section.braces.end.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>

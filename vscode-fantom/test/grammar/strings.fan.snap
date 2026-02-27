@@ -1,0 +1,136 @@
+>class StrTest
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  Void test()
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^^ source.fantom entity.name.function.fantom
+#           ^ source.fantom punctuation.section.parens.begin.fantom
+#            ^ source.fantom punctuation.section.parens.end.fantom
+>  {
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.begin.fantom
+>    // Double-quoted strings
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    a := "hello world"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                     ^ source.fantom string.quoted.double.fantom
+>    b := "escape \n \t \\ \""
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^ source.fantom string.quoted.double.fantom
+#                 ^^ source.fantom string.quoted.double.fantom constant.character.escape.fantom
+#                   ^ source.fantom string.quoted.double.fantom
+#                    ^^ source.fantom string.quoted.double.fantom constant.character.escape.fantom
+#                      ^ source.fantom string.quoted.double.fantom
+#                       ^^ source.fantom string.quoted.double.fantom constant.character.escape.fantom
+#                         ^ source.fantom string.quoted.double.fantom
+#                          ^^ source.fantom string.quoted.double.fantom constant.character.escape.fantom
+#                            ^ source.fantom string.quoted.double.fantom
+>
+>    // String interpolation
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    c := "value is $name"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                   ^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                        ^ source.fantom string.quoted.double.fantom
+>    d := "value is $obj.field.sub"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                   ^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom variable.other.fantom
+#                                 ^ source.fantom string.quoted.double.fantom
+>    e := "value is ${expr + 1}"
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.quoted.double.fantom
+#          ^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                   ^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#                     ^^^^^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                          ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom keyword.operator.fantom
+#                           ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom
+#                            ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom constant.numeric.integer.fantom
+#                             ^ source.fantom string.quoted.double.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+#                              ^ source.fantom string.quoted.double.fantom
+>
+>    // Triple-quoted string
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    f := """
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^^^ source.fantom string.quoted.triple.fantom
+>         multi-line
+#^^^^^^^^^^^^^^^^^^^^ source.fantom string.quoted.triple.fantom
+>         string with $interp
+#^^^^^^^^^^^^^^^^^^^^^ source.fantom string.quoted.triple.fantom
+#                     ^^^^^^^ source.fantom string.quoted.triple.fantom variable.other.fantom
+>         and ${expr}
+#^^^^^^^^^^^^^ source.fantom string.quoted.triple.fantom
+#             ^^ source.fantom string.quoted.triple.fantom meta.interpolation.fantom punctuation.section.interpolation.begin.fantom
+#               ^^^^ source.fantom string.quoted.triple.fantom meta.interpolation.fantom
+#                   ^ source.fantom string.quoted.triple.fantom meta.interpolation.fantom punctuation.section.interpolation.end.fantom
+>         """
+#^^^^^^^^^ source.fantom string.quoted.triple.fantom
+#         ^^^ source.fantom string.quoted.triple.fantom
+>
+>    // Character literal
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    ch1 := 'a'
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^ source.fantom constant.character.fantom
+>    ch2 := '\n'
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^^ source.fantom constant.character.fantom
+>    ch3 := '\u0041'
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^^^^^^ source.fantom constant.character.fantom
+>
+>    // URI literal
+#^^^^ source.fantom
+#    ^^ source.fantom comment.line.double-slash.fantom punctuation.definition.comment.fantom
+#      ^^^^^^^^^^^^ source.fantom comment.line.double-slash.fantom
+>    u := `http://example.com/path`
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^ source.fantom string.interpolated.uri.fantom
+#          ^^^^^^^^^^^^^^^^^^^^^^^ source.fantom string.interpolated.uri.fantom
+#                                 ^ source.fantom string.interpolated.uri.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>

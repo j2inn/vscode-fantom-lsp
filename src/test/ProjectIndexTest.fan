@@ -1,0 +1,651 @@
+//
+// Copyright (c) 2025, Brian Frank and Andy Frank
+// Licensed under the Academic Free License version 3.0
+//
+// History:
+//   11 Feb 26  Creation
+//
+
+**
+** ProjectIndexTest - Tests for ProjectIndex symbol indexing and lookup
+**
+class ProjectIndexTest : Test
+{
+
+//////////////////////////////////////////////////////////////////////////
+// Index Valid Class
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIndexValidClass()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Person.fan"
+    source :=
+      "using sys\n" +
+      "\n" +
+      "class Person\n" +
+      "{\n" +
+      "  Str name\n" +
+      "  Int age\n" +
+      "\n" +
+      "  Void greet(Str greeting)\n" +
+      "  {\n" +
+      "    msg := greeting + name\n" +
+      "  }\n" +
+      "\n" +
+      "  Str fullName(Str first, Str last)\n" +
+      "  {\n" +
+      "    result := first + \" \" + last\n" +
+      "    return result\n" +
+      "  }\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    // Type
+    verify(idx.hasType("Person"))
+    personSyms := idx.findSymbols("Person")
+    verifyEq(personSyms.size, 1)
+    verifyEq(personSyms[0].kind, SymbolKind.type)
+    verifyEq(personSyms[0].line, 2)
+
+    // Fields
+    nameSyms := idx.findSymbols("name")
+    nameFld := nameSyms.find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(nameFld)
+    verifyEq(nameFld.typeName, "Person")
+    verifyEq(nameFld.line, 4)
+
+    ageSyms := idx.findSymbols("age")
+    ageFld := ageSyms.find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(ageFld)
+    verifyEq(ageFld.typeName, "Person")
+    verifyEq(ageFld.line, 5)
+
+    // Methods
+    greetSyms := idx.findSymbols("greet")
+    greetMethod := greetSyms.find |s| { s.kind == SymbolKind.method }
+    verifyNotNull(greetMethod)
+    verifyEq(greetMethod.typeName, "Person")
+
+    fullNameSyms := idx.findSymbols("fullName")
+    fullNameMethod := fullNameSyms.find |s| { s.kind == SymbolKind.method }
+    verifyNotNull(fullNameMethod)
+    verifyEq(fullNameMethod.typeName, "Person")
+
+    // Parameters
+    greetingSyms := idx.findSymbols("greeting")
+    greetingParam := greetingSyms.find |s| { s.kind == SymbolKind.param }
+    verifyNotNull(greetingParam)
+    verifyEq(greetingParam.methodName, "greet")
+
+    firstSyms := idx.findSymbols("first")
+    firstParam := firstSyms.find |s| { s.kind == SymbolKind.param }
+    verifyNotNull(firstParam)
+    verifyEq(firstParam.methodName, "fullName")
+
+    lastSyms := idx.findSymbols("last")
+    lastParam := lastSyms.find |s| { s.kind == SymbolKind.param }
+    verifyNotNull(lastParam)
+    verifyEq(lastParam.methodName, "fullName")
+
+    // Local variables
+    msgSyms := idx.findSymbols("msg")
+    msgLocal := msgSyms.find |s| { s.kind == SymbolKind.localVar }
+    verifyNotNull(msgLocal)
+    verifyEq(msgLocal.methodName, "greet")
+    verifyEq(msgLocal.line, 9)
+
+    resultSyms := idx.findSymbols("result")
+    resultLocal := resultSyms.find |s| { s.kind == SymbolKind.localVar }
+    verifyNotNull(resultLocal)
+    verifyEq(resultLocal.methodName, "fullName")
+    verifyEq(resultLocal.line, 14)
+
+    // Negative
+    verify(!idx.hasType("NonExistent"))
+    verifyEq(idx.findSymbols("NonExistent").size, 0)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Index Mixin
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIndexMixin()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Serializable.fan"
+    source :=
+      "mixin Serializable\n" +
+      "{\n" +
+      "  abstract Str serialize()\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    verify(idx.hasType("Serializable"))
+    syms := idx.findSymbols("Serializable")
+    verifyEq(syms.size, 1)
+    verifyEq(syms[0].kind, SymbolKind.type)
+    verifyEq(syms[0].line, 0)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Index Enum
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIndexEnumClass()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Color.fan"
+    source :=
+      "enum class Color\n" +
+      "{\n" +
+      "  red, green, blue\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    verify(idx.hasType("Color"))
+    syms := idx.findSymbols("Color")
+    verifyEq(syms.size, 1)
+    verifyEq(syms[0].kind, SymbolKind.type)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Scope-Aware Definition
+//////////////////////////////////////////////////////////////////////////
+
+  Void testScopeAwareDefinition()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Svc.fan"
+    // Line numbers (0-based):
+    // 0: class Svc
+    // 1: {
+    // 2:   Str data
+    // 3:
+    // 4:   Void methodA()
+    // 5:   {
+    // 6:     data := "local"
+    // 7:   }
+    // 8:
+    // 9:   Void methodB()
+    // 10:  {
+    // 11:    data := "other"
+    // 12:  }
+    // 13: }
+    source :=
+      "class Svc\n" +
+      "{\n" +
+      "  Str data\n" +
+      "\n" +
+      "  Void methodA()\n" +
+      "  {\n" +
+      "    data := \"local\"\n" +
+      "  }\n" +
+      "\n" +
+      "  Void methodB()\n" +
+      "  {\n" +
+      "    data := \"other\"\n" +
+      "  }\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    // Inside methodA at line 6 → should find local var at line 6
+    defA := idx.findDefinition("data", uri, 6, 4)
+    verifyNotNull(defA)
+    verifyEq(defA.kind, SymbolKind.localVar)
+    verifyEq(defA.line, 6)
+    verifyEq(defA.methodName, "methodA")
+
+    // Inside methodB at line 11 → should find local var at line 11
+    defB := idx.findDefinition("data", uri, 11, 4)
+    verifyNotNull(defB)
+    verifyEq(defB.kind, SymbolKind.localVar)
+    verifyEq(defB.line, 11)
+    verifyEq(defB.methodName, "methodB")
+
+    // At field level (line 2) → should find field
+    defField := idx.findDefinition("data", uri, 2, 6)
+    verifyNotNull(defField)
+    verifyEq(defField.kind, SymbolKind.field)
+    verifyEq(defField.line, 2)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Cross-File Definition
+//////////////////////////////////////////////////////////////////////////
+
+  Void testCrossFileDefinition()
+  {
+    idx := ProjectIndex()
+    uriA := "file:///test/Logger.fan"
+    uriB := "file:///test/App.fan"
+
+    sourceA :=
+      "class Logger\n" +
+      "{\n" +
+      "  Void log(Str msg) {}\n" +
+      "}"
+
+    sourceB :=
+      "class App\n" +
+      "{\n" +
+      "  Void run()\n" +
+      "  {\n" +
+      "    logger := Logger()\n" +
+      "  }\n" +
+      "}"
+
+    idx.indexFile(uriA, sourceA)
+    idx.indexFile(uriB, sourceB)
+
+    // findSymbols should find Logger from file A
+    loggerSyms := idx.findSymbols("Logger")
+    verifyEq(loggerSyms.size, 1)
+    verifyEq(loggerSyms[0].fileUri, uriA)
+    verifyEq(loggerSyms[0].kind, SymbolKind.type)
+
+    // findDefinition from file B should resolve to file A
+    def := idx.findDefinition("Logger", uriB, 4, 15)
+    verifyNotNull(def)
+    verifyEq(def.kind, SymbolKind.type)
+    verifyEq(def.fileUri, uriA)
+
+    // log method should be found from file A
+    logSyms := idx.findSymbols("log")
+    logMethod := logSyms.find |s| { s.kind == SymbolKind.method }
+    verifyNotNull(logMethod)
+    verifyEq(logMethod.fileUri, uriA)
+    verifyEq(logMethod.typeName, "Logger")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Incremental Re-index
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIncrementalReindex()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Svc.fan"
+
+    // Initial version with methodA
+    source1 :=
+      "class Svc\n" +
+      "{\n" +
+      "  Void methodA() {}\n" +
+      "}"
+
+    idx.indexFile(uri, source1)
+    verifyEq(idx.findSymbols("methodA").size, 1)
+    verifyEq(idx.findSymbols("methodB").size, 0)
+
+    // Re-index with methodB (methodA removed)
+    source2 :=
+      "class Svc\n" +
+      "{\n" +
+      "  Void methodB() {}\n" +
+      "}"
+
+    idx.indexFile(uri, source2)
+    verifyEq(idx.findSymbols("methodA").size, 0)
+    verifyEq(idx.findSymbols("methodB").size, 1)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Build.fan Parsing via init
+//////////////////////////////////////////////////////////////////////////
+
+  Void testBuildFanParsing()
+  {
+    // Create a temp directory with a build.fan
+    tmpDir := Env.cur.tempDir + `lsp-test-${Duration.now.ticks}/`
+    tmpDir.create
+
+    try
+    {
+      buildFan := tmpDir + `build.fan`
+      buildFan.out.print(
+        "using build\n" +
+        "class Build : BuildPod\n" +
+        "{\n" +
+        "  new make()\n" +
+        "  {\n" +
+        "    podName = \"myPod\"\n" +
+        "    srcDirs = [`fan/`, `test/`]\n" +
+        "  }\n" +
+        "}\n"
+      ).flush.close
+
+      // Create srcDirs
+      fanDir := tmpDir + `fan/`
+      fanDir.create
+      testDir := tmpDir + `test/`
+      testDir.create
+
+      // Create a source file
+      srcFile := fanDir + `Foo.fan`
+      srcFile.out.print("class Foo\n{\n  Void bar() {}\n}").flush.close
+
+      idx := ProjectIndex()
+      idx.init(tmpDir.uri.toStr)
+
+      verifyEq(idx.podName, "myPod")
+      verifyEq(idx.srcDirs.size, 2)
+      verify(idx.hasType("Foo"))
+    }
+    finally
+    {
+      tmpDir.delete
+    }
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Parameter Scope
+//////////////////////////////////////////////////////////////////////////
+
+  Void testParamScopeDefinition()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Handler.fan"
+    // Line numbers (0-based):
+    // 0: class Handler
+    // 1: {
+    // 2:   Void process(Str input)
+    // 3:   {
+    // 4:     result := input.upper
+    // 5:   }
+    // 6: }
+    source :=
+      "class Handler\n" +
+      "{\n" +
+      "  Void process(Str input)\n" +
+      "  {\n" +
+      "    result := input.upper\n" +
+      "  }\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    // Inside method body, "input" should resolve to param
+    def := idx.findDefinition("input", uri, 4, 14)
+    verifyNotNull(def)
+    verifyEq(def.kind, SymbolKind.param)
+    verifyEq(def.methodName, "process")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Multiple Types in One File
+//////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////
+// Static Methods and List Return Types
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIndexStaticMethod()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/DeviceData.fan"
+    // Line 0: class DeviceData
+    // Line 1: {
+    // Line 2:   Str name
+    // Line 3:
+    // Line 4:   static DeviceData readByName(Str name) { return DeviceData() }
+    // Line 5:
+    // Line 6:   static DeviceData[] readAllByRef(Str ref) { return DeviceData[,] }
+    // Line 7:
+    // Line 8:   static [Str:DeviceData] readMap() { return [Str:DeviceData][:] }
+    // Line 9: }
+    source :=
+      "class DeviceData\n" +
+      "{\n" +
+      "  Str name\n" +
+      "\n" +
+      "  static DeviceData readByName(Str name) { return DeviceData() }\n" +
+      "\n" +
+      "  static DeviceData[] readAllByRef(Str ref) { return DeviceData[,] }\n" +
+      "\n" +
+      "  static [Str:DeviceData] readMap() { return [Str:DeviceData][:] }\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    // Static method with simple return type should be indexed
+    readByNameSyms := idx.findSymbols("readByName")
+    readByNameMethod := readByNameSyms.find |s| { s.kind == SymbolKind.method }
+    verifyNotNull(readByNameMethod)
+    verifyEq(readByNameMethod.typeName, "DeviceData")
+    verifyEq(readByNameMethod.line, 4)
+
+    // Static method with list return type (DeviceData[]) should be indexed
+    readAllSyms := idx.findSymbols("readAllByRef")
+    readAllMethod := readAllSyms.find |s| { s.kind == SymbolKind.method }
+    verifyNotNull(readAllMethod)
+    verifyEq(readAllMethod.typeName, "DeviceData")
+    verifyEq(readAllMethod.line, 6)
+
+    // Static method with map return type ([Str:DeviceData]) should be indexed
+    readMapSyms := idx.findSymbols("readMap")
+    readMapMethod := readMapSyms.find |s| { s.kind == SymbolKind.method }
+    verifyNotNull(readMapMethod)
+    verifyEq(readMapMethod.typeName, "DeviceData")
+    verifyEq(readMapMethod.line, 8)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Multiple Types in One File
+//////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////
+// Index Enum Values
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIndexEnumValues()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Color.fan"
+    // Line 0: enum class Color
+    // Line 1: {
+    // Line 2:   red,
+    // Line 3:   green,
+    // Line 4:   blue
+    // Line 5: }
+    source :=
+      "enum class Color\n" +
+      "{\n" +
+      "  red,\n" +
+      "  green,\n" +
+      "  blue\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    verify(idx.hasType("Color"))
+
+    // Enum values should be indexed
+    redSyms := idx.findSymbols("red")
+    redSym := redSyms.find |s| { s.kind == SymbolKind.enumVal }
+    verifyNotNull(redSym)
+    verifyEq(redSym.typeName, "Color")
+    verifyEq(redSym.line, 2)
+
+    greenSyms := idx.findSymbols("green")
+    greenSym := greenSyms.find |s| { s.kind == SymbolKind.enumVal }
+    verifyNotNull(greenSym)
+    verifyEq(greenSym.typeName, "Color")
+    verifyEq(greenSym.line, 3)
+
+    blueSyms := idx.findSymbols("blue")
+    blueSym := blueSyms.find |s| { s.kind == SymbolKind.enumVal }
+    verifyNotNull(blueSym)
+    verifyEq(blueSym.typeName, "Color")
+    verifyEq(blueSym.line, 4)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Index Closure Params
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIndexClosureParams()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Processor.fan"
+    // Line 0: class Processor
+    // Line 1: {
+    // Line 2:   Void run()
+    // Line 3:   {
+    // Line 4:     items := ["a", "b"]
+    // Line 5:     items.each |item|
+    // Line 6:     {
+    // Line 7:       echo(item)
+    // Line 8:     }
+    // Line 9:   }
+    // Line 10: }
+    source :=
+      "class Processor\n" +
+      "{\n" +
+      "  Void run()\n" +
+      "  {\n" +
+      "    items := [\"a\", \"b\"]\n" +
+      "    items.each |item|\n" +
+      "    {\n" +
+      "      echo(item)\n" +
+      "    }\n" +
+      "  }\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    // "item" closure param should be indexed
+    itemSyms := idx.findSymbols("item")
+    verify(itemSyms.size > 0)
+    itemSym := itemSyms.find |s| { s.kind == SymbolKind.param || s.kind == SymbolKind.localVar }
+    verifyNotNull(itemSym)
+    verifyEq(itemSym.methodName, "run")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Multiple Types in One File
+//////////////////////////////////////////////////////////////////////////
+
+  Void testMultipleTypesInFile()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/Multi.fan"
+    source :=
+      "class Alpha\n" +
+      "{\n" +
+      "  Str name\n" +
+      "  Void doStuff() {}\n" +
+      "}\n" +
+      "\n" +
+      "class Beta\n" +
+      "{\n" +
+      "  Int count\n" +
+      "  Void run() {}\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    verify(idx.hasType("Alpha"))
+    verify(idx.hasType("Beta"))
+
+    // name field belongs to Alpha
+    nameSym := idx.findSymbols("name").find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(nameSym)
+    verifyEq(nameSym.typeName, "Alpha")
+
+    // count field belongs to Beta
+    countSym := idx.findSymbols("count").find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(countSym)
+    verifyEq(countSym.typeName, "Beta")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Closure Parameter Indexing (Text Fallback)
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Closure parameters like |file| or |Type name| should be indexed
+  ** when AST parsing fails and text-based fallback is used.
+  ** Regression test for go-to-definition on closure params.
+  **
+  Void testIndexClosureParamsTextFallback()
+  {
+    idx := ProjectIndex()
+    // Source uses a project type (ExtLogger) to force text-based fallback
+    idx.indexFile("file:///test/ExtLogger.fan",
+      "class ExtLogger\n" +
+      "{\n" +
+      "  Void log(Str msg) {}\n" +
+      "}")
+
+    idx.indexFile("file:///test/Handler.fan",
+      "class Handler : ExtLogger\n" +
+      "{\n" +
+      "  static Void restore(Str name)\n" +
+      "  {\n" +
+      "    files := [,]\n" +
+      "    files.findAll |file| { file.ext == \"csv\" }\n" +
+      "    files.each |File item| { echo(item) }\n" +
+      "  }\n" +
+      "}")
+
+    // Closure params should be indexed
+    fileSyms := idx.findSymbols("file").findAll |s|
+    {
+      s.kind == SymbolKind.param && s.fileUri == "file:///test/Handler.fan"
+    }
+    verify(fileSyms.size > 0, "Closure param 'file' should be indexed in text fallback")
+
+    itemSyms := idx.findSymbols("item").findAll |s|
+    {
+      s.kind == SymbolKind.param && s.fileUri == "file:///test/Handler.fan"
+    }
+    verify(itemSyms.size > 0, "Typed closure param 'item' should be indexed in text fallback")
+  }
+
+  **
+  ** Closure param in current file should take priority over same-named
+  ** param in another file during definition lookup.
+  **
+  Void testClosureParamDefinitionPriority()
+  {
+    idx := ProjectIndex()
+    // File A has a closure param named "file" at line 3
+    idx.indexFile("file:///test/Utils.fan",
+      "class Utils\n" +
+      "{\n" +
+      "  static Void getFiles()\n" +
+      "  {\n" +
+      "    list.findAll |file| { file.ext == \"csv\" }\n" +
+      "  }\n" +
+      "}")
+
+    // File B also has a closure param named "file" at line 5
+    // Uses a project type to force text fallback
+    idx.indexFile("file:///test/ExtLogger.fan",
+      "class ExtLogger\n" +
+      "{\n" +
+      "  Void log(Str msg) {}\n" +
+      "}")
+
+    idx.indexFile("file:///test/Handler.fan",
+      "class Handler : ExtLogger\n" +
+      "{\n" +
+      "  static Void restore()\n" +
+      "  {\n" +
+      "    items := [,]\n" +
+      "    items.findAll |file| { file.uri != null }\n" +
+      "  }\n" +
+      "}")
+
+    // When looking up "file" from Handler.fan line 5, should find the local one
+    sym := idx.findDefinition("file", "file:///test/Handler.fan", 5, 30)
+    verifyNotNull(sym)
+    verifyEq(sym.fileUri, "file:///test/Handler.fan")
+    verifyEq(sym.kind, SymbolKind.param)
+  }
+}

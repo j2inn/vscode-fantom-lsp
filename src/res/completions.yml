@@ -1,0 +1,1276 @@
+# Fantom Autocompletion Definitions
+# This file defines completion items for sys types.
+# Format:
+#   type_aliases:
+#     SimpleName: qualified::Name
+#   qualified::TypeName:
+#     methods:
+#       methodName:
+#         detail: signature string
+#         snippet: VSCode snippet (optional)
+#     fields:
+#       fieldName:
+#         detail: signature string
+
+type_aliases:
+  Str: sys::Str
+  Int: sys::Int
+  Float: sys::Float
+  Bool: sys::Bool
+  Obj: sys::Obj
+  Void: sys::Void
+  List: sys::List
+  Map: sys::Map
+  File: sys::File
+  Uri: sys::Uri
+  DateTime: sys::DateTime
+  Duration: sys::Duration
+  Buf: sys::Buf
+  Range: sys::Range
+  Type: sys::Type
+  Pod: sys::Pod
+  Slot: sys::Slot
+  Field: sys::Field
+  Method: sys::Method
+  Num: sys::Num
+  Decimal: sys::Decimal
+  Err: sys::Err
+  Enum: sys::Enum
+  InStream: sys::InStream
+  OutStream: sys::OutStream
+  Regex: sys::Regex
+  Date: sys::Date
+  Time: sys::Time
+  TimeZone: sys::TimeZone
+  Locale: sys::Locale
+  Log: sys::Log
+  Version: sys::Version
+  Depend: sys::Depend
+  MimeType: sys::MimeType
+  Charset: sys::Charset
+  Func: sys::Func
+
+# ============================================================
+# sys::List
+# ============================================================
+sys::List:
+  methods:
+    add:
+      detail: L add(V val)
+      snippet: add(${1:val})
+    addAll:
+      detail: L addAll(V[] list)
+      snippet: addAll(${1:list})
+    addIfNotNull:
+      detail: L addIfNotNull(V? val)
+      snippet: addIfNotNull(${1:val})
+    insert:
+      detail: L insert(Int index, V item)
+      snippet: insert(${1:index}, ${2:item})
+    insertAll:
+      detail: L insertAll(Int index, V[] list)
+      snippet: insertAll(${1:index}, ${2:list})
+    remove:
+      detail: V? remove(V item)
+      snippet: remove(${1:item})
+    removeAt:
+      detail: V removeAt(Int index)
+      snippet: removeAt(${1:index})
+    removeSame:
+      detail: V? removeSame(V item)
+      snippet: removeSame(${1:item})
+    removeAll:
+      detail: L removeAll(V[] removeList)
+      snippet: removeAll(${1:list})
+    removeRange:
+      detail: L removeRange(Range r)
+      snippet: removeRange(${1:range})
+    get:
+      detail: V get(Int index)
+      snippet: get(${1:index})
+    getSafe:
+      detail: V? getSafe(Int index, V? def := null)
+      snippet: getSafe(${1:index})
+    set:
+      detail: V set(Int index, V item)
+      snippet: set(${1:index}, ${2:item})
+    first:
+      detail: V? first()
+    last:
+      detail: V? last()
+    dup:
+      detail: L dup()
+    clear:
+      detail: L clear()
+    trim:
+      detail: L trim()
+    fill:
+      detail: L fill(V val, Range? range := null)
+      snippet: fill(${1:val})
+    reverse:
+      detail: L reverse()
+    swap:
+      detail: L swap(Int indexA, Int indexB)
+      snippet: swap(${1:indexA}, ${2:indexB})
+    moveTo:
+      detail: L moveTo(V? item, Int toIndex)
+      snippet: moveTo(${1:item}, ${2:toIndex})
+    flatten:
+      detail: Obj?[] flatten()
+    unique:
+      detail: L unique()
+    union:
+      detail: L union(V[] that)
+      snippet: union(${1:list})
+    intersection:
+      detail: L intersection(V[] that)
+      snippet: intersection(${1:list})
+    push:
+      detail: L push(V obj)
+      snippet: push(${1:obj})
+    pop:
+      detail: V? pop()
+    peek:
+      detail: V? peek()
+    contains:
+      detail: Bool contains(V val)
+      snippet: contains(${1:val})
+    containsSame:
+      detail: Bool containsSame(V val)
+      snippet: containsSame(${1:val})
+    containsAll:
+      detail: Bool containsAll(V[] list)
+      snippet: containsAll(${1:list})
+    containsAny:
+      detail: Bool containsAny(V[] list)
+      snippet: containsAny(${1:list})
+    index:
+      detail: Int? index(V val, Int offset := 0)
+      snippet: index(${1:val})
+    indexr:
+      detail: Int? indexr(V val, Int offset := -1)
+      snippet: indexr(${1:val})
+    indexSame:
+      detail: Int? indexSame(V val, Int offset := 0)
+      snippet: indexSame(${1:val})
+    join:
+      detail: Str join(Str separator := "")
+      snippet: join(${1:separator})
+    toStr:
+      detail: Str toStr()
+    sort:
+      detail: L sort(|V a, V b->Int|? c := null)
+      snippet: sort |${1:a}, ${2:b}| {\n\treturn ${0:a <=> b}\n}
+    sortr:
+      detail: L sortr(|V a, V b->Int|? c := null)
+      snippet: sortr |${1:a}, ${2:b}| {\n\treturn ${0:b <=> a}\n}
+    binarySearch:
+      detail: Int binarySearch(V key, |V a, V b->Int|? c := null)
+      snippet: binarySearch(${1:key})
+    binaryFind:
+      detail: Int binaryFind(|V item->Int| c)
+      snippet: binaryFind |${1:item}| {\n\treturn ${0}\n}
+    each:
+      detail: Void each(|V val, Int index| c)
+      snippet: each |${1:val}| {\n\t${0}\n}
+    eachr:
+      detail: Void eachr(|V val, Int index| c)
+      snippet: eachr |${1:val}| {\n\t${0}\n}
+    eachRange:
+      detail: Void eachRange(Range r, |V val, Int index| c)
+      snippet: eachRange(${1:range}) |${2:val}| {\n\t${0}\n}
+    eachNotNull:
+      detail: Void eachNotNull(|V val, Int index| c)
+      snippet: eachNotNull |${1:val}| {\n\t${0}\n}
+    eachWhile:
+      detail: Obj? eachWhile(|V val, Int index->Obj?| c)
+      snippet: eachWhile |${1:val}| {\n\treturn ${0}\n}
+    eachrWhile:
+      detail: Obj? eachrWhile(|V val, Int index->Obj?| c)
+      snippet: eachrWhile |${1:val}| {\n\treturn ${0}\n}
+    find:
+      detail: V? find(|V val, Int index->Bool| c)
+      snippet: find |${1:val}| {\n\treturn ${0}\n}
+    findIndex:
+      detail: Int? findIndex(|V val, Int index->Bool| c)
+      snippet: findIndex |${1:val}| {\n\treturn ${0}\n}
+    findAll:
+      detail: V[] findAll(|V val, Int index->Bool| c)
+      snippet: findAll |${1:val}| {\n\treturn ${0}\n}
+    exclude:
+      detail: V[] exclude(|V val, Int index->Bool| c)
+      snippet: exclude |${1:val}| {\n\treturn ${0}\n}
+    any:
+      detail: Bool any(|V val, Int index->Bool| c)
+      snippet: any |${1:val}| {\n\treturn ${0}\n}
+    all:
+      detail: Bool all(|V val, Int index->Bool| c)
+      snippet: all |${1:val}| {\n\treturn ${0}\n}
+    map:
+      detail: Obj?[] map(|V val, Int index->Obj?| c)
+      snippet: map |${1:val}| {\n\treturn ${0}\n}
+    mapNotNull:
+      detail: Obj?[] mapNotNull(|V val, Int index->Obj?| c)
+      snippet: mapNotNull |${1:val}| {\n\treturn ${0}\n}
+    flatMap:
+      detail: Obj?[] flatMap(|V val, Int index->Obj?[]| c)
+      snippet: flatMap |${1:val}| {\n\treturn ${0}\n}
+    groupBy:
+      detail: Obj:V[] groupBy(|V val, Int index->Obj| c)
+      snippet: groupBy |${1:val}| {\n\treturn ${0}\n}
+    reduce:
+      detail: Obj? reduce(Obj? init, |Obj? acc, V val, Int index->Obj?| c)
+      snippet: reduce(${1:init}) |${2:acc}, ${3:val}| {\n\treturn ${0}\n}
+    min:
+      detail: V? min(|V a, V b->Int|? c := null)
+    max:
+      detail: V? max(|V a, V b->Int|? c := null)
+    ro:
+      detail: L ro()
+    rw:
+      detail: L rw()
+    toImmutable:
+      detail: L toImmutable()
+  fields:
+    size:
+      detail: Int size
+    isEmpty:
+      detail: Bool isEmpty
+    capacity:
+      detail: Int capacity
+
+# ============================================================
+# sys::Map
+# ============================================================
+sys::Map:
+  methods:
+    get:
+      detail: V? get(K key, V? def := null)
+      snippet: get(${1:key})
+    getOrThrow:
+      detail: V getOrThrow(K key)
+      snippet: getOrThrow(${1:key})
+    getOrAdd:
+      detail: V getOrAdd(K key, |K->V| valFunc)
+      snippet: getOrAdd(${1:key}) |${2:k}| {\n\treturn ${0}\n}
+    set:
+      detail: M set(K key, V val)
+      snippet: set(${1:key}, ${2:val})
+    add:
+      detail: M add(K key, V val)
+      snippet: add(${1:key}, ${2:val})
+    addAll:
+      detail: M addAll(Map<K,V> m)
+      snippet: addAll(${1:map})
+    addList:
+      detail: M addList(V[] list, |V item, Int index->K|? c := null)
+      snippet: addList(${1:list})
+    setAll:
+      detail: M setAll(Map<K,V> m)
+      snippet: setAll(${1:map})
+    setList:
+      detail: M setList(V[] list, |V item, Int index->K|? c := null)
+      snippet: setList(${1:list})
+    containsKey:
+      detail: Bool containsKey(K key)
+      snippet: containsKey(${1:key})
+    remove:
+      detail: V? remove(K key)
+      snippet: remove(${1:key})
+    clear:
+      detail: M clear()
+    dup:
+      detail: M dup()
+    join:
+      detail: Str join(Str separator, |V val, K key->Str|? c := null)
+      snippet: join(${1:separator})
+    toStr:
+      detail: Str toStr()
+    each:
+      detail: Void each(|V val, K key| c)
+      snippet: each |${1:val}, ${2:key}| {\n\t${0}\n}
+    eachWhile:
+      detail: Obj? eachWhile(|V val, K key->Obj?| c)
+      snippet: eachWhile |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    find:
+      detail: V? find(|V val, K key->Bool| c)
+      snippet: find |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    findAll:
+      detail: Map findAll(|V val, K key->Bool| c)
+      snippet: findAll |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    exclude:
+      detail: Map exclude(|V val, K key->Bool| c)
+      snippet: exclude |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    any:
+      detail: Bool any(|V val, K key->Bool| c)
+      snippet: any |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    all:
+      detail: Bool all(|V val, K key->Bool| c)
+      snippet: all |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    map:
+      detail: Map map(|V val, K key->Obj?| c)
+      snippet: map |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    mapNotNull:
+      detail: Map mapNotNull(|V val, K key->Obj?| c)
+      snippet: mapNotNull |${1:val}, ${2:key}| {\n\treturn ${0}\n}
+    reduce:
+      detail: Obj? reduce(Obj? init, |Obj? acc, V val, K key->Obj?| c)
+      snippet: reduce(${1:init}) |${2:acc}, ${3:val}| {\n\treturn ${0}\n}
+    ro:
+      detail: M ro()
+    rw:
+      detail: M rw()
+    toImmutable:
+      detail: M toImmutable()
+  fields:
+    size:
+      detail: Int size
+    isEmpty:
+      detail: Bool isEmpty
+    keys:
+      detail: K[] keys
+    vals:
+      detail: V[] vals
+    ordered:
+      detail: Bool ordered
+    caseInsensitive:
+      detail: Bool caseInsensitive
+    def:
+      detail: V? def
+
+# ============================================================
+# sys::Str
+# ============================================================
+sys::Str:
+  methods:
+    size:
+      detail: Int size()
+    isEmpty:
+      detail: Bool isEmpty()
+    get:
+      detail: Int get(Int index)
+      snippet: get(${1:index})
+    getRange:
+      detail: Str getRange(Range range)
+      snippet: getRange(${1:range})
+    contains:
+      detail: Bool contains(Str s)
+      snippet: contains(${1:s})
+    containsChar:
+      detail: Bool containsChar(Int ch)
+      snippet: containsChar(${1:ch})
+    startsWith:
+      detail: Bool startsWith(Str s)
+      snippet: startsWith(${1:s})
+    endsWith:
+      detail: Bool endsWith(Str s)
+      snippet: endsWith(${1:s})
+    index:
+      detail: Int? index(Str s, Int offset := 0)
+      snippet: index(${1:s})
+    indexr:
+      detail: Int? indexr(Str s, Int offset := -1)
+      snippet: indexr(${1:s})
+    indexIgnoreCase:
+      detail: Int? indexIgnoreCase(Str s, Int offset := 0)
+      snippet: indexIgnoreCase(${1:s})
+    trim:
+      detail: Str trim()
+    trimStart:
+      detail: Str trimStart()
+    trimEnd:
+      detail: Str trimEnd()
+    trimToNull:
+      detail: Str? trimToNull()
+    upper:
+      detail: Str upper()
+    lower:
+      detail: Str lower()
+    capitalize:
+      detail: Str capitalize()
+    decapitalize:
+      detail: Str decapitalize()
+    toDisplayName:
+      detail: Str toDisplayName()
+    justl:
+      detail: Str justl(Int width)
+      snippet: justl(${1:width})
+    justr:
+      detail: Str justr(Int width)
+      snippet: justr(${1:width})
+    padl:
+      detail: Str padl(Int width, Int char := ' ')
+      snippet: padl(${1:width})
+    padr:
+      detail: Str padr(Int width, Int char := ' ')
+      snippet: padr(${1:width})
+    reverse:
+      detail: Str reverse()
+    replace:
+      detail: Str replace(Str from, Str to)
+      snippet: replace(${1:from}, ${2:to})
+    split:
+      detail: Str[] split(Int? separator := null, Bool trimmed := true)
+      snippet: split(${1:separator})
+    splitLines:
+      detail: Str[] splitLines()
+    toInt:
+      detail: Int? toInt(Int radix := 10, Bool checked := true)
+    toFloat:
+      detail: Float? toFloat(Bool checked := true)
+    toDecimal:
+      detail: Decimal? toDecimal(Bool checked := true)
+    toBool:
+      detail: Bool? toBool(Bool checked := true)
+    toUri:
+      detail: Uri toUri()
+    toRegex:
+      detail: Regex toRegex()
+    toCode:
+      detail: Str toCode(Int quote := '"', Bool escapeUnicode := false)
+    toXml:
+      detail: Str toXml()
+    chars:
+      detail: Int[] chars()
+    fromChars:
+      detail: Str fromChars(Int[] chars)
+    toBuf:
+      detail: Buf toBuf(Charset charset := Charset.utf8)
+    in:
+      detail: InStream in(Int capacity := 256)
+    toStr:
+      detail: Str toStr()
+    toLocale:
+      detail: Str toLocale()
+    intern:
+      detail: Str intern()
+    isAlpha:
+      detail: Bool isAlpha()
+    isAlphaNum:
+      detail: Bool isAlphaNum()
+    isUpper:
+      detail: Bool isUpper()
+    isLower:
+      detail: Bool isLower()
+    isSpace:
+      detail: Bool isSpace()
+    isAscii:
+      detail: Bool isAscii()
+    numNewlines:
+      detail: Int numNewlines()
+    each:
+      detail: Void each(|Int ch, Int index| c)
+      snippet: each |${1:ch}| {\n\t${0}\n}
+    eachr:
+      detail: Void eachr(|Int ch, Int index| c)
+      snippet: eachr |${1:ch}| {\n\t${0}\n}
+    eachWhile:
+      detail: Obj? eachWhile(|Int ch, Int index->Obj?| c)
+      snippet: eachWhile |${1:ch}| {\n\treturn ${0}\n}
+    any:
+      detail: Bool any(|Int ch, Int index->Bool| c)
+      snippet: any |${1:ch}| {\n\treturn ${0}\n}
+    all:
+      detail: Bool all(|Int ch, Int index->Bool| c)
+      snippet: all |${1:ch}| {\n\treturn ${0}\n}
+  fields:
+    defVal:
+      detail: Str defVal
+
+# ============================================================
+# sys::Int
+# ============================================================
+sys::Int:
+  methods:
+    plus:
+      detail: Int plus(Int b)
+      snippet: plus(${1:b})
+    minus:
+      detail: Int minus(Int b)
+      snippet: minus(${1:b})
+    mult:
+      detail: Int mult(Int b)
+      snippet: mult(${1:b})
+    div:
+      detail: Int div(Int b)
+      snippet: div(${1:b})
+    mod:
+      detail: Int mod(Int b)
+      snippet: mod(${1:b})
+    pow:
+      detail: Int pow(Int exp)
+      snippet: pow(${1:exp})
+    negate:
+      detail: Int negate()
+    abs:
+      detail: Int abs()
+    min:
+      detail: Int min(Int that)
+      snippet: min(${1:that})
+    max:
+      detail: Int max(Int that)
+      snippet: max(${1:that})
+    clamp:
+      detail: Int clamp(Int min, Int max)
+      snippet: clamp(${1:min}, ${2:max})
+    isEven:
+      detail: Bool isEven()
+    isOdd:
+      detail: Bool isOdd()
+    toStr:
+      detail: Str toStr()
+    toHex:
+      detail: Str toHex(Int width := 0)
+    toChar:
+      detail: Str toChar()
+    toFloat:
+      detail: Float toFloat()
+    toDecimal:
+      detail: Decimal toDecimal()
+    toLocale:
+      detail: Str toLocale(Str? pattern := null)
+    isAlpha:
+      detail: Bool isAlpha()
+    isAlphaNum:
+      detail: Bool isAlphaNum()
+    isUpper:
+      detail: Bool isUpper()
+    isLower:
+      detail: Bool isLower()
+    isDigit:
+      detail: Bool isDigit()
+    isSpace:
+      detail: Bool isSpace()
+    upper:
+      detail: Int upper()
+    lower:
+      detail: Int lower()
+    times:
+      detail: Void times(|Int i| c)
+      snippet: times |${1:i}| {\n\t${0}\n}
+    toDateTime:
+      detail: DateTime toDateTime(TimeZone tz := TimeZone.cur)
+    toDuration:
+      detail: Duration toDuration()
+    compare:
+      detail: Int compare(Obj that)
+      snippet: compare(${1:that})
+    equals:
+      detail: Bool equals(Obj? that)
+      snippet: equals(${1:that})
+    hash:
+      detail: Int hash()
+
+# ============================================================
+# sys::Float
+# ============================================================
+sys::Float:
+  methods:
+    plus:
+      detail: Float plus(Float b)
+      snippet: plus(${1:b})
+    minus:
+      detail: Float minus(Float b)
+      snippet: minus(${1:b})
+    mult:
+      detail: Float mult(Float b)
+      snippet: mult(${1:b})
+    div:
+      detail: Float div(Float b)
+      snippet: div(${1:b})
+    mod:
+      detail: Float mod(Float b)
+      snippet: mod(${1:b})
+    negate:
+      detail: Float negate()
+    abs:
+      detail: Float abs()
+    min:
+      detail: Float min(Float that)
+      snippet: min(${1:that})
+    max:
+      detail: Float max(Float that)
+      snippet: max(${1:that})
+    ceil:
+      detail: Float ceil()
+    floor:
+      detail: Float floor()
+    round:
+      detail: Float round()
+    toStr:
+      detail: Str toStr()
+    toInt:
+      detail: Int toInt()
+    toDecimal:
+      detail: Decimal toDecimal()
+    toLocale:
+      detail: Str toLocale(Str? pattern := null)
+    isNaN:
+      detail: Bool isNaN()
+    isNegZero:
+      detail: Bool isNegZero()
+    compare:
+      detail: Int compare(Obj that)
+      snippet: compare(${1:that})
+    equals:
+      detail: Bool equals(Obj? that)
+      snippet: equals(${1:that})
+    hash:
+      detail: Int hash()
+
+# ============================================================
+# sys::Bool
+# ============================================================
+sys::Bool:
+  methods:
+    and:
+      detail: Bool and(Bool b)
+      snippet: and(${1:b})
+    or:
+      detail: Bool or(Bool b)
+      snippet: or(${1:b})
+    xor:
+      detail: Bool xor(Bool b)
+      snippet: xor(${1:b})
+    not:
+      detail: Bool not()
+    toStr:
+      detail: Str toStr()
+    toLocale:
+      detail: Str toLocale()
+    hash:
+      detail: Int hash()
+    compare:
+      detail: Int compare(Obj that)
+      snippet: compare(${1:that})
+    equals:
+      detail: Bool equals(Obj? that)
+      snippet: equals(${1:that})
+
+# ============================================================
+# sys::Obj
+# ============================================================
+sys::Obj:
+  methods:
+    equals:
+      detail: Bool equals(Obj? that)
+      snippet: equals(${1:that})
+    compare:
+      detail: Int compare(Obj that)
+      snippet: compare(${1:that})
+    hash:
+      detail: Int hash()
+    toStr:
+      detail: Str toStr()
+    typeof:
+      detail: Type typeof()
+    with:
+      detail: This with(|This| f)
+      snippet: with |${1:it}| {\n\t${0}\n}
+    isImmutable:
+      detail: Bool isImmutable()
+    toImmutable:
+      detail: Obj toImmutable()
+    trap:
+      detail: Obj? trap(Str name, Obj?[]? args := null)
+      snippet: trap(${1:name})
+
+# ============================================================
+# sys::File
+# ============================================================
+sys::File:
+  methods:
+    exists:
+      detail: Bool exists()
+    readAllStr:
+      detail: Str readAllStr(Bool normalizeNewlines := true)
+    readAllLines:
+      detail: Str[] readAllLines()
+    readAllBuf:
+      detail: Buf readAllBuf()
+    readProps:
+      detail: Str:Str readProps()
+    writeProps:
+      detail: Void writeProps(Str:Str props)
+      snippet: writeProps(${1:props})
+    eachLine:
+      detail: Void eachLine(|Str line| c)
+      snippet: eachLine |${1:line}| {\n\t${0}\n}
+    in:
+      detail: InStream in(Int? bufSize := 4096)
+    out:
+      detail: OutStream out(Bool append := false, Int? bufSize := 4096)
+    name:
+      detail: Str name()
+    ext:
+      detail: Str? ext()
+    basename:
+      detail: Str basename()
+    uri:
+      detail: Uri uri()
+    parent:
+      detail: File? parent()
+    list:
+      detail: File[] list()
+    listDirs:
+      detail: File[] listDirs()
+    listFiles:
+      detail: File[] listFiles()
+    walk:
+      detail: Void walk(|File f| c)
+      snippet: walk |${1:f}| {\n\t${0}\n}
+    create:
+      detail: File create()
+    createDir:
+      detail: File createDir(Str name)
+      snippet: createDir(${1:name})
+    createFile:
+      detail: File createFile(Str name)
+      snippet: createFile(${1:name})
+    delete:
+      detail: Void delete()
+    deleteOnExit:
+      detail: Void deleteOnExit()
+    copyTo:
+      detail: File copyTo(File to, Map? options := null)
+      snippet: copyTo(${1:to})
+    moveTo:
+      detail: File moveTo(File to)
+      snippet: moveTo(${1:to})
+    rename:
+      detail: File rename(Str newName)
+      snippet: rename(${1:newName})
+    normalize:
+      detail: File normalize()
+    toStr:
+      detail: Str toStr()
+    osPath:
+      detail: Str? osPath()
+    isDir:
+      detail: Bool isDir()
+    modified:
+      detail: DateTime? modified()
+    size:
+      detail: Int? size()
+    plus:
+      detail: File plus(Uri path, Bool checkSlash := true)
+      snippet: plus(${1:path})
+  fields:
+    sep:
+      detail: Str sep
+    pathSep:
+      detail: Str pathSep
+
+# ============================================================
+# sys::Uri
+# ============================================================
+sys::Uri:
+  methods:
+    toStr:
+      detail: Str toStr()
+    toFile:
+      detail: File toFile()
+    toLocale:
+      detail: Str toLocale()
+    encode:
+      detail: Str encode()
+    get:
+      detail: Obj? get(Str name, Bool checked := true)
+    plus:
+      detail: Uri plus(Uri path)
+      snippet: plus(${1:path})
+    plusSlash:
+      detail: Uri plusSlash()
+    plusName:
+      detail: Uri plusName(Str name, Bool asDir := false)
+      snippet: plusName(${1:name})
+    relTo:
+      detail: Uri relTo(Uri base)
+      snippet: relTo(${1:base})
+    parent:
+      detail: Uri? parent()
+    isDir:
+      detail: Bool isDir()
+    isAbs:
+      detail: Bool isAbs()
+    isRel:
+      detail: Bool isRel()
+  fields:
+    scheme:
+      detail: Str? scheme
+    host:
+      detail: Str? host
+    port:
+      detail: Int? port
+    path:
+      detail: Str[] path
+    pathStr:
+      detail: Str pathStr
+    name:
+      detail: Str name
+    basename:
+      detail: Str basename
+    ext:
+      detail: Str? ext
+    query:
+      detail: Str:Str query
+    queryStr:
+      detail: Str? queryStr
+    frag:
+      detail: Str? frag
+
+# ============================================================
+# sys::DateTime
+# ============================================================
+sys::DateTime:
+  methods:
+    toStr:
+      detail: Str toStr()
+    toLocale:
+      detail: Str toLocale(Str? pattern := null, Locale locale := Locale.cur)
+    toIso:
+      detail: Str toIso()
+    toHttpStr:
+      detail: Str toHttpStr()
+    toJava:
+      detail: Int toJava()
+    toRel:
+      detail: DateTime toRel()
+    plus:
+      detail: DateTime plus(Duration d)
+      snippet: plus(${1:duration})
+    minus:
+      detail: Duration minus(DateTime that)
+      snippet: minus(${1:that})
+    date:
+      detail: Date date()
+    time:
+      detail: Time time()
+    toTimeZone:
+      detail: DateTime toTimeZone(TimeZone tz)
+      snippet: toTimeZone(${1:tz})
+    toUtc:
+      detail: DateTime toUtc()
+    compare:
+      detail: Int compare(Obj that)
+      snippet: compare(${1:that})
+    equals:
+      detail: Bool equals(Obj? that)
+      snippet: equals(${1:that})
+    hash:
+      detail: Int hash()
+    floor:
+      detail: DateTime floor(Duration accuracy)
+      snippet: floor(${1:accuracy})
+    midnight:
+      detail: DateTime midnight()
+    isMidnight:
+      detail: Bool isMidnight()
+    isDst:
+      detail: Bool isDst()
+  fields:
+    year:
+      detail: Int year
+    month:
+      detail: Month month
+    day:
+      detail: Int day
+    hour:
+      detail: Int hour
+    min:
+      detail: Int min
+    sec:
+      detail: Int sec
+    nanoSec:
+      detail: Int nanoSec
+    weekday:
+      detail: Weekday weekday
+    tz:
+      detail: TimeZone tz
+    dayOfYear:
+      detail: Int dayOfYear
+    weekOfYear:
+      detail: Int weekOfYear
+
+# ============================================================
+# sys::Duration
+# ============================================================
+sys::Duration:
+  methods:
+    plus:
+      detail: Duration plus(Duration d)
+      snippet: plus(${1:d})
+    minus:
+      detail: Duration minus(Duration d)
+      snippet: minus(${1:d})
+    mult:
+      detail: Duration mult(Int factor)
+      snippet: mult(${1:factor})
+    div:
+      detail: Duration div(Int divisor)
+      snippet: div(${1:divisor})
+    negate:
+      detail: Duration negate()
+    abs:
+      detail: Duration abs()
+    min:
+      detail: Duration min(Duration that)
+      snippet: min(${1:that})
+    max:
+      detail: Duration max(Duration that)
+      snippet: max(${1:that})
+    toStr:
+      detail: Str toStr()
+    toLocale:
+      detail: Str toLocale()
+    toMillis:
+      detail: Int toMillis()
+    toSec:
+      detail: Int toSec()
+    toMin:
+      detail: Int toMin()
+    toHour:
+      detail: Int toHour()
+    toDay:
+      detail: Int toDay()
+    ticks:
+      detail: Int ticks()
+    floor:
+      detail: Duration floor(Duration accuracy)
+      snippet: floor(${1:accuracy})
+    compare:
+      detail: Int compare(Obj that)
+      snippet: compare(${1:that})
+    equals:
+      detail: Bool equals(Obj? that)
+      snippet: equals(${1:that})
+    hash:
+      detail: Int hash()
+
+# ============================================================
+# sys::Buf
+# ============================================================
+sys::Buf:
+  methods:
+    size:
+      detail: Int size()
+    capacity:
+      detail: Int capacity()
+    fill:
+      detail: Buf fill(Int byte, Int times)
+      snippet: fill(${1:byte}, ${2:times})
+    read:
+      detail: Int? read()
+    readBuf:
+      detail: Int? readBuf(Buf buf, Int n)
+      snippet: readBuf(${1:buf}, ${2:n})
+    write:
+      detail: Buf write(Int byte)
+      snippet: write(${1:byte})
+    writeBuf:
+      detail: Buf writeBuf(Buf buf, Int n := buf.remaining)
+      snippet: writeBuf(${1:buf})
+    readAllStr:
+      detail: Str readAllStr()
+    readAllLines:
+      detail: Str[] readAllLines()
+    print:
+      detail: Buf print(Obj? s)
+      snippet: print(${1:s})
+    printLine:
+      detail: Buf printLine(Obj? s := "")
+      snippet: printLine(${1:s})
+    in:
+      detail: InStream in()
+    out:
+      detail: OutStream out()
+    toStr:
+      detail: Str toStr()
+    toHex:
+      detail: Str toHex()
+    dup:
+      detail: Buf dup()
+    clear:
+      detail: Buf clear()
+    flush:
+      detail: Buf flush()
+    close:
+      detail: Bool close()
+    seek:
+      detail: Buf seek(Int pos)
+      snippet: seek(${1:pos})
+    flip:
+      detail: Buf flip()
+    trim:
+      detail: Buf trim()
+  fields:
+    pos:
+      detail: Int pos
+    remaining:
+      detail: Int remaining
+
+# ============================================================
+# sys::Range
+# ============================================================
+sys::Range:
+  methods:
+    toStr:
+      detail: Str toStr()
+    contains:
+      detail: Bool contains(Int val)
+      snippet: contains(${1:val})
+    each:
+      detail: Void each(|Int val| c)
+      snippet: each |${1:val}| {\n\t${0}\n}
+    eachWhile:
+      detail: Obj? eachWhile(|Int val->Obj?| c)
+      snippet: eachWhile |${1:val}| {\n\treturn ${0}\n}
+    map:
+      detail: Obj?[] map(|Int val->Obj?| c)
+      snippet: map |${1:val}| {\n\treturn ${0}\n}
+    toList:
+      detail: Int[] toList()
+    min:
+      detail: Int? min()
+    max:
+      detail: Int? max()
+    equals:
+      detail: Bool equals(Obj? that)
+      snippet: equals(${1:that})
+    hash:
+      detail: Int hash()
+  fields:
+    start:
+      detail: Int start
+    end:
+      detail: Int end
+    inclusive:
+      detail: Bool inclusive
+
+# ============================================================
+# sys::Type
+# ============================================================
+sys::Type:
+  methods:
+    name:
+      detail: Str name()
+    qname:
+      detail: Str qname()
+    pod:
+      detail: Pod? pod()
+    base:
+      detail: Type? base()
+    mixins:
+      detail: Type[] mixins()
+    inheritance:
+      detail: Type[] inheritance()
+    fits:
+      detail: Bool fits(Type that)
+      snippet: fits(${1:that})
+    method:
+      detail: Method? method(Str name, Bool checked := true)
+      snippet: method(${1:name})
+    field:
+      detail: Field? field(Str name, Bool checked := true)
+      snippet: field(${1:name})
+    slot:
+      detail: Slot? slot(Str name, Bool checked := true)
+      snippet: slot(${1:name})
+    make:
+      detail: Obj make(Obj?[]? args := null)
+    toStr:
+      detail: Str toStr()
+    isAbstract:
+      detail: Bool isAbstract()
+    isClass:
+      detail: Bool isClass()
+    isConst:
+      detail: Bool isConst()
+    isEnum:
+      detail: Bool isEnum()
+    isFacet:
+      detail: Bool isFacet()
+    isMixin:
+      detail: Bool isMixin()
+    isPublic:
+      detail: Bool isPublic()
+    isSynthetic:
+      detail: Bool isSynthetic()
+    isVal:
+      detail: Bool isVal()
+    isNullable:
+      detail: Bool isNullable()
+    toNullable:
+      detail: Type toNullable()
+    toNonNullable:
+      detail: Type toNonNullable()
+    toListOf:
+      detail: Type toListOf()
+  fields:
+    signature:
+      detail: Str signature
+    params:
+      detail: Str:Type params
+    methods:
+      detail: Method[] methods
+    fields:
+      detail: Field[] fields
+    slots:
+      detail: Slot[] slots
+
+# ============================================================
+# sys::Err
+# ============================================================
+sys::Err:
+  methods:
+    msg:
+      detail: Str? msg()
+    cause:
+      detail: Err? cause()
+    toStr:
+      detail: Str toStr()
+    trace:
+      detail: Void trace(OutStream out := Env.cur.err)
+    traceToStr:
+      detail: Str traceToStr()
+    typeof:
+      detail: Type typeof()
+
+# ============================================================
+# sys::InStream
+# ============================================================
+sys::InStream:
+  methods:
+    read:
+      detail: Int? read()
+    readBuf:
+      detail: Int? readBuf(Buf buf, Int n)
+      snippet: readBuf(${1:buf}, ${2:n})
+    readAllBuf:
+      detail: Buf readAllBuf()
+    readAllStr:
+      detail: Str readAllStr(Bool normalizeNewlines := true)
+    readAllLines:
+      detail: Str[] readAllLines()
+    readLine:
+      detail: Str? readLine(Int max := 4096)
+    eachLine:
+      detail: Void eachLine(|Str line| c)
+      snippet: eachLine |${1:line}| {\n\t${0}\n}
+    readChar:
+      detail: Int? readChar()
+    readChars:
+      detail: Str readChars(Int n)
+      snippet: readChars(${1:n})
+    peek:
+      detail: Int? peek()
+    peekChar:
+      detail: Int? peekChar()
+    unread:
+      detail: InStream unread(Int b)
+      snippet: unread(${1:b})
+    unreadChar:
+      detail: InStream unreadChar(Int ch)
+      snippet: unreadChar(${1:ch})
+    readObj:
+      detail: Obj? readObj(Map? options := null)
+    readProps:
+      detail: Str:Str readProps()
+    close:
+      detail: Bool close()
+  fields:
+    charset:
+      detail: Charset charset
+    endian:
+      detail: Endian endian
+
+# ============================================================
+# sys::OutStream
+# ============================================================
+sys::OutStream:
+  methods:
+    write:
+      detail: OutStream write(Int byte)
+      snippet: write(${1:byte})
+    writeBuf:
+      detail: OutStream writeBuf(Buf buf, Int n := buf.remaining)
+      snippet: writeBuf(${1:buf})
+    writeChar:
+      detail: OutStream writeChar(Int ch)
+      snippet: writeChar(${1:ch})
+    writeChars:
+      detail: OutStream writeChars(Str str, Int offset := 0, Int len := str.size)
+      snippet: writeChars(${1:str})
+    print:
+      detail: OutStream print(Obj? s)
+      snippet: print(${1:s})
+    printLine:
+      detail: OutStream printLine(Obj? s := "")
+      snippet: printLine(${1:s})
+    writeObj:
+      detail: OutStream writeObj(Obj? obj, Map? options := null)
+      snippet: writeObj(${1:obj})
+    writeProps:
+      detail: OutStream writeProps(Str:Str props)
+      snippet: writeProps(${1:props})
+    flush:
+      detail: OutStream flush()
+    sync:
+      detail: OutStream sync()
+    close:
+      detail: Bool close()
+  fields:
+    charset:
+      detail: Charset charset
+    endian:
+      detail: Endian endian
+
+# ============================================================
+# sys::Regex
+# ============================================================
+sys::Regex:
+  methods:
+    matches:
+      detail: Bool matches(Str s)
+      snippet: matches(${1:s})
+    matcher:
+      detail: RegexMatcher matcher(Str s)
+      snippet: matcher(${1:s})
+    split:
+      detail: Str[] split(Str s, Int limit := 0)
+      snippet: split(${1:s})
+    toStr:
+      detail: Str toStr()
+
+# ============================================================
+# sys::Log
+# ============================================================
+sys::Log:
+  methods:
+    debug:
+      detail: Void debug(Str msg, Err? err := null)
+      snippet: debug(${1:msg})
+    info:
+      detail: Void info(Str msg, Err? err := null)
+      snippet: info(${1:msg})
+    warn:
+      detail: Void warn(Str msg, Err? err := null)
+      snippet: warn(${1:msg})
+    err:
+      detail: Void err(Str msg, Err? err := null)
+      snippet: err(${1:msg})
+    isDebug:
+      detail: Bool isDebug()
+    isInfo:
+      detail: Bool isInfo()
+    isWarn:
+      detail: Bool isWarn()
+    isErr:
+      detail: Bool isErr()
+    toStr:
+      detail: Str toStr()
+  fields:
+    name:
+      detail: Str name
+    level:
+      detail: LogLevel level

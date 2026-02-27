@@ -1,0 +1,215 @@
+>using bacnetServerExt
+#^^^^^ source.fantom keyword.other.fantom
+#     ^^^^^^^^^^^^^^^^^ source.fantom
+>
+>class BacnetServer : IBacnetServer {
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^^^^^^^^^ source.fantom entity.name.type.fantom
+#                  ^^^ source.fantom
+#                     ^^^^^^^^^^^^^ source.fantom entity.name.type.fantom
+#                                  ^ source.fantom
+#                                   ^ source.fantom punctuation.section.braces.begin.fantom
+>
+>  static const Int START_INDEX := 100
+#^^ source.fantom
+#  ^^^^^^ source.fantom keyword.other.fantom
+#        ^ source.fantom
+#         ^^^^^ source.fantom keyword.other.fantom
+#              ^ source.fantom
+#               ^^^ source.fantom storage.type.fantom
+#                  ^ source.fantom
+#                   ^^^^^^^^^^^ source.fantom entity.name.type.fantom
+#                              ^ source.fantom
+#                               ^^ source.fantom keyword.operator.fantom
+#                                 ^ source.fantom
+#                                  ^^^ source.fantom constant.numeric.integer.fantom
+>
+>  const Str[] COLS := [
+#^^ source.fantom
+#  ^^^^^ source.fantom keyword.other.fantom
+#       ^ source.fantom
+#        ^^^ source.fantom storage.type.fantom
+#           ^ source.fantom punctuation.section.brackets.begin.fantom
+#            ^ source.fantom punctuation.section.brackets.end.fantom
+#             ^ source.fantom
+#              ^^^^ source.fantom entity.name.type.fantom
+#                  ^ source.fantom
+#                   ^^ source.fantom keyword.operator.fantom
+#                     ^ source.fantom
+#                      ^ source.fantom punctuation.section.brackets.begin.fantom
+>    "objectId",
+#^^^^ source.fantom
+#    ^ source.fantom string.quoted.double.fantom
+#     ^^^^^^^^ source.fantom string.quoted.double.fantom
+#             ^ source.fantom string.quoted.double.fantom
+#              ^^ source.fantom
+>    "objectName",
+#^^^^ source.fantom
+#    ^ source.fantom string.quoted.double.fantom
+#     ^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#               ^ source.fantom string.quoted.double.fantom
+#                ^^ source.fantom
+>  ]
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.brackets.end.fantom
+>
+>  **
+#^^^^ source.fantom comment.line.documentation.fantom
+>  ** Sorted list of columns that can be copy pasted into the documentation:
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** It's composed by: BACNET_ELEMENTS_COLS+ENTITY_POINTS_COLS-COLS_TO_REMOVE
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  **
+#^^^^ source.fantom comment.line.documentation.fantom
+>  const static Str[] SORTED_COLS := [
+#^^ source.fantom
+#  ^^^^^ source.fantom keyword.other.fantom
+#       ^ source.fantom
+#        ^^^^^^ source.fantom keyword.other.fantom
+#              ^ source.fantom
+#               ^^^ source.fantom storage.type.fantom
+#                  ^ source.fantom punctuation.section.brackets.begin.fantom
+#                   ^ source.fantom punctuation.section.brackets.end.fantom
+#                    ^ source.fantom
+#                     ^^^^^^^^^^^ source.fantom entity.name.type.fantom
+#                                ^ source.fantom
+#                                 ^^ source.fantom keyword.operator.fantom
+#                                   ^ source.fantom
+#                                    ^ source.fantom punctuation.section.brackets.begin.fantom
+>    "device",
+#^^^^ source.fantom
+#    ^ source.fantom string.quoted.double.fantom
+#     ^^^^^^ source.fantom string.quoted.double.fantom
+#           ^ source.fantom string.quoted.double.fantom
+#            ^^ source.fantom
+>    "object",
+#^^^^ source.fantom
+#    ^ source.fantom string.quoted.double.fantom
+#     ^^^^^^ source.fantom string.quoted.double.fantom
+#           ^ source.fantom string.quoted.double.fantom
+#            ^^ source.fantom
+>  ]
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.brackets.end.fantom
+>
+>  new make() {
+#^^ source.fantom
+#  ^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^ source.fantom entity.name.function.fantom
+#          ^ source.fantom punctuation.section.parens.begin.fantom
+#           ^ source.fantom punctuation.section.parens.end.fantom
+#            ^ source.fantom
+#             ^ source.fantom punctuation.section.braces.begin.fantom
+>    this.name = "test"
+#^^^^ source.fantom
+#    ^^^^ source.fantom keyword.other.fantom
+#        ^^^^^^ source.fantom
+#              ^ source.fantom keyword.operator.fantom
+#               ^ source.fantom
+#                ^ source.fantom string.quoted.double.fantom
+#                 ^^^^ source.fantom string.quoted.double.fantom
+#                     ^ source.fantom string.quoted.double.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>
+>  ** Get the list of equipments that can be exposed over BACnet.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** It's important to check the site id isn't null.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  Dict[] getExposableDevices() {
+#^^ source.fantom
+#  ^^^^ source.fantom entity.name.type.fantom
+#      ^ source.fantom punctuation.section.brackets.begin.fantom
+#       ^ source.fantom punctuation.section.brackets.end.fantom
+#        ^ source.fantom
+#         ^^^^^^^^^^^^^^^^^^^ source.fantom entity.name.function.fantom
+#                            ^ source.fantom punctuation.section.parens.begin.fantom
+#                             ^ source.fantom punctuation.section.parens.end.fantom
+#                              ^ source.fantom
+#                               ^ source.fantom punctuation.section.braces.begin.fantom
+>    if (this.siteId == null) {
+#^^^^ source.fantom
+#    ^^ source.fantom keyword.control.fantom
+#      ^ source.fantom
+#       ^ source.fantom punctuation.section.parens.begin.fantom
+#        ^^^^ source.fantom keyword.other.fantom
+#            ^^^^^^^^ source.fantom
+#                    ^^ source.fantom keyword.operator.fantom
+#                      ^ source.fantom
+#                       ^^^^ source.fantom constant.language.fantom
+#                           ^ source.fantom punctuation.section.parens.end.fantom
+#                            ^ source.fantom
+#                             ^ source.fantom punctuation.section.braces.begin.fantom
+>      throw Err("Site id must not be null to get the exposable devices")
+#^^^^^^ source.fantom
+#      ^^^^^ source.fantom keyword.control.fantom
+#           ^ source.fantom
+#            ^^^ source.fantom entity.name.type.fantom
+#               ^ source.fantom punctuation.section.parens.begin.fantom
+#                ^ source.fantom string.quoted.double.fantom
+#                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom string.quoted.double.fantom
+#                                                                      ^ source.fantom string.quoted.double.fantom
+#                                                                       ^ source.fantom punctuation.section.parens.end.fantom
+>    }
+#^^^^ source.fantom
+#    ^ source.fantom punctuation.section.braces.end.fantom
+>    return getMainEquipsList().flatten
+#^^^^ source.fantom
+#    ^^^^^^ source.fantom keyword.control.fantom
+#          ^ source.fantom
+#           ^^^^^^^^^^^^^^^^^ source.fantom entity.name.function.fantom
+#                            ^ source.fantom punctuation.section.parens.begin.fantom
+#                             ^ source.fantom punctuation.section.parens.end.fantom
+#                              ^^^^^^^^^ source.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>
+>  **
+#^^^^ source.fantom comment.line.documentation.fantom
+>  ** getEntityBacnetDescription returns a Grid representation of Bacnet description for the specified
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** entity. It considers whether the Bacnet server is enabled and if a valid bacnetServerDeviceRef is
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** provided. The method merges Bacnet elements with specific entity points, sorts them, and removes
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** unnecessary columns from the result Grid.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  **
+#^^^^ source.fantom comment.line.documentation.fantom
+>  ** @param entityId The reference ID of the entity of interest.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** @param entityRefTagName The tag name associated with entity reference in points.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  ** @return Grid The processed Bacnet descriptions as a Grid.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom comment.line.documentation.fantom
+>  **
+#^^^^ source.fantom comment.line.documentation.fantom
+>  private Grid getEntityBacnetDescription(Ref entityId) {
+#^^ source.fantom
+#  ^^^^^^^ source.fantom keyword.other.fantom
+#         ^ source.fantom
+#          ^^^^ source.fantom entity.name.type.fantom
+#              ^ source.fantom
+#               ^^^^^^^^^^^^^^^^^^^^^^^^^^ source.fantom entity.name.function.fantom
+#                                         ^ source.fantom punctuation.section.parens.begin.fantom
+#                                          ^^^ source.fantom entity.name.type.fantom
+#                                             ^^^^^^^^^ source.fantom
+#                                                      ^ source.fantom punctuation.section.parens.end.fantom
+#                                                       ^ source.fantom
+#                                                        ^ source.fantom punctuation.section.braces.begin.fantom
+>    return Etc.emptyGrid
+#^^^^ source.fantom
+#    ^^^^^^ source.fantom keyword.control.fantom
+#          ^ source.fantom
+#           ^^^ source.fantom entity.name.type.fantom
+#              ^^^^^^^^^^^ source.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>

@@ -1,0 +1,52 @@
+>class NumTest
+#^^^^^ source.fantom keyword.other.fantom
+#     ^ source.fantom
+#      ^^^^^^^ source.fantom entity.name.type.fantom
+>{
+#^ source.fantom punctuation.section.braces.begin.fantom
+>  Void test()
+#^^ source.fantom
+#  ^^^^ source.fantom storage.type.fantom
+#      ^ source.fantom
+#       ^^^^ source.fantom entity.name.function.fantom
+#           ^ source.fantom punctuation.section.parens.begin.fantom
+#            ^ source.fantom punctuation.section.parens.end.fantom
+>  {
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.begin.fantom
+>    i := 42
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^^ source.fantom constant.numeric.integer.fantom
+>    hex := 0xFF
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^^ source.fantom constant.numeric.hex.fantom
+>    sep := 1_000_000
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^^^^^^^ source.fantom constant.numeric.integer.fantom
+>    f := 3.14
+#^^^^^^ source.fantom
+#      ^^ source.fantom keyword.operator.fantom
+#        ^ source.fantom
+#         ^^^^ source.fantom constant.numeric.float.fantom
+>    exp := 1.5e10
+#^^^^^^^^ source.fantom
+#        ^^ source.fantom keyword.operator.fantom
+#          ^ source.fantom
+#           ^^^^^^ source.fantom constant.numeric.float.fantom
+>    fsuf := 3.14f
+#^^^^^^^^^ source.fantom
+#         ^^ source.fantom keyword.operator.fantom
+#           ^ source.fantom
+#            ^^^^^ source.fantom constant.numeric.float.fantom
+>  }
+#^^ source.fantom
+#  ^ source.fantom punctuation.section.braces.end.fantom
+>}
+#^ source.fantom punctuation.section.braces.end.fantom
+>
