@@ -35,7 +35,7 @@ jobs:
           echo "$FAN_HOME/bin" >> "$GITHUB_PATH"
 
       - name: Build Fantom pod
-        run: fan build.fan
+        run: fan build.fan -DbuildVersion="${GITHUB_REF_NAME#v}"
 
       - name: Run Fantom tests
         run: fan build.fan test
