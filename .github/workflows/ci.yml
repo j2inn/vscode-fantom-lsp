@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    name: Tests & Changelog Preview
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history required by git-cliff
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: vscode-fantom/.nvmrc
+          cache: npm
+          cache-dependency-path: vscode-fantom/package-lock.json
+
+      - name: Install Fantom
+        run: printf '\n\n' | bash install-fantom.sh
+
+      - name: Set FAN_HOME
+        run: |
+          FAN_HOME=$(find /tmp -maxdepth 1 -name 'fantom-*' -type d | head -1)
+          echo "FAN_HOME=$FAN_HOME" >> "$GITHUB_ENV"
+          echo "$FAN_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Build Fantom pod
+        run: fan build.fan
+
+      - name: Run Fantom tests
+        run: fan build.fan test
+
+      - name: Install Node.js dependencies
+        working-directory: vscode-fantom
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: vscode-fantom
+        run: npm run compile
+
+      - name: Run extension tests
+        working-directory: vscode-fantom
+        run: npm run test:extension
+
+      - name: Run grammar tests
+        working-directory: vscode-fantom
+        run: npm run test:grammar
+
+      - name: Generate CHANGELOG.md
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --unreleased
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Upload changelog preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog-preview
+          path: CHANGELOG.md

@@ -3,13 +3,13 @@
 using build
 
 **
-** Build: vscode-fantom-lsp
+** Build: vscodeFantomLsp
 **
 class Build : BuildPod
 {
   new make()
   {
-    podName = "vscode-fantom-lsp"
+    podName = "vscodeFantomLsp"
     summary = "Language Server Protocol for Fantom"
     meta    = ["org.name":     "Fantom",
                "org.uri":      "https://fantom.org/",

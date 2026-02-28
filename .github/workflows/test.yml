@@ -1,0 +1,54 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: vscode-fantom/.nvmrc
+          cache: npm
+          cache-dependency-path: vscode-fantom/package-lock.json
+
+      - name: Install Fantom
+        run: printf '\n\n' | bash install-fantom.sh
+
+      - name: Set FAN_HOME
+        run: |
+          FAN_HOME=$(find /tmp -maxdepth 1 -name 'fantom-*' -type d | head -1)
+          echo "FAN_HOME=$FAN_HOME" >> "$GITHUB_ENV"
+          echo "$FAN_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Build Fantom pod
+        run: fan build.fan
+
+      - name: Run Fantom tests
+        run: fan build.fan test
+
+      - name: Install Node.js dependencies
+        working-directory: vscode-fantom
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: vscode-fantom
+        run: npm run compile
+
+      - name: Run extension tests
+        working-directory: vscode-fantom
+        run: npm run test:extension
+
+      - name: Run grammar tests
+        working-directory: vscode-fantom
+        run: npm run test:grammar

@@ -51,7 +51,7 @@ const class CompletionDefs
   {
     try
     {
-      text := CompletionDefs#.pod.file(`/res/completions.yml`).readAllStr
+      text := CompletionDefs#.pod.file(`/src/res/completions.yml`).readAllStr
       return parse(text)
     }
     catch (Err e)

@@ -1336,6 +1336,7 @@ class DiagnosticService
 
       // Find method call patterns: varName.methodName(...)
       calls := findMethodCalls(line)
+      lineIdx := i
       calls.each |call|
       {
         // Skip static type calls (TypeName.method) — these are calls on
@@ -1344,7 +1345,7 @@ class DiagnosticService
         if (call.varName.size > 0 && call.varName[0].isUpper) return
 
         // Resolve the variable's type
-        typeName := resolveVarType(call.varName, source, i, index)
+        typeName := resolveVarType(call.varName, source, lineIdx, index)
         if (typeName == null) return
 
         // Look up the type's completions in YML
@@ -1370,7 +1371,7 @@ class DiagnosticService
         {
           col := call.callStart
           endCol := call.callEnd.min(line.size)
-          range := LspRange(LspPosition(i, col), LspPosition(i, endCol))
+          range := LspRange(LspPosition(lineIdx, col), LspPosition(lineIdx, endCol))
           expected := paramInfo.minArgs == paramInfo.maxArgs
             ? "${paramInfo.minArgs}" : "${paramInfo.minArgs}-${paramInfo.maxArgs}"
           diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.error,
@@ -1380,7 +1381,7 @@ class DiagnosticService
         {
           col := call.callStart
           endCol := call.callEnd.min(line.size)
-          range := LspRange(LspPosition(i, col), LspPosition(i, endCol))
+          range := LspRange(LspPosition(lineIdx, col), LspPosition(lineIdx, endCol))
           expected := paramInfo.minArgs == paramInfo.maxArgs
             ? "${paramInfo.minArgs}" : "${paramInfo.minArgs}-${paramInfo.maxArgs}"
           diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.error,

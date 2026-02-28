@@ -58,40 +58,40 @@ const extensionDir = path.resolve(__dirname, "..");
 const projectRoot = path.resolve(extensionDir, "..");
 const bundledPodsDir = path.join(extensionDir, "bundled-pods");
 const buildFan = path.join(projectRoot, "build.fan");
-const lspPodSrc = path.join(fanHome, "lib", "fan", "vscode-fantom-lsp.pod");
+const lspPodSrc = path.join(fanHome, "lib", "fan", "vscodeFantomLsp.pod");
 
 console.log(`fan executable: ${fanExe}`);
 console.log(`FAN_HOME:       ${fanHome}`);
 console.log(`build.fan:      ${buildFan}`);
 
-// Step 1: Compile the vscode-fantom-lsp pod
+// Step 1: Compile the vscodeFantomLsp pod
 if (!fs.existsSync(buildFan)) {
   console.error(`ERROR: build.fan not found at ${buildFan}`);
   process.exit(1);
 }
 
-console.log("\nCompiling vscode-fantom-lsp pod...");
+console.log("\nCompiling vscodeFantomLsp pod...");
 try {
   execFileSync(fanExe, [buildFan], { stdio: "inherit", cwd: projectRoot });
 } catch (e) {
-  console.error("ERROR: Failed to compile vscode-fantom-lsp pod.");
+  console.error("ERROR: Failed to compile vscodeFantomLsp pod.");
   process.exit(1);
 }
 
-// Step 2: Copy vscode-fantom-lsp.pod to bundled-pods/
+// Step 2: Copy vscodeFantomLsp.pod to bundled-pods/
 if (!fs.existsSync(lspPodSrc)) {
   console.error(
-    `ERROR: vscode-fantom-lsp.pod not found at ${lspPodSrc} after build.`,
+    `ERROR: vscodeFantomLsp.pod not found at ${lspPodSrc} after build.`,
   );
   process.exit(1);
 }
 
 fs.mkdirSync(bundledPodsDir, { recursive: true });
 
-const lspPodDst = path.join(bundledPodsDir, "vscode-fantom-lsp.pod");
+const lspPodDst = path.join(bundledPodsDir, "vscodeFantomLsp.pod");
 fs.copyFileSync(lspPodSrc, lspPodDst);
 
 const size = fs.statSync(lspPodDst).size;
 console.log(
-  `\nBundled vscode-fantom-lsp.pod (${(size / 1024).toFixed(1)} KB) -> ${lspPodDst}`,
+  `\nBundled vscodeFantomLsp.pod (${(size / 1024).toFixed(1)} KB) -> ${lspPodDst}`,
 );
