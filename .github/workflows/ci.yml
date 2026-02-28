@@ -40,6 +40,10 @@ jobs:
         working-directory: vscode-fantom
         run: npm ci
 
+      - name: Compile TypeScript
+        working-directory: vscode-fantom
+        run: npm run compile
+
       - name: Run extension tests
         working-directory: vscode-fantom
         run: npm run test:extension
