@@ -2,7 +2,7 @@
   "name": "fantom-language-support",
   "displayName": "Fantom Language Support",
   "description": "Language support for Fantom with syntax highlighting, diagnostics, and autocompletion",
-  "version": "0.4.1",
+  "version": "0.0.0",
   "publisher": "fantom",
   "license": "AFL-3.0",
   "engines": {

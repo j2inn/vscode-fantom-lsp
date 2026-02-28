@@ -67,7 +67,7 @@ jobs:
 
       - name: Package VSCode extension
         working-directory: vscode-fantom
-        run: npx --yes @vscode/vsce package
+        run: npx --yes @vscode/vsce package "${GITHUB_REF_NAME#v}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
