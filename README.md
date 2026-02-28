@@ -6,7 +6,7 @@
 
 > **Unofficial** Language Server Protocol support for [Fantom](https://fantom.org/) in Visual Studio Code.
 
-This extension brings a rich developer experience to Fantom projects inside VSCode — syntax highlighting, real-time diagnostics, autocompletion, hover docs, go-to-definition, and more. It is powered by a Fantom LSP server written entirely in Fantom itself (`vscode-fantom-lsp`), automatically deployed into your Fantom installation when the extension activates.
+This extension brings a rich developer experience to Fantom projects inside VSCode — syntax highlighting, real-time diagnostics, autocompletion, hover docs, go-to-definition, and more. It is powered by a Fantom LSP server written entirely in Fantom itself (`vscodeFantomLsp`), automatically deployed into your Fantom installation when the extension activates.
 
 ⚠️ This is an **unofficial, community-driven** project. It is not affiliated with or endorsed by the Fantom language authors.
 
@@ -135,12 +135,12 @@ export PATH=$FAN_HOME/bin:$PATH
 
 Additional settings available through the VSCode UI or `settings.json`:
 
-| Setting                   | Type      | Default | Description                                                                                                                                 |
-| ------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fantom.javaPath`         | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                        |
-| `fantom.useBuiltInLspPod` | `boolean` | `true`  | Use the `vscode-fantom-lsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod. |
-| `fantom.pedanticMode`     | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right).  |
-| `fantom.trace.server`     | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                                |
+| Setting                   | Type      | Default | Description                                                                                                                                |
+| ------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `fantom.javaPath`         | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                       |
+| `fantom.useBuiltInLspPod` | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod.  |
+| `fantom.pedanticMode`     | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right). |
+| `fantom.trace.server`     | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                               |
 
 ---
 
@@ -164,7 +164,7 @@ VSCode Extension (TypeScript)
         │
         │  stdio (LSP protocol)
         ▼
-  vscode-fantom-lsp  ─── fan lsp::Main
+  vscodeFantomLsp  ─── fan lsp::Main
         │
         ├── ProjectIndex      (AST index of all .fan sources)
         ├── DiagnosticService (single-file + cross-file analysis)
@@ -177,7 +177,7 @@ VSCode Extension (TypeScript)
 On activation the extension:
 
 1. Reads `fan.config.json` (or falls back to `FAN_HOME`).
-2. Deploys (or updates) `vscode-fantom-lsp` into `$FAN_HOME/lib/fan/`.
+2. Deploys (or updates) `vscodeFantomLsp` into `$FAN_HOME/lib/fan/`.
 3. Spawns the LSP server via `fan lsp::Main`.
 4. The server indexes all `.fan` sources from `build.fan`'s `srcDirs`, pre-loads available pods, runs diagnostics, and performs an initial build check — all in the background so the editor stays responsive.
 
