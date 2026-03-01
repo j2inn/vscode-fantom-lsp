@@ -155,6 +155,50 @@ Access these from the Command Palette (`Ctrl+Shift+P`):
 
 ---
 
+## 🕹️ Toybox Tools
+
+Extra CLI utilities shipped inside the `vscodeFantomLsp` pod that are independent from the language server.
+
+### Test Impact Analysis
+
+Determine which Fantom test classes need to be re-run given a set of source changes. Instead of running the full test suite, only the tests that are transitively affected by the diff are reported.
+
+```
+fan vscodeFantomLsp --test-impact <pod-root> --diff <ref1> <ref2> [--test-dir <path>]
+```
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `<pod-root>` | ✅ | Path to the directory that contains `build.fan` |
+| `--diff <ref1> <ref2>` | ✅ | Two git refs to compare — commit hashes **or** branch names |
+| `--test-dir <path>` | ➖ | Directory containing test classes. Absolute or relative to `<pod-root>`. Default: `test/` |
+
+The tool outputs one test class name per line, ready to feed into `fant`.
+
+**Examples:**
+
+```bash
+# Two commit hashes
+fan vscodeFantomLsp --test-impact /path/to/myproject --diff abc1234 def5678 --test-dir src/test
+
+# Two branches (tip of each branch is used)
+fan vscodeFantomLsp --test-impact /path/to/myproject --diff main feature/alarms --test-dir src/test
+
+# Pipe directly into fant
+fan vscodeFantomLsp --test-impact . --diff main feature/alarms --test-dir src/test \
+  | xargs fant myPod
+```
+
+**How it works:**
+
+1. Parses `build.fan` to discover all source directories.
+2. Runs `git diff --name-only <ref1> <ref2>` to get the changed files.
+3. Builds a reverse dependency graph across all `.fan` sources: if type `A` references type `B`, then changing `B` marks `A` as affected.
+4. Performs a BFS from the types defined in the changed files through the reverse graph.
+5. Reports only test classes (types that extend `Test` or contain `Void testXxx()` methods) found inside `--test-dir` that are reachable.
+
+---
+
 ## 🏗️ How It Works
 
 ```
