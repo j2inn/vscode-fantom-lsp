@@ -648,4 +648,156 @@ class ProjectIndexTest : Test
     verifyEq(sym.fileUri, "file:///test/Handler.fan")
     verifyEq(sym.kind, SymbolKind.param)
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Multi-Pod Discovery
+//////////////////////////////////////////////////////////////////////////
+
+  ** Recursively delete a directory and all its contents.
+  private Void deleteDir(File dir)
+  {
+    dir.list.each |f|
+    {
+      if (f.isDir) deleteDir(f)
+      else try { f.delete } catch {}
+    }
+    try { dir.delete } catch {}
+  }
+
+  **
+  ** Create a temporary two-pod workspace on disk, call ProjectIndex.init(),
+  ** and verify that both pods are discovered and all their types indexed.
+  **
+  Void testMultiPodDiscovery()
+  {
+    // Build a temp directory tree:
+    //   tmp/
+    //     pod1/
+    //       build.fan   (podName="pod1", srcDirs=[`fan/`], depends=["sys 1.0"])
+    //       fan/
+    //         Foo.fan
+    //     pod2/
+    //       build.fan   (podName="pod2", depends=["sys 1.0", "pod1 1.0"])
+    //       fan/
+    //         Bar.fan
+    tmpDir := Env.cur.tempDir + `lsp-test-multipod-${DateTime.now.ticks}/`
+    tmpDir.create
+
+    try
+    {
+      // Pod 1
+      pod1Dir := tmpDir + `pod1/`
+      pod1Dir.create
+      (pod1Dir + `build.fan`).out.writeChars(
+        "#! /usr/bin/env fan\nusing build\n" +
+        "class Build : BuildPod\n{\n  new make()\n  {\n" +
+        "    podName = \"pod1\"\n" +
+        "    srcDirs = [`fan/`]\n" +
+        "    depends = [\"sys 1.0\"]\n" +
+        "  }\n}\n"
+      ).close
+      pod1FanDir := pod1Dir + `fan/`
+      pod1FanDir.create
+      (pod1FanDir + `Foo.fan`).out.writeChars("class Foo { Str name := \"\" }\n").close
+
+      // Pod 2 (depends on pod1)
+      pod2Dir := tmpDir + `pod2/`
+      pod2Dir.create
+      (pod2Dir + `build.fan`).out.writeChars(
+        "#! /usr/bin/env fan\nusing build\n" +
+        "class Build : BuildPod\n{\n  new make()\n  {\n" +
+        "    podName = \"pod2\"\n" +
+        "    srcDirs = [`fan/`]\n" +
+        "    depends = [\"sys 1.0\", \"pod1 1.0\"]\n" +
+        "  }\n}\n"
+      ).close
+      pod2FanDir := pod2Dir + `fan/`
+      pod2FanDir.create
+      (pod2FanDir + `Bar.fan`).out.writeChars("class Bar { Int count := 0 }\n").close
+
+      // Initialize the project index from the workspace root
+      idx := ProjectIndex()
+      idx.init(LspUtil.fileToUri(tmpDir))
+
+      // Two pods should be discovered
+      verifyEq(idx.pods.size, 2)
+
+      // Types from both pods should be indexed (cross-pod)
+      verify(idx.hasType("Foo"), "Foo from pod1 should be indexed")
+      verify(idx.hasType("Bar"), "Bar from pod2 should be indexed")
+
+      // getPodForFile resolves pod1
+      fooUri := LspUtil.fileToUri(pod1FanDir + `Foo.fan`)
+      pod1Info := idx.getPodForFile(fooUri)
+      verifyNotNull(pod1Info)
+      verifyEq(pod1Info.podName, "pod1")
+
+      // buildFanForFile returns pod1's build.fan
+      bf := idx.buildFanForFile(fooUri)
+      verifyNotNull(bf)
+      verify(bf.osPath.endsWith("pod1${File.sep}build.fan") || bf.osPath.contains("pod1"), "Should point to pod1/build.fan")
+
+      // Pod2 depends list includes pod1
+      pod2Info := idx.pods.find |p| { p.podName == "pod2" }
+      verifyNotNull(pod2Info)
+      verify(pod2Info.depends.contains("pod1"), "pod2 should list pod1 as a dependency")
+
+      // isProjectFile works across both pods
+      barUri := LspUtil.fileToUri(pod2FanDir + `Bar.fan`)
+      verify(idx.isProjectFile(fooUri), "Foo.fan should be a project file")
+      verify(idx.isProjectFile(barUri), "Bar.fan should be a project file")
+    }
+    finally
+    {
+      // Clean up temp directory
+      try { deleteDir(tmpDir) } catch {}
+    }
+  }
+
+  **
+  ** A build.fan that extends BuildGroup (not BuildPod) should be skipped
+  ** during pod discovery — it orchestrates pods, it is not itself a pod.
+  **
+  Void testBuildGroupIsSkipped()
+  {
+    tmpDir := Env.cur.tempDir + `lsp-test-buildgroup-${DateTime.now.ticks}/`
+    tmpDir.create
+    try
+    {
+      // Root build.all that extends BuildGroup — should NOT become a PodInfo
+      (tmpDir + `build.all`).out.writeChars(
+        "#! /usr/bin/env fan\nusing build\n" +
+        "class Build : BuildGroup\n{\n  new make()\n  {\n" +
+        "    children = [`pod1/`]\n" +
+        "  }\n}\n"
+      ).close
+
+      // Pod1 listed in children
+      pod1Dir := tmpDir + `pod1/`
+      pod1Dir.create
+      (pod1Dir + `build.fan`).out.writeChars(
+        "#! /usr/bin/env fan\nusing build\n" +
+        "class Build : BuildPod\n{\n  new make()\n  {\n" +
+        "    podName = \"pod1\"\n" +
+        "    srcDirs = [`fan/`]\n" +
+        "    depends = [\"sys 1.0\"]\n" +
+        "  }\n}\n"
+      ).close
+      pod1FanDir := pod1Dir + `fan/`
+      pod1FanDir.create
+      (pod1FanDir + `Foo.fan`).out.writeChars("class Foo {}\n").close
+
+      idx := ProjectIndex()
+      idx.init(LspUtil.fileToUri(tmpDir))
+
+      // Only pod1 should be a pod (not the BuildGroup)
+      verifyEq(idx.pods.size, 1)
+      verifyEq(idx.pods.first.podName, "pod1")
+      verify(idx.hasType("Foo"))
+    }
+    finally
+    {
+      try { deleteDir(tmpDir) } catch {}
+    }
+  }
 }

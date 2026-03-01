@@ -34,6 +34,15 @@ class ProjectIndex
   ** AST-derived base type info: typeName -> baseTypeName
   Str:Str baseTypeByType := Str:Str[:]
 
+  ** Workspace root directory (set during init)
+  File? workspaceRoot { private set }
+
+  ** All pods discovered in workspace, one per build.fan
+  PodInfo[] pods := PodInfo[,] { private set }
+
+  ** Lookup map: podName -> PodInfo
+  private Str:PodInfo podsByName := Str:PodInfo[:]
+
   **
   ** Initialize the index from a workspace root URI.
   ** Discovers build.fan, parses project info, indexes all source files.
@@ -46,62 +55,50 @@ class ProjectIndex
       dirUri := workspaceRootUri
       if (!dirUri.endsWith("/")) dirUri = dirUri + "/"
       dir := LspUtil.uriToFile(dirUri)
+      workspaceRoot = dir
 
       LspProtocol.logInfo("ProjectIndex: workspace dir=${dir.osPath}")
 
-      // Look for build.fan — walk up from workspace root
-      buildFan := null as File
-      File? searchDir := dir
-      while (searchDir != null)
+      // Discover all pods in the workspace (walk DOWN the tree)
+      discovered := discoverPods(dir)
+      pods = discovered
+      pods.each |pod|
       {
-        candidate := searchDir + `build.fan`
-        if (candidate.exists)
-        {
-          buildFan = candidate
-          dir = searchDir
-          break
-        }
-        searchDir = searchDir.parent
+        if (pod.podName != null)
+          podsByName[pod.podName] = pod
       }
 
-      if (buildFan == null)
+      if (pods.isEmpty)
       {
-        LspProtocol.logInfo("ProjectIndex: no build.fan found from ${dir.osPath}")
+        LspProtocol.logInfo("ProjectIndex: no build.fan files found in workspace")
         return
       }
 
-      LspProtocol.logInfo("ProjectIndex: found build.fan at ${dir.osPath}")
+      LspProtocol.logInfo("ProjectIndex: discovered ${pods.size} pod(s)")
 
-      content := buildFan.readAllStr
-      baseDir = dir
-      podName = parsePodName(content)
-      srcDirs = parseSrcDirs(content)
+      // Select primary pod: prefer a root-level build.fan (directly in workspaceRoot)
+      primary := pods.find |pod| { pod.baseDir.osPath == dir.osPath }
+      if (primary == null) primary = pods.first
 
-      LspProtocol.logInfo("ProjectIndex: pod='$podName', srcDirs=$srcDirs")
+      // Backward-compat single-pod fields reflect the primary pod
+      baseDir = primary.baseDir
+      podName = primary.podName
+      srcDirs = primary.srcDirs
 
-      // Collect all .fan files under srcDirs
-      files := File[,]
-      srcDirs.each |uri|
-      {
-        srcDir := dir.plus(uri, false)
-        if (srcDir.exists && srcDir.isDir)
-        {
-          srcDir.walk |f|
-          {
-            if (!f.isDir && f.ext == "fan")
-              files.add(f)
-          }
-        }
-      }
-      // Include build.fan itself as a project file
-      if (buildFan.exists) files.add(buildFan)
+      // sourceFiles = union across all pods (enables cross-pod features)
+      allFiles := File[,]
+      pods.each |pod| { allFiles.addAll(pod.sourceFiles) }
+      sourceFiles = allFiles
 
-      sourceFiles = files
+      LspProtocol.logInfo("ProjectIndex: ${pods.size} pod(s), ${sourceFiles.size} total source files")
 
-      LspProtocol.logInfo("ProjectIndex: found ${files.size} source files")
-
-      // Index all files
-      indexAll
+      // Index synchronously only for single-pod or small workspaces to avoid
+      // blocking the LSP initialize response. Large multi-pod workspaces defer
+      // to backgroundInit which runs indexAll in a background thread.
+      if (pods.size <= 1 || sourceFiles.size <= 200)
+        indexAll
+      else
+        LspProtocol.logInfo("ProjectIndex: large multi-pod workspace — deferring indexAll to backgroundInit")
     }
     catch (Err e)
     {
@@ -219,6 +216,28 @@ class ProjectIndex
   {
     normalized := LspUtil.normalizeFileUri(fileUri)
     return sourceFiles.any |f| { LspUtil.fileToUri(f) == normalized }
+  }
+
+  **
+  ** Find which PodInfo a given file URI belongs to.
+  ** Returns null if the file is not part of any discovered pod.
+  **
+  PodInfo? getPodForFile(Str fileUri)
+  {
+    normalized := LspUtil.normalizeFileUri(fileUri)
+    return pods.find |pod|
+    {
+      pod.sourceFiles.any |f| { LspUtil.fileToUri(f) == normalized }
+    }
+  }
+
+  **
+  ** Return the build.fan file for the pod that contains fileUri,
+  ** or null if the file is not part of any known pod.
+  **
+  File? buildFanForFile(Str fileUri)
+  {
+    return getPodForFile(fileUri)?.buildFan
   }
 
   **
@@ -1463,6 +1482,234 @@ class ProjectIndex
     catch (Err e) { return Uri[,] }
   }
 
+  // ---- Private: Multi-Pod Discovery ----
+
+  **
+  ** Discover all pods in the workspace by walking the directory tree.
+  ** If a build.all exists at rootDir, parse its children first.
+  ** Always walks the full tree so nested pods are found regardless.
+  **
+  private PodInfo[] discoverPods(File rootDir)
+  {
+    result := PodInfo[,]
+
+    // Check for build.all (BuildGroup orchestrator) at the workspace root
+    buildAll := rootDir + `build.all`
+    if (buildAll.exists)
+    {
+      LspProtocol.logInfo("ProjectIndex: found build.all at ${buildAll.osPath}")
+      result.addAll(discoverFromBuildAll(buildAll, rootDir))
+    }
+
+    // Walk the full tree to catch any pods not listed in build.all,
+    // and to handle the common case of no build.all at all.
+    collectBuildFans(rootDir, result)
+
+    // Remove duplicates (same baseDir discovered via both build.all and tree walk)
+    seen := Str:Bool[:]
+    unique := PodInfo[,]
+    result.each |pod|
+    {
+      key := pod.baseDir.osPath
+      if (!seen.containsKey(key))
+      {
+        seen[key] = true
+        unique.add(pod)
+      }
+    }
+
+    LspProtocol.logInfo("ProjectIndex: discoverPods found ${unique.size} pod(s)")
+    return unique
+  }
+
+  **
+  ** Recursively collect PodInfo from all build.fan files under dir.
+  ** Skips VCS and well-known non-pod directories.
+  **
+  private Void collectBuildFans(File dir, PodInfo[] result)
+  {
+    // Check this directory for a build.fan
+    buildFan := dir + `build.fan`
+    if (buildFan.exists)
+    {
+      pod := createPodInfo(buildFan)
+      if (pod != null) result.add(pod)
+    }
+
+    // Recurse into subdirectories
+    try
+    {
+      dir.listDirs.each |subDir|
+      {
+        if (!isPodDiscoverySkippedDir(subDir.name))
+          collectBuildFans(subDir, result)
+      }
+    }
+    catch (Err e)
+    {
+      LspProtocol.logInfo("ProjectIndex: error listing ${dir.osPath}: $e")
+    }
+  }
+
+  **
+  ** Discover pods listed in a build.all (BuildGroup) file.
+  **
+  private PodInfo[] discoverFromBuildAll(File buildAll, File rootDir)
+  {
+    result := PodInfo[,]
+    try
+    {
+      content := buildAll.readAllStr
+      children := parseBuildAllChildren(content, rootDir)
+      children.each |childDir|
+      {
+        buildFan := childDir + `build.fan`
+        if (buildFan.exists)
+        {
+          pod := createPodInfo(buildFan)
+          if (pod != null) result.add(pod)
+        }
+      }
+      LspProtocol.logInfo("ProjectIndex: discoverFromBuildAll found ${result.size} pod(s)")
+    }
+    catch (Err e)
+    {
+      LspProtocol.logInfo("ProjectIndex: error parsing build.all: $e")
+    }
+    return result
+  }
+
+  **
+  ** Create a PodInfo from a build.fan file.
+  ** Returns null if the file is a BuildGroup (not a pod) or has no podName.
+  **
+  private PodInfo? createPodInfo(File buildFanFile)
+  {
+    try
+    {
+      content := buildFanFile.readAllStr
+
+      // Skip BuildGroup files — they orchestrate other pods, not pods themselves
+      if (content.contains("BuildGroup") && !content.contains("BuildPod"))
+        return null
+
+      // Must have a podName to be a buildable pod
+      name := parsePodName(content)
+      if (name == null) return null
+
+      dir := buildFanFile.parent
+      srcs := parseSrcDirs(content)
+      deps := parseDependencies(content)
+
+      // Collect .fan source files from each srcDir
+      files := File[,]
+      srcs.each |uri|
+      {
+        srcDir := dir.plus(uri, false)
+        if (srcDir.exists && srcDir.isDir)
+          srcDir.walk |f|
+          {
+            if (!f.isDir && f.ext == "fan") files.add(f)
+          }
+      }
+      // Include build.fan itself so it can be opened/navigated in the IDE
+      files.add(buildFanFile)
+
+      return PodInfo
+      {
+        it.baseDir     = dir
+        it.buildFan    = buildFanFile
+        it.podName     = name
+        it.srcDirs     = srcs
+        it.depends     = deps
+        it.sourceFiles = files
+      }
+    }
+    catch (Err e)
+    {
+      LspProtocol.logInfo("ProjectIndex: error in createPodInfo(${buildFanFile.osPath}): $e")
+      return null
+    }
+  }
+
+  **
+  ** Parse the 'depends' list from build.fan content.
+  ** Returns pod names with version numbers stripped.
+  ** E.g. ["sys 1.0", "compiler 1.0"] -> ["sys", "compiler"]
+  **
+  private Str[] parseDependencies(Str content)
+  {
+    try
+    {
+      idx := content.index("depends")
+      if (idx == null) return Str[,]
+      openBracket := content.index("[", idx)
+      if (openBracket == null) return Str[,]
+      closeBracket := content.index("]", openBracket)
+      if (closeBracket == null) return Str[,]
+
+      depList := content[openBracket + 1 ..< closeBracket]
+      result := Str[,]
+      depList.split(',').each |part|
+      {
+        cleaned := part.trim.replace("`", "").replace("\"", "").replace("'", "").trim
+        if (cleaned.isEmpty) return
+        // Strip version: "sys 1.0" → "sys"
+        spaceIdx := cleaned.index(" ")
+        name := spaceIdx != null ? cleaned[0 ..< spaceIdx].trim : cleaned
+        if (name.size > 0) result.add(name)
+      }
+      return result
+    }
+    catch (Err e) { return Str[,] }
+  }
+
+  **
+  ** Parse the 'children' list from a build.all (BuildGroup) file.
+  ** Returns the child directories as File objects.
+  **
+  private File[] parseBuildAllChildren(Str content, File rootDir)
+  {
+    try
+    {
+      idx := content.index("children")
+      if (idx == null) return File[,]
+      openBracket := content.index("[", idx)
+      if (openBracket == null) return File[,]
+      closeBracket := content.index("]", openBracket)
+      if (closeBracket == null) return File[,]
+
+      childList := content[openBracket + 1 ..< closeBracket]
+      result := File[,]
+      childList.split(',').each |part|
+      {
+        cleaned := part.trim.replace("`", "").replace("\"", "").replace("'", "").trim
+        if (cleaned.isEmpty) return
+        childDir := rootDir.plus(Uri.decode(cleaned), false)
+        if (childDir.exists && childDir.isDir)
+          result.add(childDir)
+      }
+      return result
+    }
+    catch (Err e) { return File[,] }
+  }
+
+  **
+  ** Return true if this directory name should be skipped during pod discovery.
+  **
+  private static Bool isPodDiscoverySkippedDir(Str name)
+  {
+    // Skip VCS directories
+    if (name == ".git" || name == ".hg" || name == ".svn") return true
+    // Skip JS package directories
+    if (name == "node_modules") return true
+    // Skip Fantom lib directory (contains compiled .pod files, not source)
+    if (name == "lib") return true
+    // Skip any hidden directories
+    if (name.startsWith(".")) return true
+    return false
+  }
+
   // ---- Private: Utilities ----
 
   private Int countChar(Str line, Int ch)
@@ -1602,4 +1849,34 @@ class FileIndex
   Str source := ""
   IndexedSymbol[] symbols := IndexedSymbol[,]
   Str[] usingPods := Str[,]
+}
+
+**************************************************************************
+** PodInfo
+**************************************************************************
+
+**
+** PodInfo holds metadata about a single Fantom pod discovered in the workspace.
+** One PodInfo is created per build.fan file found during workspace initialisation.
+**
+class PodInfo
+{
+  ** Directory that contains this pod's build.fan
+  File baseDir := File.os(".")
+
+  ** The build.fan file for this pod
+  File buildFan := File.os(".")
+
+  ** Pod name parsed from build.fan (podName = "...")
+  Str? podName
+
+  ** Source directories parsed from build.fan (srcDirs = [...])
+  Uri[] srcDirs := Uri[,]
+
+  ** Dependency pod names parsed from build.fan (depends = [...])
+  ** Version numbers are stripped: "sys 1.0" -> "sys"
+  Str[] depends := Str[,]
+
+  ** All .fan source files collected from srcDirs, plus the build.fan itself
+  File[] sourceFiles := File[,]
 }

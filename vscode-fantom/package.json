@@ -21,6 +21,8 @@
     "onLanguage:fantom",
     "workspaceContains:build.fan",
     "workspaceContains:*/build.fan",
+    "workspaceContains:**/build.fan",
+    "workspaceContains:build.all",
     "workspaceContains:fan.config.json"
   ],
   "main": "./out/extension.js",

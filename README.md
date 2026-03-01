@@ -35,10 +35,9 @@ This extension brings a rich developer experience to Fantom projects inside VSCo
 
 ### 🔜 Coming Soon / Not Yet Implemented
 
-| Feature                         | Notes                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------- |
-| 📂 **Multi-project workspaces** | Support for monorepos with multiple `build.fan` files at different levels |
-| 🐛 **Debugger**                 | A Fantom debug adapter is in the works — coming very soon!                |
+| Feature         | Notes                                                      |
+| --------------- | ---------------------------------------------------------- |
+| 🐛 **Debugger** | A Fantom debug adapter is in the works — coming very soon! |
 
 ---
 

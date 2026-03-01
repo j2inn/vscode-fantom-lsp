@@ -473,9 +473,9 @@ class LspServer
     // Warn if the file is not part of the indexed project
     if (!projectIndex.isProjectFile(item.uri))
     {
-      reason := projectIndex.baseDir == null
-        ? "no build.fan found in workspace"
-        : "file is outside srcDirs in build.fan"
+      reason := projectIndex.pods.isEmpty
+        ? "no build.fan files found in workspace"
+        : "file is outside all pod srcDirs"
       showMessage("Fantom LSP: ${item.uri} is not indexed ($reason). Diagnostics may be inaccurate.", 2)
     }
   }
@@ -545,10 +545,10 @@ class LspServer
     doc := docMgr.get(uri)
     if (doc != null)
     {
-      // Full re-index + cross-file validation for all files + build.
+      // Full re-index + cross-file validation for all files + pod-level build.
       projectIndex.indexAll
       dependentErrorFiles := analyzeAndValidateAllFiles
-      runBuild(dependentErrorFiles)
+      runBuild(dependentErrorFiles, false, uri)
     }
   }
 
@@ -619,12 +619,42 @@ class LspServer
   ** showPopups controls whether error/warning notification popups are shown;
   ** pass true only at initial boot so that saves and file-structure changes
   ** don't produce repeated popups.
+  ** activeUri is the URI of the file being saved; when set the build is
+  ** scoped to that file's pod (pod-level build). When null the primary pod
+  ** (or build.all if present) is used.
   **
-  private Void runBuild(Str[] dependentErrorFiles := Str[,], Bool showPopups := false)
+  private Void runBuild(Str[] dependentErrorFiles := Str[,], Bool showPopups := false, Str? activeUri := null)
   {
-    if (projectIndex.baseDir == null) return
+    // Resolve which build.fan to run:
+    //  1. Pod-level: find the pod that owns the active file.
+    //  2. Workspace build.all (root orchestrator) if present.
+    //  3. Primary pod's build.fan (backward-compat single-pod behaviour).
+    buildFan := null as File
+    buildDir := null as File
 
-    buildFan := projectIndex.baseDir + `build.fan`
+    if (activeUri != null)
+    {
+      buildFan = projectIndex.buildFanForFile(activeUri)
+      if (buildFan != null) buildDir = buildFan.parent
+    }
+
+    if (buildFan == null)
+    {
+      root := projectIndex.workspaceRoot
+      if (root != null)
+      {
+        candidate := root + `build.all`
+        if (candidate.exists) { buildFan = candidate; buildDir = root }
+      }
+    }
+
+    if (buildFan == null)
+    {
+      if (projectIndex.baseDir == null) return
+      buildFan = projectIndex.baseDir + `build.fan`
+      buildDir = projectIndex.baseDir
+    }
+
     if (!buildFan.exists) return
 
     // Determine fan executable (use fan.bat on Windows)
@@ -646,7 +676,7 @@ class LspServer
       {
         outStream := tmpFile.out
         p := Process(args)
-        p.dir = projectIndex.baseDir
+        p.dir = buildDir
         p.mergeErr = true
         p.out = outStream
         p.run
