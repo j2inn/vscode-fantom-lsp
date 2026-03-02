@@ -144,6 +144,7 @@ function isFantomProject(): boolean {
   for (const folder of folders) {
     if (fs.existsSync(path.join(folder.uri.fsPath, 'fan.config.json'))) { return true; }
     if (fs.existsSync(path.join(folder.uri.fsPath, 'build.fan'))) { return true; }
+    if (fs.existsSync(path.join(folder.uri.fsPath, 'build.all'))) { return true; }
 
     // Check for .fan files in root
     try {
