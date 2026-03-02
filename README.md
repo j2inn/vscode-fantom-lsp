@@ -215,14 +215,6 @@ cd vscode-fantom && npm run test:grammar
 
 ---
 
-## ☕ Support
-
-If this extension saves you time and you'd like to say thanks, a coffee is always appreciated! 👻
-
-[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](paypal.me/AndreaTGiusti)
-
----
-
 ## 📜 License
 
 [Academic Free License 3.0](https://opensource.org/licenses/AFL-3.0)
