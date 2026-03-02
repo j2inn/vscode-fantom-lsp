@@ -2,7 +2,6 @@
 
 [![License: AFL-3.0](https://img.shields.io/badge/license-AFL--3.0-blue?style=flat-square)](https://opensource.org/licenses/AFL-3.0)
 [![AI assisted](https://img.shields.io/badge/AI%20assisted-Qwen2.5%20Coder-6B6EF9?style=flat-square&logo=openai&logoColor=white)](https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct)
-[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-PayPal-00457C?style=flat-square&logo=paypal&logoColor=white)](paypal.me/AndreaTGiusti)
 
 > **Unofficial** Language Server Protocol support for [Fantom](https://fantom.org/) in Visual Studio Code.
 
