@@ -27,6 +27,15 @@ class DiagnosticService
 
   ** Fingerprint of the using statements that produced usingPodIdx
   private Str? usingPodFingerprint := null
+
+  ** Validation collaborators (moved to dedicated files under services/diagnostic)
+  private DiagnosticCrossFileValidator crossFileValidator := DiagnosticCrossFileValidator()
+  private DiagnosticMethodParamValidator methodParamValidator := DiagnosticMethodParamValidator()
+  private DiagnosticUnusedUsingValidator unusedUsingValidator := DiagnosticUnusedUsingValidator()
+  private DiagnosticPedanticValidator pedanticValidator := DiagnosticPedanticValidator()
+  private DiagnosticNullableUsageValidator nullableUsageValidator := DiagnosticNullableUsageValidator()
+  private DiagnosticUnusedVarValidator unusedVarValidator := DiagnosticUnusedVarValidator()
+  private DiagnosticDuplicateConstValidator duplicateConstValidator := DiagnosticDuplicateConstValidator()
   **
   ** Analyze source code and return diagnostics for a single file.
   ** Filters errors about types/variables that exist in the project index,
@@ -34,6 +43,28 @@ class DiagnosticService
   **
   LspDiagnostic[] analyze(Str uri, Str source, ProjectIndex index, Bool pedanticMode := false, Bool enableUnusedImport := true)
   {
+    request := DiagnosticAnalyzeRequestBuilder()
+      .withUri(uri)
+      .withSource(source)
+      .withIndex(index)
+      .withPedanticMode(pedanticMode)
+      .withEnableUnusedImport(enableUnusedImport)
+      .build
+
+    return analyzeRequest(request)
+  }
+
+  **
+  ** Analyze source code using a builder-created request object.
+  **
+  LspDiagnostic[] analyzeRequest(DiagnosticAnalyzeRequest request)
+  {
+    uri := request.uri
+    source := request.source
+    index := request.index
+    pedanticMode := request.pedanticMode
+    enableUnusedImport := request.enableUnusedImport
+
     diagnostics := LspDiagnostic[,]
 
     // Reset per-analysis state
@@ -86,14 +117,18 @@ class DiagnosticService
           // full pod compilation resolves it correctly.
           severity := err.msg.startsWith("Ambiguous type")
             ? DiagnosticSeverity.warning : DiagnosticSeverity.error
-          diagnostics.add(compilerErrToDiagnostic(err, severity))
+          range := LspUtil.locToRange(err.loc)
+          diagnostics.add(LspDiagnostic(range, severity, err.msg, "fantom"))
         }
       }
 
       compiler.warns.each |warn|
       {
         if (!isProjectTypeFalsePositive(warn, index, lines, baseTypes))
-          diagnostics.add(compilerErrToDiagnostic(warn, DiagnosticSeverity.warning))
+        {
+          range := LspUtil.locToRange(warn.loc)
+          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning, warn.msg, "fantom"))
+        }
       }
     }
     catch (Err e)
@@ -105,7 +140,7 @@ class DiagnosticService
     // references point to members that actually exist in the index.
     try
     {
-      crossFileErrs := validateCrossFileReferences(source, index)
+      crossFileErrs := crossFileValidator.validateCrossFileReferences(source, index)
       diagnostics.addAll(crossFileErrs)
     }
     catch (Err e)
@@ -117,7 +152,7 @@ class DiagnosticService
     // have the correct number of arguments.
     try
     {
-      paramErrs := validateMethodParams(source, index)
+      paramErrs := methodParamValidator.validateMethodParams(source, index)
       diagnostics.addAll(paramErrs)
     }
     catch (Err e)
@@ -131,7 +166,7 @@ class DiagnosticService
     {
       try
       {
-        unusedDiags := checkUnusedUsings(source)
+        unusedDiags := unusedUsingValidator.checkUnusedUsings(source)
         diagnostics.addAll(unusedDiags)
       }
       catch (Err e)
@@ -145,7 +180,7 @@ class DiagnosticService
     {
       try
       {
-        pedanticDiags := checkUntypedDeclarations(source)
+        pedanticDiags := pedanticValidator.checkUntypedDeclarations(source)
         diagnostics.addAll(pedanticDiags)
       }
       catch (Err e)
@@ -157,7 +192,7 @@ class DiagnosticService
     // Unused variable / private field check
     try
     {
-      unusedDiags := checkUnusedVars(source)
+      unusedDiags := unusedVarValidator.checkUnusedVars(source)
       diagnostics.addAll(unusedDiags)
     }
     catch (Err e)
@@ -168,7 +203,7 @@ class DiagnosticService
     // Nullable usage check: warn when a nullable variable is used without a null guard
     try
     {
-      nullableDiags := checkNullableUsage(source)
+      nullableDiags := nullableUsageValidator.checkNullableUsage(source)
       diagnostics.addAll(nullableDiags)
     }
     catch (Err e)
@@ -785,6 +820,28 @@ class DiagnosticService
   }
 
   **
+  ** Find the matching closing parenthesis, handling nesting.
+  **
+  private Int? findMatchingParen(Str line, Int openPos)
+  {
+    depth := 0
+    inStr := false
+    for (i := openPos; i < line.size; i++)
+    {
+      ch := line[i]
+      if (ch == '"' && !inStr) inStr = true
+      else if (ch == '"' && inStr) inStr = false
+      else if (ch == '\\' && inStr) { i++; continue }
+      if (!inStr)
+      {
+        if (ch == '(' || ch == '[') depth++
+        else if (ch == ')' || ch == ']') { depth--; if (depth == 0) return i }
+      }
+    }
+    return null
+  }
+
+  **
   ** Replace project types in a single inheritance line.
   ** "class Foo : ProjectBase {" → "class Foo : Obj {"
   **
@@ -1168,152 +1225,12 @@ class DiagnosticService
   **
   LspDiagnostic[] validateCrossFileReferences(Str source, ProjectIndex index)
   {
-    diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
-
-    for (i := 0; i < lines.size; i++)
-    {
-      line := lines[i]
-      trimmed := line.trim
-
-      // Skip comment lines
-      if (trimmed.startsWith("//") || trimmed.startsWith("**")) continue
-      // Skip import lines
-      if (trimmed.startsWith("using ")) continue
-      // Skip class/mixin declaration lines (inheritance handled elsewhere)
-      if (trimmed.startsWith("class ") || trimmed.startsWith("mixin ")) continue
-
-      // Scan for TypeName.memberName patterns
-      pos := 0
-      while (pos < line.size)
-      {
-        // Skip string literals
-        if (line[pos] == '"')
-        {
-          pos++
-          while (pos < line.size && line[pos] != '"')
-          {
-            if (line[pos] == '\\') pos++  // skip escaped char
-            pos++
-          }
-          pos++
-          continue
-        }
-
-        // Skip Uri literals (backtick-delimited strings)
-        if (line[pos] == '`')
-        {
-          pos++
-          while (pos < line.size && line[pos] != '`')
-          {
-            if (line[pos] == '\\') pos++
-            pos++
-          }
-          pos++
-          continue
-        }
-
-        // Skip single-line comments
-        if (pos + 1 < line.size && line[pos] == '/' && line[pos + 1] == '/')
-          break
-
-        // Look for an uppercase letter that could start a type name
-        if (line[pos].isUpper)
-        {
-          // Extract the identifier
-          nameStart := pos
-          while (pos < line.size && (line[pos].isAlphaNum || line[pos] == '_'))
-            pos++
-          typeName := line[nameStart ..< pos]
-
-          // Must be followed by a dot
-          if (pos < line.size && line[pos] == '.')
-          {
-            dotPos := pos
-            pos++
-
-            // Must be followed by an identifier (member name)
-            if (pos < line.size && (line[pos].isAlpha || line[pos] == '_'))
-            {
-              memberStart := pos
-              while (pos < line.size && (line[pos].isAlphaNum || line[pos] == '_'))
-                pos++
-              memberName := line[memberStart ..< pos]
-
-              // Check: is typeName a project type with the member missing?
-              if (index.hasType(typeName) && !index.hasMember(typeName, memberName))
-              {
-                // Don't flag well-known patterns that aren't member access:
-                // - Type.make (constructor), Type.fromStr, etc. from Obj
-                // - Following by # (type literal, already handled)
-                if (!isBuiltinSlot(memberName) &&
-                    !(index.isEnumType(typeName) && isEnumBuiltinSlot(memberName)))
-                {
-                  // Check if the member might be inherited from a project base type
-                  baseTypes := index.getBaseTypeChain(typeName)
-                  memberInherited := baseTypes.any |bt| { index.hasMember(bt, memberName) }
-
-                  // If not found in project base types, check if there's an external
-                  // base type that could provide the member (we can't verify those)
-                  if (!memberInherited)
-                  {
-                    externalBase := index.findResolvableBaseType(typeName)
-                    if (externalBase != null) memberInherited = true
-                  }
-
-                  if (!memberInherited)
-                  {
-                    col := nameStart
-                    range := LspRange(
-                      LspPosition(i, col),
-                      LspPosition(i, col + typeName.size + 1 + memberName.size)
-                    )
-                    diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.error,
-                      "'${memberName}' is not a member of '${typeName}'", "fantom"))
-                  }
-                }
-              }
-            }
-          }
-          continue
-        }
-        pos++
-      }
-    }
-    return diagnostics
-  }
-
-  ** Built-in slots inherited from Obj/Enum that types commonly have
-  private static const Str[] builtinSlots := [
-    "make", "typeof", "toStr", "hash", "equals",
-    "compare", "with", "trap", "isImmutable", "toImmutable",
-    "type", "fromStr", "defVal"
-  ]
-
-  ** Slots that only enum types inherit (compiler-generated)
-  private static const Str[] enumBuiltinSlots := [
-    "vals", "fromStr", "name", "ordinal"
-  ]
-
-  private Bool isBuiltinSlot(Str name) { builtinSlots.contains(name) }
-
-  private Bool isEnumBuiltinSlot(Str name) { enumBuiltinSlots.contains(name) }
-
-  **
-  ** Convert CompilerErr to LSP Diagnostic
-  **
-  private LspDiagnostic compilerErrToDiagnostic(CompilerErr err, Int severity)
-  {
-    range := LspUtil.locToRange(err.loc)
-    return LspDiagnostic(range, severity, err.msg, "fantom")
+    return crossFileValidator.validateCrossFileReferences(source, index)
   }
 
   // ==================================================================
   // Method Parameter Validation
   // ==================================================================
-
-  ** Completion definitions for looking up method signatures
-  private const CompletionDefs defs := CompletionDefs.cur
 
   **
   ** Validate method calls have the correct number of parameters.
@@ -1322,259 +1239,7 @@ class DiagnosticService
   **
   private LspDiagnostic[] validateMethodParams(Str source, ProjectIndex index)
   {
-    diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
-
-    for (i := 0; i < lines.size; i++)
-    {
-      line := lines[i]
-      trimmed := line.trim
-
-      // Skip comments and blank lines
-      if (trimmed.isEmpty || trimmed.startsWith("//") || trimmed.startsWith("**")) continue
-      if (trimmed.startsWith("using ")) continue
-
-      // Find method call patterns: varName.methodName(...)
-      calls := findMethodCalls(line)
-      lineIdx := i
-      calls.each |call|
-      {
-        // Skip static type calls (TypeName.method) — these are calls on
-        // types, not instances. The method signatures may differ from what
-        // YML defines for instances (e.g., NavTree.find vs List.find).
-        if (call.varName.size > 0 && call.varName[0].isUpper) return
-
-        // Resolve the variable's type
-        typeName := resolveVarType(call.varName, source, lineIdx, index)
-        if (typeName == null) return
-
-        // Look up the type's completions in YML
-        items := defs.itemsFor(typeName)
-        if (items == null) return
-
-        // Find the method definition
-        methodItem := items.find |item| { item.label == call.methodName }
-        if (methodItem == null) return
-        if (methodItem.detail == null) return
-
-        // Parse expected parameter count from the detail string
-        paramInfo := parseMethodParams(methodItem.detail)
-        if (paramInfo == null) return
-
-        // Count actual arguments
-        actualCount := call.argCount
-        // If there's a trailing closure after the parens, add it
-        if (call.hasTrailingClosure) actualCount++
-
-        // Validate
-        if (actualCount < paramInfo.minArgs)
-        {
-          col := call.callStart
-          endCol := call.callEnd.min(line.size)
-          range := LspRange(LspPosition(lineIdx, col), LspPosition(lineIdx, endCol))
-          expected := paramInfo.minArgs == paramInfo.maxArgs
-            ? "${paramInfo.minArgs}" : "${paramInfo.minArgs}-${paramInfo.maxArgs}"
-          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.error,
-            "'${call.methodName}' expects ${expected} argument(s), but got ${actualCount}", "fantom"))
-        }
-        else if (actualCount > paramInfo.maxArgs)
-        {
-          col := call.callStart
-          endCol := call.callEnd.min(line.size)
-          range := LspRange(LspPosition(lineIdx, col), LspPosition(lineIdx, endCol))
-          expected := paramInfo.minArgs == paramInfo.maxArgs
-            ? "${paramInfo.minArgs}" : "${paramInfo.minArgs}-${paramInfo.maxArgs}"
-          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.error,
-            "'${call.methodName}' expects ${expected} argument(s), but got ${actualCount}", "fantom"))
-        }
-      }
-    }
-
-    return diagnostics
-  }
-
-  **
-  ** Find all var.method(args) call patterns in a line.
-  ** Returns a list of MethodCall descriptors.
-  **
-  private MethodCall[] findMethodCalls(Str line)
-  {
-    calls := MethodCall[,]
-    pos := 0
-
-    while (pos < line.size)
-    {
-      // Skip string literals
-      if (line[pos] == '"')
-      {
-        pos++
-        while (pos < line.size && line[pos] != '"')
-        {
-          if (line[pos] == '\\') pos++
-          pos++
-        }
-        pos++
-        continue
-      }
-
-      // Skip Uri literals (backtick-delimited strings)
-      if (line[pos] == '`')
-      {
-        pos++
-        while (pos < line.size && line[pos] != '`')
-        {
-          if (line[pos] == '\\') pos++
-          pos++
-        }
-        pos++
-        continue
-      }
-
-      // Skip comments
-      if (pos + 1 < line.size && line[pos] == '/' && line[pos + 1] == '/')
-        break
-
-      // Look for identifier.identifier( pattern
-      if (line[pos].isAlpha || line[pos] == '_')
-      {
-        // Extract first identifier (variable name)
-        varStart := pos
-        while (pos < line.size && (line[pos].isAlphaNum || line[pos] == '_'))
-          pos++
-        varName := line[varStart ..< pos]
-
-        // Check for dot
-        if (pos < line.size && line[pos] == '.')
-        {
-          pos++ // skip dot
-
-          // Extract method name
-          if (pos < line.size && (line[pos].isAlpha || line[pos] == '_'))
-          {
-            methodStart := pos
-            while (pos < line.size && (line[pos].isAlphaNum || line[pos] == '_'))
-              pos++
-            methodName := line[methodStart ..< pos]
-
-            // Skip if method name starts with uppercase (it's a type access, not method call on var)
-            if (methodName.size > 0 && methodName[0].isLower)
-            {
-              // Check what follows: ( or space+| (trailing closure) or nothing
-              restPos := pos
-              while (restPos < line.size && line[restPos].isSpace) restPos++
-
-              if (restPos < line.size && line[restPos] == '(')
-              {
-                // Has parenthesized arguments
-                parenStart := restPos
-                parenEnd := findMatchingParen(line, parenStart)
-                if (parenEnd != null)
-                {
-                  argStr := line[parenStart + 1 ..< parenEnd].trim
-                  argCount := argStr.isEmpty ? 0 : countArgs(argStr)
-                  callEnd := parenEnd + 1
-
-                  // Check for trailing closure after parens.
-                  // A single '|' starts a closure; '||' is logical OR — not a closure.
-                  afterParen := callEnd
-                  while (afterParen < line.size && line[afterParen].isSpace) afterParen++
-                  hasClosure := afterParen < line.size && line[afterParen] == '|' &&
-                                (afterParen + 1 >= line.size || line[afterParen + 1] != '|')
-
-                  calls.add(MethodCall {
-                    it.varName = varName
-                    it.methodName = methodName
-                    it.argCount = argCount
-                    it.hasTrailingClosure = hasClosure
-                    it.callStart = varStart
-                    it.callEnd = callEnd
-                  })
-                  pos = callEnd
-                }
-              }
-              else if (restPos < line.size && line[restPos] == '|' &&
-                       (restPos + 1 >= line.size || line[restPos + 1] != '|'))
-              {
-                // Trailing closure only (no parens): var.method |x| { }
-                calls.add(MethodCall {
-                  it.varName = varName
-                  it.methodName = methodName
-                  it.argCount = 0
-                  it.hasTrailingClosure = true
-                  it.callStart = varStart
-                  it.callEnd = pos
-                })
-              }
-              // else: no parens, no closure - property access or no-arg call, skip
-            }
-          }
-        }
-        continue
-      }
-      pos++
-    }
-
-    return calls
-  }
-
-  **
-  ** Find the matching closing parenthesis, handling nesting.
-  **
-  private Int? findMatchingParen(Str line, Int openPos)
-  {
-    depth := 0
-    inStr := false
-    for (i := openPos; i < line.size; i++)
-    {
-      ch := line[i]
-      if (ch == '"' && !inStr) inStr = true
-      else if (ch == '"' && inStr) inStr = false
-      else if (ch == '\\' && inStr) { i++; continue }
-      if (!inStr)
-      {
-        if (ch == '(' || ch == '[') depth++
-        else if (ch == ')' || ch == ']') { depth--; if (depth == 0) return i }
-      }
-    }
-    return null
-  }
-
-  **
-  ** Count the number of arguments in an argument string.
-  ** Handles nested parens, brackets, closures, and string literals.
-  **
-  private Int countArgs(Str argStr)
-  {
-    if (argStr.trim.isEmpty) return 0
-    depth := 0
-    pipeDepth := 0
-    inStr := false
-    count := 1
-
-    for (i := 0; i < argStr.size; i++)
-    {
-      ch := argStr[i]
-      if (ch == '"' && !inStr) inStr = true
-      else if (ch == '"' && inStr) inStr = false
-      else if (ch == '\\' && inStr) { i++; continue }
-      if (inStr) continue
-
-      if (ch == '(' || ch == '[' || ch == '{') depth++
-      else if (ch == ')' || ch == ']' || ch == '}') depth--
-      else if (ch == '|') pipeDepth = pipeDepth == 0 ? 1 : 0
-      else if (ch == ',' && depth == 0 && pipeDepth == 0) count++
-    }
-    return count
-  }
-
-  **
-  ** Resolve a variable's type by scanning source for declarations.
-  ** Simplified version that handles common patterns.
-  **
-  ** Delegate to shared TypeResolver utility
-  private Str? resolveVarType(Str varName, Str source, Int currentLine, ProjectIndex index)
-  {
-    return TypeResolver.resolveVarType(varName, source, currentLine, index)
+    return methodParamValidator.validateMethodParams(source, index)
   }
 
   **
@@ -1588,100 +1253,7 @@ class DiagnosticService
   **
   private LspDiagnostic[] checkUnusedUsings(Str source)
   {
-    diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
-
-    for (i := 0; i < lines.size; i++)
-    {
-      line := lines[i]
-      trimmed := line.trim
-      if (!trimmed.startsWith("using ")) continue
-
-      rest := trimmed["using ".size..-1].trim
-      if (rest.contains("[java]")) continue
-
-      colonIdx := rest.index("::")
-      if (colonIdx != null)
-      {
-        // --- Specific type import: "using pod::TypeName" ---
-        typeName := rest[colonIdx + 2..-1].trim
-        if (typeName.isEmpty || !typeName[0].isUpper) continue
-
-        // Strip "as Alias" suffix
-        spaceIdx := typeName.index(" ")
-        if (spaceIdx != null) typeName = typeName[0..<spaceIdx]
-
-        if (!isTypeUsedInSource(typeName, lines, i))
-        {
-          range := LspRange(LspPosition(i, 0), LspPosition(i, line.size))
-          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
-            "Unused import '${typeName}'", "fantom"))
-        }
-      }
-      else
-      {
-        // --- Whole-pod import: "using pod" ---
-        podName := rest
-        spaceIdx := podName.index(" ")
-        if (spaceIdx != null) podName = podName[0..<spaceIdx]
-        if (podName == "sys") continue  // sys is always implicitly available
-
-        // Only check if we can actually load the pod (already cached by usingPodIdx)
-        pod := Pod.find(podName, false)
-        if (pod == null) continue
-
-        // Warn if no public type from the pod is referenced in the source
-        anyUsed := pod.types.any |t|
-        {
-          t.isPublic && isTypeUsedInSource(t.name, lines, i)
-        }
-        if (!anyUsed)
-        {
-          range := LspRange(LspPosition(i, 0), LspPosition(i, line.size))
-          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
-            "Unused import '${podName}'", "fantom"))
-        }
-      }
-    }
-
-    return diagnostics
-  }
-
-  **
-  ** Check whether typeName appears as a whole identifier in any source line
-  ** other than the using line at usingLineIdx.
-  **
-  private Bool isTypeUsedInSource(Str typeName, Str[] lines, Int usingLineIdx)
-  {
-    for (i := 0; i < lines.size; i++)
-    {
-      if (i == usingLineIdx) continue
-      line := lines[i].trim
-      if (line.startsWith("using ")) continue
-      if (line.startsWith("//") || line.startsWith("**") || line.startsWith("*")) continue
-      if (containsIdentifier(line, typeName)) return true
-    }
-    return false
-  }
-
-  **
-  ** Return true if word appears as a complete identifier (respecting _ boundaries)
-  ** anywhere in line.
-  **
-  private Bool containsIdentifier(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return false
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return true
-      idx = found + 1
-    }
-    return false
+    return unusedUsingValidator.checkUnusedUsings(source)
   }
 
   **
@@ -1691,111 +1263,7 @@ class DiagnosticService
   **
   private LspDiagnostic[] checkUntypedDeclarations(Str source)
   {
-    diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
-
-    for (i := 0; i < lines.size; i++)
-    {
-      line := lines[i]
-      trimmed := line.trim
-
-      // Skip comments, blank lines, using statements
-      if (trimmed.isEmpty || trimmed.startsWith("//") ||
-          trimmed.startsWith("**") || trimmed.startsWith("*") ||
-          trimmed.startsWith("using ")) continue
-
-      // Find := operator
-      walrusIdx := trimmed.index(":=")
-      if (walrusIdx == null) continue
-
-      // Skip for-loop init clauses: "for (i := 0; ...)"
-      if (trimmed.startsWith("for ") || trimmed.startsWith("for(")) continue
-      // Skip catch blocks: "catch (Err e)"
-      if (trimmed.startsWith("catch ") || trimmed.startsWith("catch(")) continue
-
-      // Get left side (before :=) and right side (after :=)
-      lhs := trimmed[0..<walrusIdx].trim
-      rhs := trimmed[walrusIdx + 2 ..-1].trim
-
-      // Skip if empty LHS or RHS
-      if (lhs.isEmpty || rhs.isEmpty) continue
-
-      // Check if there is an explicit type on the left side.
-      // Strip modifiers, then check if first word starts with uppercase (a type).
-      stripped := lhs
-      modifiers := ["public", "private", "protected", "internal",
-                    "static", "const", "final", "abstract",
-                    "virtual", "override", "native", "once", "readonly"]
-      modifiers.each |mod|
-      {
-        while (stripped.startsWith("${mod} "))
-          stripped = stripped[mod.size + 1 ..-1].trim
-      }
-
-      // If remaining LHS has at least two words, and the first starts
-      // with uppercase, it has an explicit type (e.g. "Str name")
-      words := stripped.split(' ').findAll |w| { !w.isEmpty }
-      hasExplicitType := words.size >= 2 && words[0].size > 0 && words[0][0].isUpper
-
-      if (hasExplicitType) continue
-
-      // Check if RHS has "as" cast
-      if (rhs.contains(" as ")) continue
-
-      // Get the variable name (last word on LHS)
-      varName := words.size >= 1 ? words[-1] : lhs
-
-      // Find the := position in the original line for accurate range
-      origWalrus := line.index(":=")
-      if (origWalrus == null) continue
-
-      varStart := line.index(varName)
-      if (varStart == null) varStart = 0
-
-      range := LspRange(
-        LspPosition(i, varStart),
-        LspPosition(i, origWalrus + 2)
-      )
-      diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
-        "'${varName}' declared without explicit type", "fantom-pedantic"))
-    }
-
-    return diagnostics
-  }
-
-  **
-  ** Parse method signature from the detail string to get parameter info.
-  ** E.g. "L add(V val)" -> min=1, max=1
-  **      "Void each(|V,Int| c)" -> min=1, max=1 (closure counts as 1)
-  **      "V? getSafe(Int index, V? def := null)" -> min=1, max=2
-  **      "V? first()" -> min=0, max=0
-  **      "Int size" -> null (field, not method)
-  **
-  private MethodParamInfo? parseMethodParams(Str detail)
-  {
-    // Find the parameter list between ( and )
-    parenOpen := detail.index("(")
-    if (parenOpen == null) return null // field, no parens
-
-    parenClose := detail.indexr(")")
-    if (parenClose == null) return null
-
-    paramStr := detail[parenOpen + 1 ..< parenClose].trim
-    if (paramStr.isEmpty) return MethodParamInfo { it.minArgs = 0; it.maxArgs = 0 }
-
-    // Split parameters, respecting nested | for closure types
-    params := splitParams(paramStr)
-    minArgs := 0
-    maxArgs := params.size
-
-    params.each |p|
-    {
-      trimP := p.trim
-      // Optional param: has ":= " default value
-      if (!trimP.contains(":=")) minArgs++
-    }
-
-    return MethodParamInfo { it.minArgs = minArgs; it.maxArgs = maxArgs }
+    return pedanticValidator.checkUntypedDeclarations(source)
   }
 
   **
@@ -1806,301 +1274,7 @@ class DiagnosticService
   **
   private LspDiagnostic[] checkNullableUsage(Str source)
   {
-    diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
-
-    // Per-method state (reset on each new method signature)
-    nullableVars := Str:Bool[:]    // vars declared as Type? — potentially null
-    safeVars := Str:Bool[:]        // vars confirmed non-null via guard (if x==null return)
-    condSafeDepths := Str:Int[:]   // vars safe inside an if(x!=null){} block → min brace depth
-    braceDepth := 0
-    inMethodBody := false
-
-    for (i := 0; i < lines.size; i++)
-    {
-      line := lines[i]
-      trimmed := line.trim
-
-      if (trimmed.isEmpty || trimmed.startsWith("//") ||
-          trimmed.startsWith("**") || trimmed.startsWith("*")) continue
-
-      indent := 0
-      while (indent < line.size && line[indent] == ' ') indent++
-
-      // --- Class-body level (indent == 2): detect method signatures ---
-      if (indent == 2)
-      {
-        if (trimmed.contains("(") && !trimmed.startsWith("@") &&
-            !trimmed.startsWith("**") && !trimmed.startsWith("//"))
-        {
-          nullableVars = Str:Bool[:]
-          safeVars = Str:Bool[:]
-          condSafeDepths = Str:Int[:]
-          braceDepth = 0
-          inMethodBody = false
-          parseNullableParams(trimmed, nullableVars)
-        }
-        if (trimmed == "{") inMethodBody = true
-        if (trimmed == "}") inMethodBody = false
-        continue
-      }
-
-      if (!inMethodBody) continue
-
-      // Count braces on this line
-      opens := 0; closes := 0
-      for (ci := 0; ci < trimmed.size; ci++)
-      {
-        ch := trimmed[ci]
-        if (ch == '{') opens++
-        else if (ch == '}') closes++
-      }
-
-      // Apply opening braces first (so same-line "if (x!=null){" is at new depth)
-      braceDepth += opens
-
-      // --- Detect nullable local variable: "Type? varName :=" ---
-      walrusIdx := trimmed.index(":=")
-      if (walrusIdx != null && !trimmed.startsWith("for ") && !trimmed.startsWith("for("))
-      {
-        lhs := trimmed[0..<walrusIdx].trim
-        words := lhs.split(' ').findAll |w| { !w.isEmpty }
-        if (words.size >= 2)
-        {
-          typeWord := words[-2]
-          varName  := words[-1]
-          if (!typeWord.isEmpty && typeWord.endsWith("?") && typeWord[0].isUpper &&
-              !varName.isEmpty && varName[0].isLower)
-            nullableVars[varName] = true
-        }
-      }
-
-      // --- Detect null guard: "if (x == null) …" with early exit → x is safe ---
-      nullEqVar := extractNullEqualVar(trimmed)
-      if (nullEqVar != null && nullableVars.containsKey(nullEqVar) &&
-          !safeVars.containsKey(nullEqVar))
-      {
-        if (lineOrNextHasEarlyExit(lines, i))
-          safeVars[nullEqVar] = true
-      }
-
-      // --- Detect conditional safe: "if (x != null)" → x is safe inside the block ---
-      nullNeqVar := extractNullNotEqualVar(trimmed)
-      if (nullNeqVar != null && nullableVars.containsKey(nullNeqVar) &&
-          !safeVars.containsKey(nullNeqVar))
-      {
-        // If { is already on this line (braceDepth already incremented), use braceDepth;
-        // otherwise anticipate the next line's { by adding 1.
-        condSafeDepths[nullNeqVar] = opens > 0 ? braceDepth : braceDepth + 1
-      }
-
-      // --- Check for unsafe dot access on nullable vars ---
-      nullableVars.keys.each |varName|
-      {
-        if (safeVars.containsKey(varName)) return  // absolutely safe
-
-        // Conditionally safe inside an if(!=null) block?
-        if (condSafeDepths.containsKey(varName))
-        {
-          condDepth := condSafeDepths[varName] ?: 0
-          if (braceDepth >= condDepth) return
-        }
-
-        usageCol := findNullableUsage(line, varName)
-        if (usageCol != null)
-        {
-          range := LspRange(LspPosition(i, usageCol), LspPosition(i, usageCol + varName.size))
-          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
-            "'${varName}' might be null", "fantom"))
-        }
-      }
-
-      // Apply closing braces, then evict condSafe vars that left their scope.
-      // Only evict on closing-brace lines to avoid premature eviction on
-      // "if (x != null)" lines (where the { appears on the next line).
-      braceDepth -= closes
-      if (braceDepth < 0) braceDepth = 0
-
-      if (closes > 0)
-      {
-        toRemove := Str[,]
-        condSafeDepths.each |minDepth, varName|
-        {
-          if (braceDepth < minDepth) toRemove.add(varName)
-        }
-        toRemove.each |varName| { condSafeDepths.remove(varName) }
-      }
-    }
-
-    return diagnostics
-  }
-
-  **
-  ** Parse method/constructor parameters from a signature line and populate
-  ** nullableVars with any params declared as "Type? name".
-  **
-  private Void parseNullableParams(Str trimmedLine, Str:Bool nullableVars)
-  {
-    parenOpen := trimmedLine.index("(")
-    if (parenOpen == null) return
-    parenClose := trimmedLine.indexr(")")
-    if (parenClose == null || parenClose <= parenOpen) return
-
-    paramStr := trimmedLine[parenOpen + 1 ..< parenClose].trim
-    if (paramStr.isEmpty) return
-
-    paramStr.split(',').each |param|
-    {
-      p := param.trim
-      if (p.isEmpty) return
-
-      // Strip default value: "Type? name := default" → "Type? name"
-      defIdx := p.index(":=")
-      core := defIdx != null ? p[0..<defIdx].trim : p
-
-      parts := core.split(' ').findAll |w| { !w.isEmpty }
-      if (parts.size >= 2)
-      {
-        typeWord  := parts[0]
-        paramName := parts[-1]
-        if (!typeWord.isEmpty && typeWord.endsWith("?") && typeWord[0].isUpper &&
-            !paramName.isEmpty && paramName[0].isLower)
-          nullableVars[paramName] = true
-      }
-    }
-  }
-
-  **
-  ** Extract variable name from "varName == null" or "null == varName" pattern.
-  **
-  private Str? extractNullEqualVar(Str trimmed)
-  {
-    // "varName == null"
-    eqIdx := trimmed.index(" == null")
-    if (eqIdx != null && eqIdx > 0)
-    {
-      end := eqIdx
-      start := end - 1
-      while (start > 0 && LspUtil.isIdentifierChar(trimmed[start - 1])) start--
-      if (start < end)
-      {
-        varName := trimmed[start..<end]
-        if (!varName.isEmpty && varName[0].isLower) return varName
-      }
-    }
-    // "null == varName"
-    nullEqIdx := trimmed.index("null == ")
-    if (nullEqIdx != null)
-    {
-      start := nullEqIdx + "null == ".size
-      end := start
-      while (end < trimmed.size && LspUtil.isIdentifierChar(trimmed[end])) end++
-      if (start < end)
-      {
-        varName := trimmed[start..<end]
-        if (!varName.isEmpty && varName[0].isLower) return varName
-      }
-    }
-    return null
-  }
-
-  **
-  ** Extract variable name from "varName != null" or "null != varName" pattern.
-  **
-  private Str? extractNullNotEqualVar(Str trimmed)
-  {
-    // "varName != null"
-    neIdx := trimmed.index(" != null")
-    if (neIdx != null && neIdx > 0)
-    {
-      end := neIdx
-      start := end - 1
-      while (start > 0 && LspUtil.isIdentifierChar(trimmed[start - 1])) start--
-      if (start < end)
-      {
-        varName := trimmed[start..<end]
-        if (!varName.isEmpty && varName[0].isLower) return varName
-      }
-    }
-    // "null != varName"
-    nullNeIdx := trimmed.index("null != ")
-    if (nullNeIdx != null)
-    {
-      start := nullNeIdx + "null != ".size
-      end := start
-      while (end < trimmed.size && LspUtil.isIdentifierChar(trimmed[end])) end++
-      if (start < end)
-      {
-        varName := trimmed[start..<end]
-        if (!varName.isEmpty && varName[0].isLower) return varName
-      }
-    }
-    return null
-  }
-
-  **
-  ** Return true if the line at lineIdx or the first non-blank line after it
-  ** contains a method-exit keyword: return, throw, continue, or break.
-  **
-  private Bool lineOrNextHasEarlyExit(Str[] lines, Int lineIdx)
-  {
-    trimmed := lines[lineIdx].trim
-    if (trimmed.contains("return") || trimmed.contains("throw") ||
-        trimmed.contains("continue") || trimmed.contains("break"))
-      return true
-    for (j := lineIdx + 1; j < lines.size && j <= lineIdx + 3; j++)
-    {
-      next := lines[j].trim
-      if (next.isEmpty || next.startsWith("//") || next.startsWith("**")) continue
-      if (next.startsWith("return") || next.startsWith("throw") ||
-          next.startsWith("continue") || next.startsWith("break"))
-        return true
-      break
-    }
-    return false
-  }
-
-  **
-  ** Scan line for an unsafe "varName." dot access.
-  ** Returns the column of varName, or null if no unsafe usage is found.
-  ** Skips safe-navigation (?.), null-check contexts, and comment/string lines.
-  **
-  private Int? findNullableUsage(Str line, Str varName)
-  {
-    // Suppress the whole line if it contains any null comparison for this var
-    if (line.index("${varName} == null") != null ||
-        line.index("${varName} != null") != null ||
-        line.index("null == ${varName}") != null ||
-        line.index("null != ${varName}") != null ||
-        line.index("${varName} ?:") != null)
-      return null
-
-    idx := 0
-    while (true)
-    {
-      found := line.index(varName, idx)
-      if (found == null) return null
-
-      endPos := found + varName.size
-
-      // Word boundary before varName
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      if (!beforeOk) { idx = found + 1; continue }
-
-      // Must have a character after varName
-      if (endPos >= line.size) return null
-
-      nextChar := line[endPos]
-
-      // Safe-navigation operator: varName?. → no warning
-      if (nextChar == '?') { idx = found + 1; continue }
-
-      // Must be a plain dot access
-      if (nextChar != '.') { idx = found + 1; continue }
-
-      return found
-    }
-    return null
+    return nullableUsageValidator.checkNullableUsage(source)
   }
 
   **
@@ -2110,156 +1284,7 @@ class DiagnosticService
   **
   private LspDiagnostic[] checkUnusedVars(Str source)
   {
-    diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
-    modifierWords := ["public", "private", "protected", "internal",
-                      "static", "const", "final", "abstract",
-                      "virtual", "override", "native", "once", "readonly"]
-
-    for (i := 0; i < lines.size; i++)
-    {
-      line := lines[i]
-      trimmed := line.trim
-
-      // Skip blank lines and comments
-      if (trimmed.isEmpty || trimmed.startsWith("//") ||
-          trimmed.startsWith("**") || trimmed.startsWith("*")) continue
-
-      // Count leading spaces
-      indent := 0
-      while (indent < line.size && line[indent] == ' ') indent++
-
-      walrusIdx := trimmed.index(":=")
-
-      // --- Private field check ---
-      // Matches: "  private [modifiers] TypeName fieldName" or with := RHS
-      if (trimmed.startsWith("private "))
-      {
-        // Skip method declarations (they have parentheses in signature)
-        if (trimmed.contains("(")) continue
-
-        // Get declaration text (before := if present, else whole trimmed line)
-        fieldDecl := walrusIdx != null ? trimmed[0..<walrusIdx].trim : trimmed
-
-        // Skip accessor blocks: "private Str name { get { ... } }"
-        if (fieldDecl.contains("{")) continue
-
-        // Strip "private " prefix and all modifiers
-        stripped := fieldDecl["private ".size..-1].trim
-        modifierWords.each |mod|
-        {
-          while (stripped.startsWith("${mod} "))
-            stripped = stripped[mod.size + 1 ..-1].trim
-        }
-
-        // Need at least "TypeName fieldName" (2 words: type + name)
-        words := stripped.split(' ').findAll |w| { !w.isEmpty }
-        if (words.size < 2) continue
-
-        // Field name is last word, must start lowercase
-        fieldName := words[-1]
-        if (fieldName.isEmpty || !fieldName[0].isLower) continue
-        if (fieldName == "_" || fieldName == "it" || fieldName.startsWith("_")) continue
-
-        // Warn if name never appears elsewhere in the file
-        if (!isNameUsedInFile(lines, fieldName, i))
-        {
-          col := findIdentifierPos(line, fieldName) ?: 0
-          range := LspRange(LspPosition(i, col), LspPosition(i, col + fieldName.size))
-          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
-            "'${fieldName}' is declared but never used", "fantom"))
-        }
-        continue
-      }
-
-      // --- Local variable check ---
-      // Matches simple "name := value" pattern (single word LHS, no modifiers)
-      if (walrusIdx != null && indent >= 4)
-      {
-        // Skip for-loop init and catch blocks
-        if (trimmed.startsWith("for ") || trimmed.startsWith("for(")) continue
-        if (trimmed.startsWith("catch ") || trimmed.startsWith("catch(")) continue
-
-        // Get LHS and strip any modifiers
-        lhs := trimmed[0..<walrusIdx].trim
-        if (lhs.isEmpty) continue
-
-        stripped := lhs
-        modifierWords.each |mod|
-        {
-          while (stripped.startsWith("${mod} "))
-            stripped = stripped[mod.size + 1 ..-1].trim
-        }
-
-        // Only handle single-word LHS (plain "name :=" without type annotation)
-        // to avoid false positives on class-level fields like "Str name :="
-        words := stripped.split(' ').findAll |w| { !w.isEmpty }
-        if (words.size != 1) continue
-
-        varName := words[0]
-        if (varName.isEmpty || !varName[0].isLower) continue
-        if (varName == "_" || varName == "it" || varName.startsWith("_")) continue
-
-        // Warn if name never appears after its declaration line
-        if (!isNameUsedAfterLine(lines, varName, i))
-        {
-          col := findIdentifierPos(line, varName) ?: 0
-          range := LspRange(LspPosition(i, col), LspPosition(i, col + varName.size))
-          diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
-            "'${varName}' is declared but never used", "fantom"))
-        }
-      }
-    }
-
-    return diagnostics
-  }
-
-  **
-  ** Return the character position of word as a whole identifier in line, or null.
-  **
-  private Int? findIdentifierPos(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return null
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return found
-      idx = found + 1
-    }
-    return null
-  }
-
-  **
-  ** Return true if name appears as a whole identifier in any line except excludeLine.
-  **
-  private Bool isNameUsedInFile(Str[] lines, Str name, Int excludeLine)
-  {
-    for (i := 0; i < lines.size; i++)
-    {
-      if (i == excludeLine) continue
-      ln := lines[i].trim
-      if (ln.startsWith("//") || ln.startsWith("**") || ln.startsWith("*")) continue
-      if (containsIdentifier(lines[i], name)) return true
-    }
-    return false
-  }
-
-  **
-  ** Return true if name appears as a whole identifier in any line after fromLine.
-  **
-  private Bool isNameUsedAfterLine(Str[] lines, Str name, Int fromLine)
-  {
-    for (i := fromLine + 1; i < lines.size; i++)
-    {
-      ln := lines[i].trim
-      if (ln.startsWith("//") || ln.startsWith("**") || ln.startsWith("*")) continue
-      if (containsIdentifier(lines[i], name)) return true
-    }
-    return false
+    return unusedVarValidator.checkUnusedVars(source)
   }
 
   **
@@ -2268,152 +1293,6 @@ class DiagnosticService
   **
   [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources)
   {
-    // Phase 1: scan each file for "const ... := <string literal>" lines.
-    // valueMap: string value -> list of tab-separated "fileUri\tlineNum\tvarName" records
-    valueMap := Str:Str[][:]
-
-    sources.each |source, fileUri|
-    {
-      lines := source.splitLines
-      for (i := 0; i < lines.size; i++)
-      {
-        line := lines[i]
-        trimmed := line.trim
-
-        // Skip comments and blank lines
-        if (trimmed.isEmpty || trimmed.startsWith("//") ||
-            trimmed.startsWith("**") || trimmed.startsWith("*")) continue
-
-        // Must contain standalone "const" keyword
-        if (!containsIdentifier(trimmed, "const")) continue
-
-        // Must have :=
-        walrusIdx := trimmed.index(":=")
-        if (walrusIdx == null) continue
-
-        // RHS must start with a string literal
-        rhs := trimmed[walrusIdx + 2 ..-1].trim
-        if (rhs.isEmpty || rhs[0] != '"') continue
-
-        // Extract the string literal value
-        strVal := extractStringLiteral(rhs)
-        if (strVal == null || strVal.size < 5) continue
-
-        // Extract var name (last word on LHS)
-        lhs := trimmed[0..<walrusIdx].trim
-        words := lhs.split(' ').findAll |w| { !w.isEmpty }
-        varName := words.isEmpty ? "" : words[-1]
-
-        // Store as tab-separated record
-        record := "${fileUri}\t${i}\t${varName}"
-        existing := valueMap[strVal]
-        if (existing == null) { existing = Str[,]; valueMap[strVal] = existing }
-        existing.add(record)
-      }
-    }
-
-    // Phase 2: for values with 2+ occurrences, emit a warning on each occurrence.
-    result := Str:LspDiagnostic[][:]
-    valueMap.each |occList, strVal|
-    {
-      if (occList.size < 2) return
-
-      displayVal := strVal.size > 30 ? strVal[0..29] + "..." : strVal
-
-      occList.each |record|
-      {
-        parts := record.split('\t')
-        fileUri := parts[0]
-        lineNum := parts[1].toInt(10, false) ?: 0
-        varName := parts.size > 2 ? parts[2] : ""
-
-        source := sources[fileUri] ?: ""
-        srcLines := source.splitLines
-        lineText := lineNum < srcLines.size ? srcLines[lineNum] : ""
-        col := varName.isEmpty ? 0 : (findIdentifierPos(lineText, varName) ?: 0)
-
-        range := LspRange(
-          LspPosition(lineNum, col),
-          LspPosition(lineNum, col + varName.size)
-        )
-        msg := "Duplicate const value \"${displayVal}\" found in ${occList.size} places"
-        diag := LspDiagnostic(range, DiagnosticSeverity.warning, msg, "fantom")
-
-        if (!result.containsKey(fileUri)) result[fileUri] = LspDiagnostic[,]
-        result[fileUri].add(diag)
-      }
-    }
-
-    return result
+    return duplicateConstValidator.checkDuplicateConstValues(sources)
   }
-
-  **
-  ** Extract the raw content of a Fantom string literal starting at s[0] == '"'.
-  ** Returns null if the string is unterminated.
-  **
-  private Str? extractStringLiteral(Str s)
-  {
-    if (s.isEmpty || s[0] != '"') return null
-    buf := StrBuf()
-    i := 1
-    while (i < s.size)
-    {
-      ch := s[i]
-      if (ch == '\\') { i += 2; continue }
-      if (ch == '"') return buf.toStr
-      buf.addChar(ch)
-      i++
-    }
-    return null
-  }
-
-  **
-  ** Split a parameter string by commas, respecting nested | and < > structures.
-  **
-  private Str[] splitParams(Str paramStr)
-  {
-    params := Str[,]
-    depth := 0
-    pipeDepth := 0
-    current := StrBuf()
-
-    for (i := 0; i < paramStr.size; i++)
-    {
-      ch := paramStr[i]
-      if (ch == '|') pipeDepth = pipeDepth == 0 ? 1 : 0
-      else if (ch == '(' || ch == '[' || ch == '<') depth++
-      else if (ch == ')' || ch == ']' || ch == '>') depth--
-      else if (ch == ',' && depth == 0 && pipeDepth == 0)
-      {
-        params.add(current.toStr)
-        current.clear
-        continue
-      }
-      current.addChar(ch)
-    }
-    if (current.size > 0) params.add(current.toStr)
-    return params
-  }
-}
-
-**************************************************************************
-** MethodCall - describes a method call found in source
-**************************************************************************
-internal class MethodCall
-{
-  Str varName := ""
-  Str methodName := ""
-  Int argCount := 0
-  Bool hasTrailingClosure := false
-  Int callStart := 0
-  Int callEnd := 0
-}
-
-**************************************************************************
-** MethodParamInfo - expected parameter counts for a method
-**************************************************************************
-internal class MethodParamInfo
-{
-  Int minArgs := 0
-  Int maxArgs := 0
 }

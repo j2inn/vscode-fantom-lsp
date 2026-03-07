@@ -41,6 +41,26 @@ class CompletionService
   **
   CompletionItem[] complete(Str uri, LspPosition pos, Str source, ProjectIndex index)
   {
+    request := CompletionRequestBuilder()
+      .withUri(uri)
+      .withPos(pos)
+      .withSource(source)
+      .withIndex(index)
+      .build
+
+    return completeRequest(request)
+  }
+
+  **
+  ** Get completions using a builder-created request object.
+  **
+  CompletionItem[] completeRequest(CompletionRequest request)
+  {
+    uri := request.uri
+    pos := request.pos
+    source := request.source
+    index := request.index
+
     try
     {
       line := LspUtil.getLine(source, pos.line)

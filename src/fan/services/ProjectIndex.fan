@@ -49,6 +49,20 @@ class ProjectIndex
   **
   Void init(Str workspaceRootUri)
   {
+    request := ProjectIndexInitRequestBuilder()
+      .withWorkspaceRootUri(workspaceRootUri)
+      .build
+
+    initRequest(request)
+  }
+
+  **
+  ** Initialize the index using a builder-created request object.
+  **
+  Void initRequest(ProjectIndexInitRequest request)
+  {
+    workspaceRootUri := request.workspaceRootUri
+
     try
     {
       // Ensure URI ends with / so Fantom treats it as a directory
