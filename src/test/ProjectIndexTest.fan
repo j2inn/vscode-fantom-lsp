@@ -308,6 +308,90 @@ class ProjectIndexTest : Test
   }
 
 //////////////////////////////////////////////////////////////////////////
+// Save-Time Indexing Regressions
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Regression: indexAll must refresh discovered source files so newly
+  ** created files are included in the global symbol index.
+  **
+  Void testIndexAllRefreshesNewFileFromDisk()
+  {
+    tmpDir := Env.cur.tempDir + `lsp-test-refresh-${DateTime.now.ticks}/`
+    tmpDir.create
+
+    try
+    {
+      // Create a minimal build pod workspace
+      (tmpDir + `build.fan`).out.writeChars(
+        "#! /usr/bin/env fan\nusing build\n" +
+        "class Build : BuildPod\n{\n  new make()\n  {\n" +
+        "    podName = \"refreshPod\"\n" +
+        "    srcDirs = [`fan/`]\n" +
+        "    depends = [\"sys 1.0\"]\n" +
+        "  }\n}\n"
+      ).close
+
+      fanDir := tmpDir + `fan/`
+      fanDir.create
+      (fanDir + `Existing.fan`).out.writeChars("class Existing {}\n").close
+
+      idx := ProjectIndex()
+      idx.init(LspUtil.fileToUri(tmpDir))
+
+      verify(idx.hasType("Existing"))
+      verify(!idx.hasType("NewSavedType"))
+
+      // Create a new file after init, then force a re-index.
+      newFile := fanDir + `NewSavedType.fan`
+      newFile.out.writeChars("class NewSavedType {}\n").close
+
+      idx.indexAll
+
+      newUri := LspUtil.fileToUri(newFile)
+      verify(idx.hasType("NewSavedType"), "New file should be discovered after indexAll refresh")
+      verify(idx.isProjectFile(newUri), "New file should be tracked as a project source file")
+    }
+    finally
+    {
+      try { deleteDir(tmpDir) } catch {}
+    }
+  }
+
+  **
+  ** Save indexing contract:
+  **  - valid save => index symbols immediately
+  **  - errored save => skip indexing, keep last valid symbols
+  **
+  Void testIndexSavedFileSkipsWhenHasErrors()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/NewThing.fan"
+
+    valid :=
+      "class NewThing\n" +
+      "{\n" +
+      "  Void ok() {}\n" +
+      "}"
+
+    verify(idx.indexSavedFile(uri, valid, false))
+    verify(idx.hasType("NewThing"))
+
+    broken :=
+      "class NewThing\n" +
+      "{\n" +
+      "  Void broken(\n" +
+      "}"
+
+    verify(!idx.indexSavedFile(uri, broken, true))
+    verify(idx.hasType("NewThing"), "Last valid symbols should remain when save has errors")
+
+    fresh := ProjectIndex()
+    verify(!fresh.indexSavedFile("file:///test/Bad.fan", broken, true))
+    verify(!fresh.hasType("Bad"), "Errored first save must not add new symbols")
+  }
+
+//////////////////////////////////////////////////////////////////////////
 // Build.fan Parsing via init
 //////////////////////////////////////////////////////////////////////////
 
@@ -812,5 +896,83 @@ class ProjectIndexTest : Test
     {
       try { deleteDir(tmpDir) } catch {}
     }
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// indexSavedFile — regression for newly-created types not detected
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Regression: indexSavedFile with no errors must index the file and
+  ** return true.  This was the fix for newly-created types not being
+  ** detected after the first save.
+  **
+  Void testIndexSavedFileIndexesWhenNoErrors()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/NewType.fan"
+    source :=
+      "class NewType\n" +
+      "{\n" +
+      "  Str name := \"hello\"\n" +
+      "}"
+
+    result := idx.indexSavedFile(uri, source, false)
+
+    verify(result, "indexSavedFile should return true when there are no errors")
+    verify(idx.hasType("NewType"), "NewType should be present in the index after save with no errors")
+  }
+
+  **
+  ** Regression: indexSavedFile with errors must skip indexing and return false.
+  ** Broken snapshots must never be promoted into the project index.
+  **
+  Void testIndexSavedFileSkipsWhenHasErrorsKeepsPreviousSymbols()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/BrokenType.fan"
+
+    // First, index a valid version so the type is present.
+    idx.indexFile(uri, "class BrokenType { Str name := \"ok\" }")
+    verify(idx.hasType("BrokenType"), "BrokenType should exist before broken save")
+
+    // Now simulate saving a broken version – hasErrors = true.
+    brokenSource :=
+      "class BrokenType\n" +
+      "{\n" +
+      "  THIS IS NOT VALID FANTOM SYNTAX !!!\n" +
+      "}"
+
+    result := idx.indexSavedFile(uri, brokenSource, true)
+
+    verify(!result, "indexSavedFile should return false when errors are present")
+    // The previously-indexed valid symbols must still be intact.
+    verify(idx.hasType("BrokenType"), "BrokenType should still be in the index (old snapshot retained)")
+  }
+
+  **
+  ** Regression: a newly created type (not previously indexed at all) must
+  ** become visible after indexSavedFile is called with no errors, even
+  ** before a full indexAll is run.  This was the original issue reported
+  ** as "newly-created types not detected".
+  **
+  Void testNewlyCreatedTypeDetectedAfterSave()
+  {
+    idx := ProjectIndex()
+
+    // Brand-new type that has never been indexed yet.
+    uri := "file:///test/BrandNew.fan"
+    source :=
+      "class BrandNew\n" +
+      "{\n" +
+      "  Int value := 42\n" +
+      "}"
+
+    verify(!idx.hasType("BrandNew"), "BrandNew must not exist before first save")
+
+    result := idx.indexSavedFile(uri, source, false)
+
+    verify(result, "indexSavedFile should return true for a new error-free file")
+    verify(idx.hasType("BrandNew"), "BrandNew must be discoverable right after save with no errors")
   }
 }
