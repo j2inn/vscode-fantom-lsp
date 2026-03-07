@@ -3,4 +3,18 @@
 **
 class LspModule
 {
+	DocumentManager docMgr := DocumentManager()
+	ProjectIndex projectIndex := ProjectIndex()
+	DiagnosticService diagnostics := DiagnosticService()
+	CompletionService completion := CompletionService()
+	DefinitionService definition := DefinitionService()
+	HoverService hoverService := HoverService()
+	PodWatchService podWatcher := PodWatchService()
+
+	LspServer server
+
+	new make()
+	{
+		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher)
+	}
 }

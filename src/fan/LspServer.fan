@@ -23,13 +23,17 @@ class LspServer
   ** Hover service
   private HoverService hoverService
 
+  ** Pod watcher service
+  private PodWatchService podWatcher
+
   new make(
     DocumentManager docMgr,
     ProjectIndex projectIndex,
     DiagnosticService diagnostics,
     CompletionService completion,
     DefinitionService definition,
-    HoverService hoverService)
+    HoverService hoverService,
+    PodWatchService podWatcher)
   {
     this.docMgr = docMgr
     this.projectIndex = projectIndex
@@ -37,6 +41,7 @@ class LspServer
     this.completion = completion
     this.definition = definition
     this.hoverService = hoverService
+    this.podWatcher = podWatcher
   }
 
   ** Output stream for sending responses
@@ -104,6 +109,9 @@ class LspServer
 
   ** Pending server-initiated requests: id -> filename-to-URI map
   private Int:Str:Str pendingRequests := [:]
+
+  ** Pod watcher started flag
+  private Bool podWatchStarted := false
 
 
   **
@@ -385,6 +393,8 @@ class LspServer
     initialized = true
     LspProtocol.logInfo("Server initialized — spawning background init")
 
+    startPodWatcher
+
     // Wrap 'this' in Unsafe so it can cross the actor boundary.
     // The actor closure must not close over any mutable state; the server
     // reference is passed as the message instead.
@@ -395,6 +405,35 @@ class LspServer
       return null
     }
     bgActor.send(ref)
+  }
+
+  ** Start polling the lib/fan folder for pod changes.
+  private Void startPodWatcher()
+  {
+    if (podWatchStarted) return
+    libDir := Env.cur.homeDir + `lib/fan/`
+    if (!libDir.exists) return
+
+    podWatchStarted = true
+    podWatcher.start(bgPool) |->| { onPodChanged }
+  }
+
+  **
+  ** Handle lib/fan change detection by re-indexing the project.
+  **
+  private Void onPodChanged()
+  {
+    try
+    {
+      LspProtocol.logInfo("lib/fan changed — re-indexing")
+      showMessage("lib/fan changed. Re-indexing", 3)
+      PodTypeCache.cur.evictStale
+      projectIndex.indexAll
+    }
+    catch (Err e)
+    {
+      LspProtocol.logInfo("Pod re-index error: $e")
+    }
   }
 
   **

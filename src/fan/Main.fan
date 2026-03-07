@@ -13,14 +13,9 @@ class Main
     {
       LspProtocol.logInfo("Starting Fantom Language Server")
 
-      // Manually wire services (no IoC framework required)
-      docMgr     := DocumentManager()
-      projIndex  := ProjectIndex()
-      diag       := DiagnosticService()
-      completion := CompletionService()
-      definition := DefinitionService()
-      hover      := HoverService()
-      server     := LspServer(docMgr, projIndex, diag, completion, definition, hover)
+      // Service wiring via LspModule (simple IoC registry)
+      module := LspModule()
+      server := module.server
 
       // Get stdin
       in := Env.cur.in
