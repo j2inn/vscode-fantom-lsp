@@ -543,10 +543,10 @@ class LspServer
   **
   ** Handle textDocument/didSave notification.
   **
-  ** Single-file analysis has already run on every didChange, so here we
-  ** only need to flush any pending project-wide re-analysis and run the
-  ** build.  This ensures that errors from other files (inheritance, using
-  ** imports, etc.) are up-to-date after the file is committed to disk.
+  ** On save, index newly created/updated tokens immediately when the saved
+  ** file has no error-severity diagnostics. This keeps cross-file type
+  ** resolution current (e.g., newly added classes) without indexing broken
+  ** syntax snapshots.
   **
   private Void handleDidSave(Str:Obj? params)
   {
@@ -561,8 +561,13 @@ class LspServer
     doc := docMgr.get(uri)
     if (doc != null)
     {
-      // Full re-index + cross-file validation for all files + pod-level build.
-      projectIndex.indexAll
+      // Index this saved file only when it is syntactically/semantically valid.
+      // New files are included in project metadata via indexSavedFile refresh.
+      saveDiags := diagnostics.analyze(uri, doc.text, projectIndex, pedanticMode, enableUnusedImport)
+      hasSaveErrors := saveDiags.any |d| { d.severity == DiagnosticSeverity.error }
+      projectIndex.indexSavedFile(uri, doc.text, hasSaveErrors)
+
+      // Re-run full diagnostics/build to update dependent files.
       dependentErrorFiles := analyzeAndValidateAllFiles
       runBuild(dependentErrorFiles, false, uri)
     }

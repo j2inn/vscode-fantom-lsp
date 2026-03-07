@@ -1,18 +1,6 @@
-using afIoc
-
 **
-** LspModule - afIoc service registrations for Fantom LSP
+** LspModule - service registry (manual wiring; no external IoC required)
 **
-const class LspModule
+class LspModule
 {
-  Void defineServices(RegistryBuilder bob)
-  {
-    bob.addService(DocumentManager#)
-    bob.addService(ProjectIndex#)
-    bob.addService(DiagnosticService#)
-    bob.addService(CompletionService#)
-    bob.addService(DefinitionService#)
-    bob.addService(HoverService#)
-    bob.addService(LspServer#)
-  }
 }

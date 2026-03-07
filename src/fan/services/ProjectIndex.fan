@@ -121,10 +121,72 @@ class ProjectIndex
   }
 
   **
+  ** Refresh discovered pods/source files from disk.
+  ** Keeps workspace metadata current when files are added/removed.
+  **
+  Void refreshWorkspaceFiles()
+  {
+    root := workspaceRoot
+    if (root == null) return
+
+    try
+    {
+      discovered := discoverPods(root)
+      if (discovered.isEmpty) return
+
+      pods = discovered
+      podsByName.clear
+      discovered.each |pod|
+      {
+        if (pod.podName != null)
+          podsByName[pod.podName] = pod
+      }
+
+      // Keep backward-compat single-pod fields aligned to primary pod
+      primary := discovered.find |pod| { pod.baseDir.osPath == root.osPath }
+      if (primary == null) primary = discovered.first
+
+      baseDir = primary.baseDir
+      podName = primary.podName
+      srcDirs = primary.srcDirs
+
+      // sourceFiles = union across all pods
+      allFiles := File[,]
+      discovered.each |pod| { allFiles.addAll(pod.sourceFiles) }
+      sourceFiles = allFiles
+    }
+    catch (Err e)
+    {
+      LspProtocol.logInfo("ProjectIndex refresh error: $e")
+    }
+  }
+
+  **
+  ** Index a saved file only when it has no error-severity diagnostics.
+  ** Returns true when indexing occurred, false when skipped.
+  **
+  Bool indexSavedFile(Str fileUri, Str source, Bool hasErrors)
+  {
+    // Ensure newly created/deleted files are visible to the workspace index.
+    refreshWorkspaceFiles
+
+    if (hasErrors)
+    {
+      LspProtocol.logInfo("ProjectIndex: skipped indexing saved file with errors: $fileUri")
+      return false
+    }
+
+    indexFile(fileUri, source)
+    return true
+  }
+
+  **
   ** Re-index all source files from disk.
   **
   Void indexAll()
   {
+    refreshWorkspaceFiles
+
     fileIndexes.clear
     symbolsByName.clear
     sourceFiles.each |f|

@@ -15,6 +15,11 @@ let outputChannel: vscode.OutputChannel;
 let errorStatusItem: vscode.StatusBarItem | undefined;
 let warnStatusItem: vscode.StatusBarItem | undefined;
 
+const POD_FILE_NEW = 'vscodeFantomLsp.pod';
+const POD_FILE_LEGACY = 'lsp.pod';
+const SCRIPT_NEW = 'vscodeFantomLsp::Main';
+const SCRIPT_LEGACY = 'lsp::Main';
+
 function updateDiagnosticStatusItems(): void {
   let errors = 0;
   let warnings = 0;
@@ -70,7 +75,7 @@ let currentShadowDir: string | undefined;
  *
  * Returns the shadow dir path, or undefined on failure.
  */
-function createShadowDir(lspPodSrc: string, realFanHome: string): string | undefined {
+function createShadowDir(mainPodFileName: string, realFanHome: string): string | undefined {
   const shadowDir = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}`);
   try {
     const shadowLibFan = path.join(shadowDir, 'lib', 'fan');
@@ -78,7 +83,7 @@ function createShadowDir(lspPodSrc: string, realFanHome: string): string | undef
 
     // Fantom loads sys.pod at JVM static-init time, before config.props path= is
     // applied, so we must expose ALL pods in shadowDir/lib/fan/.
-    // - lsp.pod: real copy so the original file is never opened by the server
+    // - main pod: real copy so the original file is never opened by the server
     //   and stays free for the build to overwrite.
     // - every other pod: symlink (Linux/Mac) or hard link (Windows).
     //   Hard links share the inode with the original, but those pods are never
@@ -88,7 +93,7 @@ function createShadowDir(lspPodSrc: string, realFanHome: string): string | undef
       if (!entry.endsWith('.pod')) { continue; }
       const src  = path.join(realLibFan, entry);
       const dest = path.join(shadowLibFan, entry);
-      if (entry === 'lsp.pod') {
+      if (entry === mainPodFileName) {
         fs.copyFileSync(src, dest);
       } else {
         // fs.linkSync creates a hard link (no elevation needed on Windows).
@@ -334,14 +339,23 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   // while the server is running.
   cleanupShadowDir();
   const fanHome = path.dirname(path.dirname(fanExe));
-  const lspPodSrc = path.join(fanHome, 'lib', 'fan', 'lsp.pod');
-  if (fs.existsSync(lspPodSrc)) {
-    currentShadowDir = createShadowDir(lspPodSrc, fanHome);
+  const podDir = path.join(fanHome, 'lib', 'fan');
+  const newPodSrc = path.join(podDir, POD_FILE_NEW);
+  const legacyPodSrc = path.join(podDir, POD_FILE_LEGACY);
+  const mainPodSrc = fs.existsSync(newPodSrc) ? newPodSrc : legacyPodSrc;
+  const mainPodFileName = fs.existsSync(newPodSrc) ? POD_FILE_NEW : POD_FILE_LEGACY;
+  const serverScript = fs.existsSync(newPodSrc) ? SCRIPT_NEW : SCRIPT_LEGACY;
+
+  log(`Selected language server pod: ${mainPodFileName}`);
+  log(`Selected language server script: ${serverScript}`);
+
+  if (fs.existsSync(mainPodSrc)) {
+    currentShadowDir = createShadowDir(mainPodFileName, fanHome);
   }
 
   const serverOptions: ServerOptions = {
     command: fanExe,
-    args: ['lsp::Main'],
+    args: [serverScript],
     options: {
       shell: isWindows,
       env: {
@@ -729,12 +743,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const useBuiltIn = config.get<boolean>('useBuiltInLspPod') ?? true;
 
   if (useBuiltIn) {
-    const bundledPod = path.join(context.extensionPath, 'bundled-pods', 'lsp.pod');
+    const bundledNewPod = path.join(context.extensionPath, 'bundled-pods', POD_FILE_NEW);
+    const bundledLegacyPod = path.join(context.extensionPath, 'bundled-pods', POD_FILE_LEGACY);
+    const bundledPod = fs.existsSync(bundledNewPod) ? bundledNewPod : bundledLegacyPod;
+    const bundledPodName = fs.existsSync(bundledNewPod) ? POD_FILE_NEW : POD_FILE_LEGACY;
+    log(`Selected bundled pod for deployment: ${bundledPodName}`);
     const targetDir = path.join(fanHomeForDeploy, 'lib', 'fan');
-    const targetPod = path.join(targetDir, 'lsp.pod');
+    const targetPod = path.join(targetDir, bundledPodName);
 
     if (!fs.existsSync(bundledPod)) {
-      log(`ERROR: bundled lsp.pod not found at ${bundledPod}`);
+      log(`ERROR: bundled language server pod not found at ${bundledNewPod} or ${bundledLegacyPod}`);
       vscode.window.showErrorMessage(
         'Fantom: Built-in LSP pod not found in extension. The extension may be incomplete.'
       );
@@ -750,41 +768,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     if (fs.existsSync(targetPod)) {
-      log(`lsp.pod already present at ${targetPod}`);
+      log(`${bundledPodName} already present at ${targetPod}`);
       const bundledBuf = fs.readFileSync(bundledPod);
       const targetBuf = fs.readFileSync(targetPod);
       if (bundledBuf.equals(targetBuf)) {
-        log('lsp.pod is identical to bundled version');
-        vscode.window.showInformationMessage('Fantom: lsp.pod with latest version already exists.');
+        log(`${bundledPodName} is identical to bundled version`);
+        vscode.window.showInformationMessage(`Fantom: ${bundledPodName} with latest version already exists.`);
       } else {
         const choice = await vscode.window.showInformationMessage(
-          'Fantom: A language server pod (lsp.pod) already exists. It is recommended to update it to get the latest features and fixes.',
+          `Fantom: A language server pod (${bundledPodName}) already exists. It is recommended to update it to get the latest features and fixes.`,
           'Update',
           'Skip'
         );
         if (choice === 'Update') {
           try {
             fs.copyFileSync(bundledPod, targetPod);
-            log(`Updated lsp.pod at ${targetPod}`);
+            log(`Updated ${bundledPodName} at ${targetPod}`);
             vscode.window.showInformationMessage('Fantom: LSP pod updated successfully.');
           } catch (e: any) {
-            log(`ERROR updating lsp.pod: ${e.message}`);
+            log(`ERROR updating ${bundledPodName}: ${e.message}`);
             vscode.window.showErrorMessage(
               `Fantom: Failed to update LSP pod. Error: ${e.message}`
             );
             return;
           }
         } else {
-          log('User chose to skip lsp.pod update');
+          log(`User chose to skip ${bundledPodName} update`);
         }
       }
     } else {
       try {
         fs.copyFileSync(bundledPod, targetPod);
-        log(`Deployed lsp.pod to ${targetPod}`);
+        log(`Deployed ${bundledPodName} to ${targetPod}`);
         vscode.window.showInformationMessage(`Fantom: LSP pod installed to ${targetPod}`);
       } catch (e: any) {
-        log(`ERROR copying lsp.pod: ${e.message}`);
+        log(`ERROR copying ${bundledPodName}: ${e.message}`);
         vscode.window.showErrorMessage(
           `Fantom: LSP pod cannot be installed to "${targetPod}". Error: ${e.message}`
         );
@@ -792,11 +810,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   } else {
-    const lspPod = path.join(fanHomeForDeploy, 'lib', 'fan', 'lsp.pod');
-    if (!fs.existsSync(lspPod)) {
-      log(`ERROR: lsp.pod not found at ${lspPod}`);
+    const podDir = path.join(fanHomeForDeploy, 'lib', 'fan');
+    const hasNew = fs.existsSync(path.join(podDir, POD_FILE_NEW));
+    const hasLegacy = fs.existsSync(path.join(podDir, POD_FILE_LEGACY));
+    if (!hasNew && !hasLegacy) {
+      log(`ERROR: no language server pod found at ${podDir}`);
       const choice = await vscode.window.showErrorMessage(
-        'Fantom: lsp pod not found in your fan installation. Build it or enable "useBuiltInLspPod".',
+        `Fantom: neither ${POD_FILE_NEW} nor ${POD_FILE_LEGACY} was found in your fan installation. Build it or enable "useBuiltInLspPod".`,
         'Open Settings'
       );
       if (choice === 'Open Settings') {
