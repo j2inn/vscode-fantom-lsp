@@ -36,6 +36,9 @@ class CompletionService
   ** Fingerprint of the using statements that produced usingIdx
   private Str? usingFingerprint := null
 
+  ** Scope-aware non-member identifier completions
+  private CompletionScopeProvider scopeProvider := CompletionScopeProvider()
+
   **
   ** Get completions at the given position
   **
@@ -83,10 +86,27 @@ class CompletionService
       if (isMemberAccess(line, pos.character))
         return completeMemberAccess(uri, pos, source, line, index)
 
-      // Type name or identifier completion
+      // Identifier/type completion (non-member context)
       word := LspUtil.getWordAtPosition(source, pos)
-      if (word != null && word.size > 0)
-        return completeTypeNames(word, index)
+      prefix := word ?: ""
+
+      inScope := scopeProvider.complete(pos, source, index, prefix)
+      typeItems := prefix.size > 0 ? completeTypeNames(prefix, index) : CompletionItem[,]
+
+      // For lowercase prefixes, favor in-scope identifiers (locals/params/fields).
+      // Type names are typically UpperCamelCase in Fantom and can drown local
+      // suggestions when both match the same lowercase prefix.
+      if (prefix.size > 0 && prefix[0].isLower && !inScope.isEmpty)
+        typeItems = CompletionItem[,]
+
+      LspProtocol.logInfo("Completion merge: prefix='${prefix}' inScope=${inScope.size} typeItems=${typeItems.size}")
+
+      if (!inScope.isEmpty || !typeItems.isEmpty)
+      {
+        merged := mergeCompletions(inScope, typeItems)
+        LspProtocol.logInfo("Completion result: merged=${merged.size}")
+        return merged
+      }
 
       return CompletionItem[,]
     }
@@ -95,6 +115,33 @@ class CompletionService
       LspProtocol.logInfo("Completion error: $e")
       return CompletionItem[,]
     }
+  }
+
+  // ---- Completion merge ----
+
+  **
+  ** Merge completion lists by label while preserving source order.
+  **
+  private CompletionItem[] mergeCompletions(CompletionItem[] first, CompletionItem[] second)
+  {
+    result := CompletionItem[,]
+    seen := Str:Bool[:]
+
+    first.each |item|
+    {
+      if (seen.containsKey(item.label)) return
+      seen[item.label] = true
+      result.add(item)
+    }
+
+    second.each |item|
+    {
+      if (seen.containsKey(item.label)) return
+      seen[item.label] = true
+      result.add(item)
+    }
+
+    return result
   }
 
   // ---- Member Access ----
@@ -1027,7 +1074,7 @@ class CompletionService
     {
       if (name.lower.startsWith(prefixLower))
       {
-        items.add(CompletionItem(name, CompletionItemKind.classKind, qualified))
+        items.add(CompletionItem(name, CompletionItemKind.classKind, qualified, null, null, null, "900_${name}"))
         seen[name] = true
       }
     }
@@ -1037,7 +1084,7 @@ class CompletionService
     {
       if (name.lower.startsWith(prefixLower) && !seen.containsKey(name))
       {
-        items.add(CompletionItem(name, CompletionItemKind.classKind, "project type"))
+        items.add(CompletionItem(name, CompletionItemKind.classKind, "project type", null, null, null, "900_${name}"))
         seen[name] = true
       }
     }
@@ -1049,7 +1096,7 @@ class CompletionService
       {
         if (t.name.lower.startsWith(prefixLower) && !seen.containsKey(t.name))
         {
-          items.add(CompletionItem(t.name, CompletionItemKind.classKind, t.qname))
+          items.add(CompletionItem(t.name, CompletionItemKind.classKind, t.qname, null, null, null, "900_${t.name}"))
           seen[t.name] = true
         }
       }

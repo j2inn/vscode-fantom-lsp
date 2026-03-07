@@ -347,7 +347,7 @@ class LspServer
           "save": true
         ],
         "completionProvider": [
-          "triggerCharacters": ["."]
+          "triggerCharacters": completionTriggerCharacters
         ],
         "diagnosticProvider": [:],
         "definitionProvider": true,
@@ -357,6 +357,21 @@ class LspServer
         "name": "Fantom Language Server",
         "version": "0.2.0"
       ]
+    ]
+  }
+
+  **
+  ** Completion trigger characters for both member access and identifier
+  ** completion while typing local variables / parameters.
+  **
+  private Str[] completionTriggerCharacters()
+  {
+    return [
+      ".", "_",
+      "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+      "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+      "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+      "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
     ]
   }
 

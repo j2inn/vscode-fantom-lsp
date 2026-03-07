@@ -185,6 +185,145 @@ class CompletionServiceTest : Test
   }
 
 //////////////////////////////////////////////////////////////////////////
+// In-scope identifier completion (non-member)
+//////////////////////////////////////////////////////////////////////////
+
+  Void testSuggestMethodParameterInsideMethod()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(Str userName, Int count)\n" +
+      "  {\n" +
+      "    us\n" +
+      "  }\n" +
+      "}"
+
+    // Cursor after "us"
+    pos := LspPosition(4, 6)
+    items := svc.complete("file:///test/Foo.fan", pos, source, idx)
+
+    userItem := items.find |item| { item.label == "userName" }
+    verifyNotNull(userItem)
+    verifyEq(userItem.kind, CompletionItemKind.variable)
+  }
+
+  Void testSuggestFreshlyDeclaredObjectVariable()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    serviceClient := HttpClient()\n" +
+      "    service\n" +
+      "  }\n" +
+      "}"
+
+    // Cursor after "service"
+    pos := LspPosition(5, 11)
+    items := svc.complete("file:///test/Foo.fan", pos, source, idx)
+
+    svcItem := items.find |item| { item.label == "serviceClient" }
+    verifyNotNull(svcItem)
+    verifyEq(svcItem.kind, CompletionItemKind.variable)
+  }
+
+  Void testSuggestFieldInMethodBody()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Str status := \"ok\"\n" +
+      "\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    sta\n" +
+      "  }\n" +
+      "}"
+
+    // Cursor after "sta"
+    pos := LspPosition(6, 7)
+    items := svc.complete("file:///test/Foo.fan", pos, source, idx)
+
+    statusItem := items.find |item| { item.label == "status" }
+    verifyNotNull(statusItem)
+    verifyEq(statusItem.kind, CompletionItemKind.field)
+  }
+
+  Void testSuggestMethodParameterWithMultilineSignature()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(\n" +
+      "    Str userName,\n" +
+      "    Int count)\n" +
+      "  {\n" +
+      "    us\n" +
+      "  }\n" +
+      "}"
+
+    // Cursor after "us"
+    pos := LspPosition(6, 6)
+    items := svc.complete("file:///test/Foo.fan", pos, source, idx)
+
+    userItem := items.find |item| { item.label == "userName" }
+    verifyNotNull(userItem)
+    verifyEq(userItem.kind, CompletionItemKind.variable)
+  }
+
+  Void testSuggestLocalVarWithMultilineSignature()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(\n" +
+      "    Str userName)\n" +
+      "  {\n" +
+      "    serviceClient := HttpClient()\n" +
+      "    service\n" +
+      "  }\n" +
+      "}"
+
+    // Cursor after "service"
+    pos := LspPosition(6, 11)
+    items := svc.complete("file:///test/Foo.fan", pos, source, idx)
+
+    svcItem := items.find |item| { item.label == "serviceClient" }
+    verifyNotNull(svcItem)
+    verifyEq(svcItem.kind, CompletionItemKind.variable)
+  }
+
+  Void testDoesNotLeakLocalsFromOtherMethods()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void first()\n" +
+      "  {\n" +
+      "    serviceOne := HttpClient()\n" +
+      "  }\n" +
+      "\n" +
+      "  Void second()\n" +
+      "  {\n" +
+      "    serviceTwo := HttpClient()\n" +
+      "    service\n" +
+      "  }\n" +
+      "}"
+
+    // Cursor after "service" in second()
+    pos := LspPosition(10, 11)
+    items := svc.complete("file:///test/Foo.fan", pos, source, idx)
+
+    serviceTwo := items.find |item| { item.label == "serviceTwo" }
+    verifyNotNull(serviceTwo)
+
+    serviceOne := items.find |item| { item.label == "serviceOne" }
+    verifyNull(serviceOne)
+  }
+
+//////////////////////////////////////////////////////////////////////////
 // No duplicate completions
 //////////////////////////////////////////////////////////////////////////
 
