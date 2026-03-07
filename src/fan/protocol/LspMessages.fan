@@ -146,7 +146,10 @@ class CompletionItem
   ** The format of insertText: 1=PlainText, 2=Snippet
   Int? insertTextFormat := null
 
-  new make(Str label, Int? kind := null, Str? detail := null, Str? documentation := null, Str? insertText := null, Int? insertTextFormat := null)
+  ** A string used by the client to sort completion items.
+  Str? sortText := null
+
+  new make(Str label, Int? kind := null, Str? detail := null, Str? documentation := null, Str? insertText := null, Int? insertTextFormat := null, Str? sortText := null)
   {
     this.label = label
     this.kind = kind
@@ -154,6 +157,7 @@ class CompletionItem
     this.documentation = documentation
     this.insertText = insertText
     this.insertTextFormat = insertTextFormat
+    this.sortText = sortText
   }
 
   Str:Obj? toMap()
@@ -165,6 +169,7 @@ class CompletionItem
       map["documentation"] = Str:Obj["kind": "markdown", "value": documentation]
     if (insertText != null) map["insertText"] = insertText
     if (insertTextFormat != null) map["insertTextFormat"] = insertTextFormat
+    if (sortText != null) map["sortText"] = sortText
     return map
   }
 }
