@@ -1,4 +1,6 @@
 
+using afIoc
+
 **
 ** Main entry point for the Fantom Language Server
 **
@@ -9,16 +11,20 @@ class Main
   **
   static Void main(Str[] args := Str#.emptyList)
   {
+    Registry? registry := null
     try
     {
       LspProtocol.logInfo("Starting Fantom Language Server")
 
-      // Create server
-      server := LspServer()
+      // Build IoC registry and resolve server
+      registry = RegistryBuilder()
+        .silent
+        .addModule(LspModule#)
+        .build
+      server := (LspServer) registry.rootScope.serviceByType(LspServer#)
 
       // Get stdin and stdout
       in := Env.cur.in
-      out := Env.cur.out
 
       // Main loop - read messages from stdin
       while (true)
@@ -41,6 +47,18 @@ class Main
     {
       LspProtocol.logInfo("Fatal error: $e")
       e.trace
+    }
+    finally
+    {
+      try
+      {
+        if (registry != null)
+          registry.shutdown
+      }
+      catch (Err e)
+      {
+        LspProtocol.logInfo("Error shutting down IoC registry: $e")
+      }
     }
   }
 }

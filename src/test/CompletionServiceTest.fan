@@ -11,7 +11,7 @@
 **
 class CompletionServiceTest : Test
 {
-  private CompletionService svc := CompletionService()
+  private CompletionServiceBuilderFacade svc := CompletionServiceBuilderFacade(CompletionService())
   private ProjectIndex idx := ProjectIndex()
 
 //////////////////////////////////////////////////////////////////////////
@@ -435,5 +435,27 @@ class CompletionServiceTest : Test
 
     doc := ProjectIndex.extractDocComment(lines, 1)
     verifyNull(doc)
+  }
+}
+
+internal class CompletionServiceBuilderFacade
+{
+  private CompletionService service
+
+  new make(CompletionService service)
+  {
+    this.service = service
+  }
+
+  CompletionItem[] complete(Str uri, LspPosition pos, Str source, ProjectIndex index)
+  {
+    request := CompletionRequestBuilder()
+      .withUri(uri)
+      .withPos(pos)
+      .withSource(source)
+      .withIndex(index)
+      .build
+
+    return service.completeRequest(request)
   }
 }

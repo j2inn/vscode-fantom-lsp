@@ -6,22 +6,38 @@ using concurrent
 class LspServer
 {
   ** Document manager
-  private DocumentManager docMgr := DocumentManager()
+  private DocumentManager docMgr
 
   ** Project index (central source of truth for project structure and symbols)
-  private ProjectIndex projectIndex := ProjectIndex()
+  private ProjectIndex projectIndex
 
   ** Diagnostic service
-  private DiagnosticService diagnostics := DiagnosticService()
+  private DiagnosticService diagnostics
 
   ** Completion service
-  private CompletionService completion := CompletionService()
+  private CompletionService completion
 
   ** Definition service
-  private DefinitionService definition := DefinitionService()
+  private DefinitionService definition
 
   ** Hover service
-  private HoverService hoverService := HoverService()
+  private HoverService hoverService
+
+  new make(
+    DocumentManager docMgr,
+    ProjectIndex projectIndex,
+    DiagnosticService diagnostics,
+    CompletionService completion,
+    DefinitionService definition,
+    HoverService hoverService)
+  {
+    this.docMgr = docMgr
+    this.projectIndex = projectIndex
+    this.diagnostics = diagnostics
+    this.completion = completion
+    this.definition = definition
+    this.hoverService = hoverService
+  }
 
   ** Output stream for sending responses
   private OutStream out := Env.cur.out

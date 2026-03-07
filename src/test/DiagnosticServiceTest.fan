@@ -14,7 +14,7 @@ using compiler
 **
 class DiagnosticServiceTest : Test
 {
-  private DiagnosticService svc := DiagnosticService()
+  private DiagnosticServiceBuilderFacade svc := DiagnosticServiceBuilderFacade(DiagnosticService())
   private ProjectIndex idx := ProjectIndex()
 
 //////////////////////////////////////////////////////////////////////////
@@ -4218,5 +4218,38 @@ class DiagnosticServiceTest : Test
     diags := svc.analyze("file:///test/Foo.fan", source, idx)
     warn := diags.findAll |d| { d.message.contains("'x'") && d.message.contains("might be null") }
     verifyEq(warn.size, 0, "Null check on same line should suppress warning")
+  }
+}
+
+internal class DiagnosticServiceBuilderFacade
+{
+  private DiagnosticService service
+
+  new make(DiagnosticService service)
+  {
+    this.service = service
+  }
+
+  LspDiagnostic[] analyze(Str uri, Str source, ProjectIndex index, Bool pedanticMode := false, Bool enableUnusedImport := true)
+  {
+    request := DiagnosticAnalyzeRequestBuilder()
+      .withUri(uri)
+      .withSource(source)
+      .withIndex(index)
+      .withPedanticMode(pedanticMode)
+      .withEnableUnusedImport(enableUnusedImport)
+      .build
+
+    return service.analyzeRequest(request)
+  }
+
+  LspDiagnostic[] validateCrossFileReferences(Str source, ProjectIndex index)
+  {
+    return service.validateCrossFileReferences(source, index)
+  }
+
+  [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources)
+  {
+    return service.checkDuplicateConstValues(sources)
   }
 }
