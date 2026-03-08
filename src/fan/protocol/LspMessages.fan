@@ -149,6 +149,10 @@ class CompletionItem
   ** A string used by the client to sort completion items.
   Str? sortText := null
 
+  ** Additional text edits applied when the item is accepted (e.g. auto-import).
+  ** Each entry is a map {"range":{...}, "newText":"..."} per the LSP TextEdit spec.
+  [Str:Obj?][]? additionalTextEdits := null
+
   new make(Str label, Int? kind := null, Str? detail := null, Str? documentation := null, Str? insertText := null, Int? insertTextFormat := null, Str? sortText := null)
   {
     this.label = label
@@ -170,6 +174,7 @@ class CompletionItem
     if (insertText != null) map["insertText"] = insertText
     if (insertTextFormat != null) map["insertTextFormat"] = insertTextFormat
     if (sortText != null) map["sortText"] = sortText
+    if (additionalTextEdits != null) map["additionalTextEdits"] = additionalTextEdits
     return map
   }
 }

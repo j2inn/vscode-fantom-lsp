@@ -3,7 +3,7 @@
   "displayName": "Fantom Language Support",
   "description": "Language support for Fantom with syntax highlighting, diagnostics, and autocompletion",
   "version": "0.0.0",
-  "publisher": "fantom",
+  "publisher": "J2innovations",
   "license": "AFL-3.0",
   "engines": {
     "vscode": "^1.75.0"

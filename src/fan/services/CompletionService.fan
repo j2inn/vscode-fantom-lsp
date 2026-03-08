@@ -91,7 +91,7 @@ class CompletionService
       prefix := word ?: ""
 
       inScope := scopeProvider.complete(pos, source, index, prefix)
-      typeItems := prefix.size > 0 ? completeTypeNames(prefix, index) : CompletionItem[,]
+      typeItems := prefix.size > 0 ? completeTypeNames(prefix, source, index) : CompletionItem[,]
 
       // For lowercase prefixes, favor in-scope identifiers (locals/params/fields).
       // Type names are typically UpperCamelCase in Fantom and can drown local
@@ -1063,7 +1063,7 @@ class CompletionService
   **
   ** Complete type names from sys types and project index
   **
-  private CompletionItem[] completeTypeNames(Str prefix, ProjectIndex index)
+  private CompletionItem[] completeTypeNames(Str prefix, Str source, ProjectIndex index)
   {
     items := CompletionItem[,]
     seen := Str:Bool[:]
@@ -1102,7 +1102,49 @@ class CompletionService
       }
     }
 
+    // Types from ALL installed pods across the full Fantom path
+    // (lower priority — appear after explicitly imported types).
+    // These are marked with the pod name and carry an additionalTextEdit
+    // that auto-inserts the required 'using' statement on acceptance.
+    try
+    {
+      LspUtil.allPodFiles.each |f|
+      {
+        podName := f.basename
+        types := PodTypeCache.cur.typesFor(podName)
+        if (types == null) return
+        types.each |t|
+        {
+          if (t.name.lower.startsWith(prefixLower) && !seen.containsKey(t.name))
+          {
+            item := CompletionItem(t.name, CompletionItemKind.classKind,
+              "${t.qname}  (auto-import: ${podName})", null, null, null, "910_${t.name}")
+            item.additionalTextEdits = [buildUsingEdit(source, podName)]
+            items.add(item)
+            seen[t.name] = true
+          }
+        }
+      }
+    }
+    catch (Err e) {}
+
     return items
+  }
+
+  **
+  ** Build a TextEdit that inserts 'using podName\n' after the last existing
+  ** using statement (or at line 0 if none are present).
+  **
+  private [Str:Obj?] buildUsingEdit(Str source, Str podName)
+  {
+    lines := source.splitLines
+    insertLine := 0
+    lines.each |Str line, Int i|
+    {
+      if (line.trim.startsWith("using ")) insertLine = i + 1
+    }
+    pos := ["line": insertLine, "character": 0]
+    return ["range": ["start": pos, "end": pos], "newText": "using ${podName}\n"]
   }
 
   **
@@ -1132,23 +1174,16 @@ class CompletionService
       return items
     }
 
-    // "using partialPodName" → complete pod names from lib/fan/*.pod
+    // "using partialPodName" → complete pod names from all Fantom-path pods
     items := CompletionItem[,]
     prefixLower := rest.lower
     try
     {
-      libDir := Env.cur.homeDir + `lib/fan/`
-      if (libDir.exists)
+      LspUtil.allPodFiles.each |f|
       {
-        libDir.list.each |f|
-        {
-          if (f.ext == "pod")
-          {
-            podName := f.basename
-            if (podName.lower.startsWith(prefixLower))
-              items.add(CompletionItem(podName, CompletionItemKind.module, "pod"))
-          }
-        }
+        podName := f.basename
+        if (podName.lower.startsWith(prefixLower))
+          items.add(CompletionItem(podName, CompletionItemKind.module, "pod"))
       }
     }
     catch (Err e) {}

@@ -26,6 +26,9 @@ class LspServer
   ** Pod watcher service
   private PodWatchService podWatcher
 
+  ** Code action service
+  private CodeActionService codeActionSvc
+
   new make(
     DocumentManager docMgr,
     ProjectIndex projectIndex,
@@ -33,7 +36,8 @@ class LspServer
     CompletionService completion,
     DefinitionService definition,
     HoverService hoverService,
-    PodWatchService podWatcher)
+    PodWatchService podWatcher,
+    CodeActionService codeActionSvc)
   {
     this.docMgr = docMgr
     this.projectIndex = projectIndex
@@ -42,6 +46,7 @@ class LspServer
     this.definition = definition
     this.hoverService = hoverService
     this.podWatcher = podWatcher
+    this.codeActionSvc = codeActionSvc
   }
 
   ** Output stream for sending responses
@@ -279,6 +284,8 @@ class LspServer
         return handleDefinition(params)
       case "textDocument/hover":
         return handleHover(params)
+      case "textDocument/codeAction":
+        return handleCodeAction(params)
       default:
         LspProtocol.logInfo("Unhandled request: $method")
         return null
@@ -359,7 +366,8 @@ class LspServer
         ],
         "diagnosticProvider": [:],
         "definitionProvider": true,
-        "hoverProvider": true
+        "hoverProvider": true,
+        "codeActionProvider": true
       ],
       "serverInfo": [
         "name": "Fantom Language Server",
@@ -407,13 +415,10 @@ class LspServer
     bgActor.send(ref)
   }
 
-  ** Start polling the lib/fan folder for pod changes.
+  ** Start polling for pod changes across the full Fantom path.
   private Void startPodWatcher()
   {
     if (podWatchStarted) return
-    libDir := Env.cur.homeDir + `lib/fan/`
-    if (!libDir.exists) return
-
     podWatchStarted = true
     podWatcher.start(bgPool) |->| { onPodChanged }
   }
@@ -493,17 +498,14 @@ class LspServer
   {
     try
     {
-      libDir := Env.cur.homeDir + `lib/fan/`
-      if (!libDir.exists) return
-      libDir.list.each |f|
+      podFiles := LspUtil.allPodFiles
+      if (podFiles.isEmpty) return
+      podFiles.each |f|
       {
-        if (f.ext == "pod")
-        {
-          sendProgress("report", "Loading pod: ${f.basename}\u2026")
-          try { Pod.find(f.basename, false) } catch {}
-        }
+        sendProgress("report", "Loading pod: ${f.basename}\u2026")
+        try { Pod.find(f.basename, false) } catch {}
       }
-      LspProtocol.logInfo("Preloaded pods from lib/fan/")
+      LspProtocol.logInfo("Preloaded ${podFiles.size} pods from Fantom path")
     }
     catch (Err e) { LspProtocol.logInfo("Error preloading pods: $e") }
   }
@@ -1014,6 +1016,37 @@ class LspServer
     if (doc == null) return null
 
     return hoverService.hover(uri, pos, doc.text, projectIndex)
+  }
+
+  **
+  ** Handle textDocument/codeAction request.
+  **
+  ** Looks at the identifier token under the given range/position, searches
+  ** all pods in lib/fan for a matching public type, and returns one
+  ** "Add 'using <pod>'" quick-fix code action per matching pod.
+  **
+  private Obj? handleCodeAction(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    rangeMap := params["range"] as Str:Obj?
+    if (textDocument == null || rangeMap == null) return [,]
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    doc := docMgr.get(uri)
+    if (doc == null) return [,]
+
+    // Use the start of the requested range as the lookup position
+    startMap := rangeMap["start"] as Str:Obj?
+    if (startMap == null) return [,]
+    pos := LspPosition.fromMap(startMap)
+
+    word := LspUtil.getWordAtPosition(doc.text, pos)
+    if (word == null || word.isEmpty || !word[0].isUpper) return [,]
+
+    LspProtocol.logInfo("codeAction: looking for type '${word}' in all pods")
+    actions := codeActionSvc.suggestUsingFixes(word, doc.text, uri)
+    LspProtocol.logInfo("codeAction: found ${actions.size} fix(es) for '${word}'")
+    return actions
   }
 
   **

@@ -277,4 +277,49 @@ class LspUtil
   {
     return ch.isAlphaNum || ch == '_'
   }
+
+  **
+  ** Return all .pod files visible to the current Fantom environment.
+  ** Searches every directory in Env.cur.path when available (Fantom ≥ 1.0.79),
+  ** otherwise falls back to Env.cur.homeDir only.
+  ** Duplicates (same basename in multiple path entries) are de-duplicated
+  ** so that the first path entry wins, matching Fantom's own pod resolution.
+  **
+  static File[] allPodFiles()
+  {
+    result := File[,]
+    seen   := Str:Bool[:]
+    fanPath(Env.cur).each |dir|
+    {
+      libFan := dir + `lib/fan/`
+      if (!libFan.exists) return
+      libFan.list.each |f|
+      {
+        if (f.ext == "pod" && !seen.containsKey(f.basename))
+        {
+          seen[f.basename] = true
+          result.add(f)
+        }
+      }
+    }
+    return result
+  }
+
+  **
+  ** Return the Fantom environment search path.
+  ** Env.path() was added in a later Fantom version; we call it via reflection
+  ** so that the code compiles and runs on older runtimes (falls back to
+  ** [homeDir] when the method is not present).
+  **
+  static File[] fanPath(Env env)
+  {
+    try
+    {
+      method := Env#.method("path", false)
+      if (method != null)
+        return method.callOn(env, [,])
+      return [env.homeDir]
+    }
+    catch (Err e) { return [env.homeDir] }
+  }
 }
