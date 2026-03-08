@@ -10,11 +10,12 @@ class LspModule
 	DefinitionService definition := DefinitionService()
 	HoverService hoverService := HoverService()
 	PodWatchService podWatcher := PodWatchService()
+	CodeActionService codeActionSvc := CodeActionService()
 
 	LspServer server
 
 	new make()
 	{
-		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher)
+		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher, codeActionSvc)
 	}
 }

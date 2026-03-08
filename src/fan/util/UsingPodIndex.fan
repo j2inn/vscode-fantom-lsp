@@ -194,8 +194,16 @@ const class PodTypeCache
   {
     try
     {
-      f := Env.cur.homeDir + `lib/fan/${podName}.pod`
-      return f.exists ? f.modified : null
+      // Search all Fantom-path lib/fan directories so pods from non-homeDir
+      // locations (e.g. SkySpark) are tracked correctly.
+      File? found := null
+      LspUtil.fanPath(Env.cur).eachWhile |dir -> Obj?|
+      {
+        f := dir + `lib/fan/${podName}.pod`
+        if (f.exists) { found = f; return "done" }
+        return null
+      }
+      return found?.modified
     }
     catch (Err e) { return null }
   }
