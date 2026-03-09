@@ -19,7 +19,7 @@ class Build : BuildPod
                "vcs.name":     "Git",
                "vcs.uri":      "https://github.com/fantom-lang/fantom"]
     depends = ["sys 1.0", "compiler 1.0", "util 1.0", "concurrent 1.0"]
-    srcDirs = [`src/fan/`, `src/fan/protocol/`, `src/fan/services/`, `src/fan/services/diagnostic/`, `src/fan/services/completion/`, `src/fan/services/projectIndex/`, `src/fan/compiler/`, `src/fan/util/`, `src/test/`]
+    srcDirs = [`src/fan/`, `src/fan/protocol/`, `src/fan/services/`, `src/fan/services/diagnostic/`, `src/fan/services/completion/`, `src/fan/services/projectIndex/`, `src/fan/compiler/`, `src/fan/util/`, `src/fan/toybox/testimpact/`, `src/test/`]
     resDirs = [`src/res/`]
     docSrc  = true
   }
