@@ -4219,6 +4219,125 @@ class DiagnosticServiceTest : Test
     warn := diags.findAll |d| { d.message.contains("'x'") && d.message.contains("might be null") }
     verifyEq(warn.size, 0, "Null check on same line should suppress warning")
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Multi-line Str False Positive Regression
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Regression: a string literal that contains the text "class X : Y" must
+  ** NOT cause a "Leading space in multi-line Str" false-positive diagnostic.
+  **
+  ** Root cause: replaceBaseTypesInLine was matching "class " inside string
+  ** literals and truncating the rest of the line, leaving an unclosed quote.
+  ** The Fantom compiler then interpreted the next lines as multi-line string
+  ** continuations with wrong indentation.
+  **
+  Void testNoFalsePositiveForClassInStringLiteral()
+  {
+    // This source simulates a build-script generator: a method that writes
+    // a Fantom build.fan by assembling a string value containing "class Build : BuildPod".
+    // Before the fix, the LSP incorrectly reported
+    // "Leading space in multi-line Str must be N spaces" on lines like
+    // "    podName = \"myPod\"\n".
+    source :=
+      "class ScriptGen\n" +
+      "{\n" +
+      "  Void writeBuildFan(OutStream out)\n" +
+      "  {\n" +
+      "    out.writeChars(\n" +
+      "      \"class Build : BuildPod\\n\" +\n" +
+      "      \"{\\n\" +\n" +
+      "      \"  new make()\\n\" +\n" +
+      "      \"  {\\n\" +\n" +
+      "      \"    podName = \\\"myPod\\\"\\n\" +\n" +
+      "      \"    depends = [\\\"sys 1.0\\\"]\\n\" +\n" +
+      "      \"  }\\n}\\n\")\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/ScriptGen.fan", source, idx)
+
+    multiLineStrDiags := diags.findAll |d|
+    {
+      d.message.contains("Leading space in multi-line Str")
+    }
+    verifyEq(multiLineStrDiags.size, 0,
+      "String literals containing 'class X : Y' must not produce multi-line Str errors")
+  }
+
+  **
+  ** Regression: same scenario with "mixin" keyword inside a string literal.
+  **
+  Void testNoFalsePositiveForMixinInStringLiteral()
+  {
+    source :=
+      "class CodeGen\n" +
+      "{\n" +
+      "  Str snippet()\n" +
+      "  {\n" +
+      "    return \"mixin Serializable : Identifiable\\n{\\n  abstract Str id\\n}\"\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/CodeGen.fan", source, idx)
+
+    multiLineStrDiags := diags.findAll |d|
+    {
+      d.message.contains("Leading space in multi-line Str")
+    }
+    verifyEq(multiLineStrDiags.size, 0,
+      "String literals containing 'mixin X : Y' must not produce multi-line Str errors")
+  }
+
+  **
+  ** Normal class declarations with inheritance must still be preprocessed
+  ** correctly (the fix must not break the existing base-type replacement).
+  **
+  Void testClassInStringLiteralDoesNotBreakRealClassProcessing()
+  {
+    // Set up an index with a project base type
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Base.fan",
+      "class Base\n" +
+      "{\n" +
+      "  Void doWork() {}\n" +
+      "}")
+
+    // Source that has BOTH: a real class inheriting from a project type (Base)
+    // AND a string literal containing "class X : Y" text.
+    // The real "class Child : Base" must be preprocessed; the one inside the
+    // string must be left alone.
+    source :=
+      "class Child : Base\n" +
+      "{\n" +
+      "  Str template()\n" +
+      "  {\n" +
+      "    return \"class Example : Base\\n{\\n  Void run() {}\\n}\"\n" +
+      "  }\n" +
+      "  Void go() { doWork() }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Child.fan", source, typeIdx)
+
+    // The inherited doWork() call must NOT be flagged as unknown (base type
+    // replacement worked correctly for the real declaration).
+    unknownDoWork := diags.findAll |d|
+    {
+      d.message.contains("doWork") &&
+      (d.message.contains("Unknown") || d.message.contains("unknown"))
+    }
+    verifyEq(unknownDoWork.size, 0,
+      "Inherited method call should not be flagged after correct base-type replacement")
+
+    // And there must be no multi-line Str error from the string literal.
+    multiLineStrDiags := diags.findAll |d|
+    {
+      d.message.contains("Leading space in multi-line Str")
+    }
+    verifyEq(multiLineStrDiags.size, 0,
+      "String literal with 'class X : Y' must not produce multi-line Str errors")
+  }
 }
 
 internal class DiagnosticServiceBuilderFacade
