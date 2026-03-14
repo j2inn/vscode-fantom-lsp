@@ -8,6 +8,13 @@ import {
   LanguageClientOptions,
   ServerOptions,
 } from 'vscode-languageclient/node';
+import {
+  DebugAdapterDescriptor,
+  DebugAdapterDescriptorFactory,
+  DebugAdapterExecutable,
+  DebugSession,
+  ProviderResult,
+} from 'vscode';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -110,14 +117,54 @@ function createShadowDir(mainPodFileName: string, realFanHome: string): string |
       'junction'
     );
 
-    // Junction/symlink the entire etc/ tree so timezone data, locale files,
-    // and real config.props are all found.  No custom config.props is needed
-    // because all pods are already present in shadowDir/lib/fan/.
-    fs.symlinkSync(
-      path.join(realFanHome, 'etc'),
-      path.join(shadowDir, 'etc'),
-      'junction'
-    );
+    // Build a shadow etc/ tree.  We need a real etc/sys/config.props that
+    // strips the java.options entry (typically contains -agentlib:jdwp=…).
+    // When java.options is present, the JVM prints a JDWP startup message to
+    // stdout which corrupts the LSP Content-Length wire protocol.
+    //
+    // Strategy:
+    //   • etc/ — real directory (not a symlink)
+    //   • etc/<subdir> — symlink to realFanHome/etc/<subdir> for every entry
+    //     EXCEPT etc/sys (which needs a real dir so we can override config.props)
+    //   • etc/sys/ — real directory
+    //   • etc/sys/config.props — modified copy with java.options line removed
+    //   • etc/sys/<other> — symlink to realFanHome/etc/sys/<other>
+    const realEtcDir   = path.join(realFanHome, 'etc');
+    const shadowEtcDir = path.join(shadowDir, 'etc');
+    fs.mkdirSync(shadowEtcDir, { recursive: true });
+
+    for (const etcEntry of fs.readdirSync(realEtcDir)) {
+      const realEtcPath   = path.join(realEtcDir, etcEntry);
+      const shadowEtcPath = path.join(shadowEtcDir, etcEntry);
+
+      if (etcEntry === 'sys') {
+        // Special-case: real dir so we can write a custom config.props
+        const realSysDir   = realEtcPath;
+        const shadowSysDir = shadowEtcPath;
+        fs.mkdirSync(shadowSysDir, { recursive: true });
+
+        for (const sysEntry of fs.readdirSync(realSysDir)) {
+          const realSysPath   = path.join(realSysDir, sysEntry);
+          const shadowSysPath = path.join(shadowSysDir, sysEntry);
+
+          if (sysEntry === 'config.props') {
+            // Strip java.options to prevent JDWP from writing to LSP stdout
+            const original = fs.readFileSync(realSysPath, 'utf8');
+            const modified = original
+              .split('\n')
+              .filter(line => !line.trim().startsWith('java.options'))
+              .join('\n');
+            fs.writeFileSync(shadowSysPath, modified, 'utf8');
+            log(`Shadow config.props: stripped java.options (JDWP suppressed)`);
+          } else {
+            fs.symlinkSync(realSysPath, shadowSysPath);
+          }
+        }
+      } else {
+        // Symlink the entire subdirectory / file as-is
+        fs.symlinkSync(realEtcPath, shadowEtcPath);
+      }
+    }
 
     log(`Shadow dir created: ${shadowDir}`);
     return shadowDir;
@@ -448,9 +495,105 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   });
 }
 
+// ---------------------------------------------------------------------------
+// Debug Adapter
+// ---------------------------------------------------------------------------
+
+/**
+ * Locates the bundled debug-adapter JAR and the java executable, then returns
+ * a DebugAdapterExecutable descriptor so VS Code can launch the adapter.
+ *
+ * The JAR is expected at: <extensionPath>/bundled-debug/fantom-debug-adapter.jar
+ * Java is resolved from:
+ *   1. fantom.javaPath VS Code setting
+ *   2. JAVA_HOME environment variable
+ *   3. plain "java" on PATH
+ */
+class FantomDebugAdapterFactory implements DebugAdapterDescriptorFactory {
+  constructor(private readonly extensionPath: string) {}
+
+  createDebugAdapterDescriptor(
+    _session: DebugSession,
+    _executable: DebugAdapterExecutable | undefined
+  ): ProviderResult<DebugAdapterDescriptor> {
+    const jarPath = path.join(this.extensionPath, 'bundled-debug', 'fantom-debug-adapter.jar');
+
+    if (!fs.existsSync(jarPath)) {
+      vscode.window.showErrorMessage(
+        `Fantom: debug adapter JAR not found at "${jarPath}". ` +
+        'Build it with: bash vscode-fantom/debug-adapter/build.sh'
+      );
+      return undefined;
+    }
+
+    const config   = vscode.workspace.getConfiguration('fantom');
+    const javaPath = config.get<string>('javaPath') || '';
+    const javaHome = process.env.JAVA_HOME;
+    const javaExe  = isWindows ? 'java.exe' : 'java';
+    const javaCmd  = javaPath || (javaHome ? path.join(javaHome, 'bin', javaExe) : 'java');
+
+    const args = ['--add-modules', 'jdk.jdi', '-jar', jarPath];
+
+    log(`Debug adapter: ${javaCmd} ${args.join(' ')}`);
+    return new DebugAdapterExecutable(javaCmd, args, { env: { ...process.env as Record<string, string> } });
+  }
+}
+
+/**
+ * DebugConfigurationProvider — fills in defaults for launch/attach configs
+ * that the user might not have specified (e.g. fanExe from fan.config.json).
+ */
+class FantomDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
+  resolveDebugConfigurationWithSubstitutedVariables(
+    _folder: vscode.WorkspaceFolder | undefined,
+    config: vscode.DebugConfiguration
+  ): vscode.ProviderResult<vscode.DebugConfiguration> {
+    // Default sourceDir to workspace root
+    if (!config.sourceDir) {
+      config.sourceDir = _folder?.uri.fsPath ?? '.';
+    }
+
+    // For launch: default fanExe from fan.config.json (finPath first, then fanPath)
+    if (config.request === 'launch' && !config.fanExe) {
+      const configPath = _folder
+        ? path.join(_folder.uri.fsPath, 'fan.config.json')
+        : undefined;
+      if (configPath && fs.existsSync(configPath)) {
+        try {
+          const json = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          if (json.finPath && fs.existsSync(json.finPath)) {
+            config.fanExe = json.finPath;
+          } else if (json.fanPath) {
+            for (const bin of ['fin', 'fan', 'fin.bat', 'fan.bat']) {
+              const exe = path.join(json.fanPath, 'bin', bin);
+              if (fs.existsSync(exe)) { config.fanExe = exe; break; }
+            }
+          }
+        } catch (_e) { /* ignore malformed config */ }
+      }
+    }
+
+    return config;
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
   log('Extension activating...');
+
+  // --- Register debug adapter (always, even outside Fantom projects) ---
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory(
+      'fantom',
+      new FantomDebugAdapterFactory(context.extensionPath)
+    )
+  );
+  context.subscriptions.push(
+    vscode.debug.registerDebugConfigurationProvider(
+      'fantom',
+      new FantomDebugConfigurationProvider()
+    )
+  );
 
   // --- Step 0: Only proceed if this is a Fantom project ---
   if (!isFantomProject()) {
