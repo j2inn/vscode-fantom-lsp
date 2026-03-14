@@ -51,6 +51,125 @@
         "path": "./syntaxes/fantom.tmLanguage.json"
       }
     ],
+    "debuggers": [
+      {
+        "type": "fantom",
+        "label": "Fantom Debug",
+        "languages": [
+          "fantom"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "mainClass": {
+                "type": "string",
+                "description": "Fantom main class to run, e.g. \"myPod::Main\". Leave empty when using a launcher like \"fin\" that already knows its entry point."
+              },
+              "fanExe": {
+                "type": "string",
+                "description": "Path to the fan or fin executable. Defaults to fanPath from fan.config.json (or finPath if set)."
+              },
+              "launcherArgs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments passed to the fan/fin executable before the main class, e.g. [\"-noAuth\"].",
+                "default": []
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Command-line arguments passed to the Fantom program.",
+                "default": []
+              },
+              "sourceDir": {
+                "type": "string",
+                "description": "Root directory to search for .fan source files.",
+                "default": "${workspaceFolder}"
+              },
+              "debugPort": {
+                "type": "number",
+                "description": "JDWP port the Fantom JVM will listen on.",
+                "default": 5005
+              },
+              "noDebug": {
+                "type": "boolean",
+                "description": "Run without attaching the debugger.",
+                "default": false
+              },
+              "preLaunchRebuild": {
+                "type": "boolean",
+                "description": "Rebuild the pod (fan build.fan) with debug=true before launching, so local variables are visible in the debugger. Requires a build.fan in sourceDir. Set to true the first time you debug, or whenever source changes.",
+                "default": false
+              },
+              "envVars": {
+                "type": "object",
+                "description": "Extra environment variables to set for the launched process, e.g. { \"FIN_NO_AUTH\": \"true\" }.",
+                "default": {}
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "port"
+            ],
+            "properties": {
+              "host": {
+                "type": "string",
+                "description": "Host where the Fantom JVM is listening for JDWP connections.",
+                "default": "localhost"
+              },
+              "port": {
+                "type": "number",
+                "description": "JDWP port to attach to.",
+                "default": 5005
+              },
+              "sourceDir": {
+                "type": "string",
+                "description": "Root directory to search for .fan source files.",
+                "default": "${workspaceFolder}"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "fantom",
+            "request": "launch",
+            "name": "Launch Fantom",
+            "mainClass": "myPod::Main",
+            "sourceDir": "${workspaceFolder}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Fantom: Launch",
+            "description": "Launch a Fantom program with the debugger attached.",
+            "body": {
+              "type": "fantom",
+              "request": "launch",
+              "name": "Launch Fantom",
+              "mainClass": "${1:myPod::Main}",
+              "sourceDir": "^\"\\${workspaceFolder}\""
+            }
+          },
+          {
+            "label": "Fantom: Attach",
+            "description": "Attach to a Fantom JVM already running with JDWP enabled.",
+            "body": {
+              "type": "fantom",
+              "request": "attach",
+              "name": "Attach to Fantom",
+              "port": 5005,
+              "sourceDir": "^\"\\${workspaceFolder}\""
+            }
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "fantom.removeUnusedImports",
@@ -109,6 +228,8 @@
     "vscode:prepublish": "npm run compile && npm run bundle-lsp",
     "compile": "tsc -p ./",
     "bundle-lsp": "node scripts/bundle-lsp.js",
+    "bundle-debug-adapter": "node scripts/bundle-debug-adapter.js",
+    "build-debug-adapter": "bash debug-adapter/build.sh",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "lint": "eslint src --ext ts",
