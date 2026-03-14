@@ -542,46 +542,81 @@ public class FantomDebugSession {
     /**
      * Fill vars from a stack frame's locals.
      *
-     * Strategy (in order):
+     * Strategy:
      *  1. frame.visibleVariables() — works when LocalVariableTable is present.
-     *  2. frame.getArgumentValues() + method.arguments() — works even without
-     *     LocalVariableTable, shows at least method parameters.
+     *     Reads each variable individually so a single bad value never hides the rest.
+     *  2. frame.getArgumentValues() + method.arguments() — always available,
+     *     covers method parameters even without LocalVariableTable.
+     *  3. this.* instance fields — appended for every field not already covered
+     *     by a local/parameter name.  This is the crucial step: in Fantom,
+     *     instance fields are accessible without "this." prefix, and Watch
+     *     expressions resolve them via this fallback.  Without step 3 those
+     *     fields are invisible in the Variables panel even though Watch works.
      */
     private void fillLocalsVars(StackFrame frame, JsonArray vars) {
-        // ── Attempt 1: LocalVariableTable ─────────────────────────────────
+        Set<String> shown = new HashSet<>();
+
+        // ── Step 1: LocalVariableTable ────────────────────────────────────
+        boolean hasLvt = false;
         try {
             List<LocalVariable> locals = frame.visibleVariables();
-            if (!locals.isEmpty()) {
-                Map<LocalVariable, Value> values = frame.getValues(locals);
-                for (Map.Entry<LocalVariable, Value> e : values.entrySet()) {
-                    vars.add(makeVar(e.getKey().name(), e.getKey().typeName(), e.getValue()));
+            for (LocalVariable lv : locals) {
+                try {
+                    Value v = frame.getValue(lv);
+                    vars.add(makeSafeVar(lv.name(), lv.typeName(), v));
+                    shown.add(lv.name());
+                    hasLvt = true;
+                } catch (Exception e) {
+                    System.err.println("[JDI] getValue(" + lv.name() + ") error: " + e);
                 }
-                return;  // got data — done
             }
         } catch (AbsentInformationException ignored) {
-            // LocalVariableTable absent — fall through to argument fallback
+            // No LVT — fall through
         } catch (Exception e) {
             System.err.println("[JDI] visibleVariables error: " + e);
         }
 
-        // ── Attempt 2: method arguments (available without debug info) ─────
-        try {
-            List<Value> argVals = frame.getArgumentValues();
-            if (argVals.isEmpty()) return;
-
-            // Try to get named argument list from LocalVariableTable if any
-            List<LocalVariable> namedArgs = null;
-            try { namedArgs = frame.location().method().arguments(); } catch (Exception ignore) {}
-
-            for (int i = 0; i < argVals.size(); i++) {
-                String name     = (namedArgs != null && i < namedArgs.size())
+        // ── Step 2: method arguments (always available without debug info) ─
+        if (!hasLvt) {
+            try {
+                List<Value> argVals = frame.getArgumentValues();
+                List<LocalVariable> namedArgs = null;
+                try { namedArgs = frame.location().method().arguments(); } catch (Exception ignore) {}
+                for (int i = 0; i < argVals.size(); i++) {
+                    String name = (namedArgs != null && i < namedArgs.size())
                                   ? namedArgs.get(i).name() : "arg" + i;
-                String typeName = (namedArgs != null && i < namedArgs.size())
-                                  ? namedArgs.get(i).typeName() : null;
-                vars.add(makeVar(name, typeName, argVals.get(i)));
+                    if (shown.contains(name)) continue;
+                    String typeName = (namedArgs != null && i < namedArgs.size())
+                                      ? namedArgs.get(i).typeName() : null;
+                    vars.add(makeSafeVar(name, typeName, argVals.get(i)));
+                    shown.add(name);
+                }
+            } catch (Exception e) {
+                System.err.println("[JDI] getArgumentValues error: " + e);
+            }
+        }
+
+        // ── Step 3: this.* instance fields ───────────────────────────────
+        // Fantom fields are accessible without "this." prefix inside a method,
+        // exactly like local variables. Watch expressions find them via the
+        // resolveIdent() fallback; the Variables panel must do the same so the
+        // user sees them without having to type them into Watch manually.
+        try {
+            ObjectReference thisObj = frame.thisObject();
+            if (thisObj != null) {
+                List<Field> fields = thisObj.referenceType().allFields();
+                Map<Field, Value> fieldVals = thisObj.getValues(fields);
+                for (Map.Entry<Field, Value> e : fieldVals.entrySet()) {
+                    Field f = e.getKey();
+                    if (f.isStatic()) continue;
+                    if (f.name().startsWith("$")) continue; // Fantom synthetic
+                    if (shown.contains(f.name())) continue; // already shown above
+                    vars.add(makeSafeVar(f.name(), f.typeName(), e.getValue()));
+                    shown.add(f.name());
+                }
             }
         } catch (Exception e) {
-            System.err.println("[JDI] getArgumentValues error: " + e);
+            System.err.println("[JDI] this fields error: " + e);
         }
     }
 
@@ -597,7 +632,7 @@ public class FantomDebugSession {
                 Field f = e.getKey();
                 if (f.name().startsWith("$")) continue;
                 if (f.isStatic()) continue;
-                vars.add(makeVar(f.name(), f.typeName(), e.getValue()));
+                vars.add(makeSafeVar(f.name(), f.typeName(), e.getValue()));
             }
         } catch (Exception e) {
             System.err.println("[JDI] field vars error: " + e);
@@ -606,6 +641,32 @@ public class FantomDebugSession {
 
     /**
      * Build a DAP Variable object.
+     *
+     * Safe variant (used in Variables panel): never invokes JVM methods.
+     * Avoids INVOKE_SINGLE_THREADED deadlocks when complex objects have
+     * toString() implementations that need locks held by other suspended threads.
+     */
+    private JsonObject makeSafeVar(String name, String declType, Value value) {
+        JsonObject var = new JsonObject();
+        var.addProperty("name",  name);
+        var.addProperty("value", safeFormatValue(value));
+
+        String displayType = (value != null) ? formatType(value) : formatDeclType(declType);
+        var.addProperty("type", displayType);
+
+        int childRef = 0;
+        if (value instanceof ObjectReference && !(value instanceof StringReference)) {
+            childRef = nextRef.getAndIncrement();
+            objectStore.put(childRef, (ObjectReference) value);
+        }
+        var.addProperty("variablesReference", childRef);
+        return var;
+    }
+
+    /**
+     * Build a DAP Variable object.
+     *
+     * Full variant (used in evaluate/Watch): may call invokeToString().
      *
      * @param name      display name
      * @param declType  declared type name from JDI (may be null)
@@ -687,7 +748,19 @@ public class FantomDebugSession {
         try {
             Value v = evalExpr(frame, expr);
             if (v != null) {
-                body.addProperty("result", formatValue(v));
+                // Always use safeFormatValue — never invokeToString.
+                //
+                // invokeToString calls invokeMethod(INVOKE_SINGLE_THREADED) which
+                // *resumes the stopped thread* to run toString().  While that thread
+                // is running (even briefly), any concurrent JDI frame-access call
+                // (frame.getValue, frame.visibleVariables, frame.thisObject …) from
+                // the main DAP loop throws IncompatibleThreadStateException → every
+                // variable in the Variables panel disappears.
+                //
+                // With safeFormatValue, complex objects display as "type@id" in
+                // Watch, but they can be expanded via their variablesReference to
+                // browse all fields — the same experience as most Java IDEs.
+                body.addProperty("result", safeFormatValue(v));
                 body.addProperty("type",   formatType(v));
                 if (v instanceof ObjectReference && !(v instanceof StringReference)) {
                     int ref = nextRef.getAndIncrement();
@@ -1129,6 +1202,54 @@ public class FantomDebugSession {
     // -----------------------------------------------------------------------
     // Value formatting
     // -----------------------------------------------------------------------
+
+    /**
+     * Safe format for Variables panel — never invokes JVM methods.
+     *
+     * Identical to formatValue() but replaces the invokeToString() call with
+     * the type@id fallback. This avoids INVOKE_SINGLE_THREADED deadlocks when
+     * complex Fantom objects hold locks that other suspended threads are waiting
+     * on (e.g. database connections, proxy objects in FIN framework).
+     *
+     * invokeToString() is still used from evaluate() where the user explicitly
+     * requested a value and is prepared to wait.
+     */
+    private String safeFormatValue(Value v) {
+        if (v == null) return "null";
+
+        // Primitive JDI types — identical to formatValue(), no invocation needed
+        if (v instanceof StringReference)  return "\"" + escapeStr(((StringReference) v).value()) + "\"";
+        if (v instanceof BooleanValue)     return Boolean.toString(((BooleanValue) v).value());
+        if (v instanceof LongValue)        return Long.toString(((LongValue) v).value());
+        if (v instanceof IntegerValue)     return Integer.toString(((IntegerValue) v).value());
+        if (v instanceof FloatValue)       return Float.toString(((FloatValue) v).floatValue());
+        if (v instanceof DoubleValue)      return Double.toString(((DoubleValue) v).doubleValue());
+        if (v instanceof CharValue)        return String.valueOf(((CharValue) v).value());
+        if (v instanceof ByteValue)        return Byte.toString(((ByteValue) v).value());
+        if (v instanceof ShortValue)       return Short.toString(((ShortValue) v).value());
+
+        if (v instanceof ObjectReference) {
+            ObjectReference obj      = (ObjectReference) v;
+            String          typeName = obj.type().name();
+
+            // Fantom boxed primitives — unwrap without calling methods
+            if (typeName.equals("fan.sys.Int$Val")) {
+                Value inner = getField(obj, "val");
+                if (inner != null) return safeFormatValue(inner);
+            }
+            if (typeName.equals("fan.sys.Float$Val")) {
+                Value inner = getField(obj, "val");
+                if (inner != null) return safeFormatValue(inner);
+            }
+            if (typeName.equals("fan.sys.Bool$True"))  return "true";
+            if (typeName.equals("fan.sys.Bool$False")) return "false";
+
+            // Safe fallback — never invokes any JVM method
+            return jvmTypeToFantom(typeName) + "@" + obj.uniqueID();
+        }
+
+        return v.toString();
+    }
 
     /**
      * Format a JDI Value for display in the Variables / Watch panel.

@@ -3,6 +3,7 @@ package fan.lsp.debug;
 import com.google.gson.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.*;
 
 /**
  * DAP message dispatcher.
@@ -20,6 +21,27 @@ public class DapServer {
 
     private FantomDebugSession session;
     private int seq = 1;
+
+    /**
+     * Single-threaded executor for evaluate requests.
+     *
+     * invokeToString() calls ObjectReference.invokeMethod() with INVOKE_SINGLE_THREADED.
+     * If the target object's toString() acquires a lock held by another suspended thread
+     * the call deadlocks and never returns.  Running evaluate on a background thread with
+     * a hard timeout lets the main DAP dispatch loop continue processing variables/scopes
+     * requests even while an evaluate is stuck.  We use a single-thread executor so at
+     * most one invoke is in flight at a time (multiple concurrent invokes risk JDI
+     * internal state issues on some JVMs).
+     *
+     * The stuck thread cannot be interrupted (invokeMethod ignores Thread.interrupt()) and
+     * will remain alive until the debug session disconnects, at which point the JDI
+     * VMDisconnectedException unblocks it automatically.
+     */
+    private final ExecutorService evalExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "dap-eval-thread");
+        t.setDaemon(true);
+        return t;
+    });
 
     public DapServer() {
         this.in  = System.in;
@@ -281,9 +303,35 @@ public class DapServer {
     }
 
     private void handleEvaluate(JsonObject req, JsonObject args) {
-        JsonObject body = (session != null)
-            ? session.evaluate(args)
-            : notAvailableBody();
+        if (session == null) {
+            sendResponse(req, true, notAvailableBody());
+            return;
+        }
+        // Run evaluate in a background thread with a 3-second timeout.
+        // invokeToString() (called for Watch / REPL expressions) uses
+        // INVOKE_SINGLE_THREADED and can deadlock on complex objects that
+        // acquire locks held by other suspended threads.  Without the timeout
+        // the main DAP loop stalls: no variables/scopes responses are ever
+        // sent, the Variables panel empties, and the UI appears frozen.
+        final FantomDebugSession sess = session;
+        Future<JsonObject> future = evalExecutor.submit(() -> sess.evaluate(args));
+        JsonObject body;
+        try {
+            body = future.get(3, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            // Don't cancel — invokeMethod is not interruptible; the thread stays
+            // alive until the VM disconnects.  Just return a visible placeholder.
+            System.err.println("[DAP] evaluate timed out for: " +
+                (args.has("expression") ? args.get("expression").getAsString() : "?"));
+            body = new JsonObject();
+            body.addProperty("result", "<timed out — toString() may be deadlocked>");
+            body.addProperty("variablesReference", 0);
+        } catch (Exception e) {
+            System.err.println("[DAP] evaluate error: " + e);
+            body = new JsonObject();
+            body.addProperty("result", "<error: " + e.getMessage() + ">");
+            body.addProperty("variablesReference", 0);
+        }
         sendResponse(req, true, body);
     }
 
