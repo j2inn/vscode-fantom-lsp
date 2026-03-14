@@ -525,6 +525,30 @@ class DiagnosticService
   }
 
   **
+  ** Return true if the character at 'pos' in 'line' is inside a string literal.
+  ** Counts unescaped '"' characters before 'pos'; an odd count means we are
+  ** currently inside a string (e.g. the class/mixin keyword found was part of
+  ** a string value, not a real declaration).
+  **
+  private Bool isInsideStringLiteral(Str line, Int pos)
+  {
+    count := 0
+    i := 0
+    while (i < pos && i < line.size)
+    {
+      ch := line[i]
+      if (ch == '\\')
+      {
+        i += 2  // skip escape sequence (e.g. \" \n \\)
+        continue
+      }
+      if (ch == '"') count++
+      i++
+    }
+    return count % 2 != 0
+  }
+
+  **
   ** Extract a name from single quotes in an error message.
   ** E.g., "Unknown type 'Logger'" -> "Logger"
   **
@@ -697,6 +721,9 @@ class DiagnosticService
     if (classIdx == null && mixinIdx == null) return
 
     keywordPos := classIdx ?: mixinIdx
+    // Skip lines where the keyword is inside a string literal
+    // (e.g. "class Build : BuildPod\n..." written as a string value)
+    if (isInsideStringLiteral(trimmed, keywordPos)) return
     colonIdx := trimmed.index(":", keywordPos + 6)
     if (colonIdx == null) return
     if (colonIdx + 1 < trimmed.size && trimmed[colonIdx + 1] == '=') return
@@ -857,6 +884,12 @@ class DiagnosticService
     isMixin := mixinIdx != null && (classIdx == null || mixinIdx < classIdx)
     keywordPos := classIdx ?: mixinIdx
     keywordLen := 6  // "class " and "mixin " are both 6 chars
+
+    // Skip lines where the keyword is inside a string literal
+    // (e.g. "class Build : BuildPod\n..." written as a string value).
+    // Without this guard the closing quote would be dropped, leaving an
+    // unterminated string that causes "Leading space in multi-line Str" errors.
+    if (isInsideStringLiteral(trimmed, keywordPos)) return line
 
     // Find the colon after the class/mixin name
     colonIdx := trimmed.index(":", keywordPos + keywordLen)
@@ -1109,6 +1142,8 @@ class DiagnosticService
       if (classIdx == null && mixinIdx == null) continue
 
       keywordPos := classIdx ?: mixinIdx
+      // Skip keywords found inside string literals
+      if (isInsideStringLiteral(line, keywordPos)) continue
 
       // Find the colon after the class/mixin name
       colonIdx := line.index(":", keywordPos + 6)
@@ -1180,6 +1215,7 @@ class DiagnosticService
       mixinIdx := line.index("mixin ")
       if (classIdx == null && mixinIdx == null) continue
       keywordPos := classIdx ?: mixinIdx
+      if (isInsideStringLiteral(line, keywordPos)) continue
 
       // Check if this line declares the type we're looking for
       afterKeyword := line[keywordPos + 6 ..-1].trim

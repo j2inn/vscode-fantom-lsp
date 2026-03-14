@@ -32,7 +32,7 @@ class TypeResolver
       }
 
       // Check for := assignment and infer type from RHS
-      rhsType := inferTypeFromAssignment(line, varName, index)
+      rhsType := inferTypeFromAssignment(line, varName, source, i, index)
       if (rhsType != null) return rhsType
     }
 
@@ -126,8 +126,9 @@ class TypeResolver
 
   **
   ** Infer type from RHS of an assignment: varName := expr
+  ** source and lineNum are needed for resolving method call return types.
   **
-  static Str? inferTypeFromAssignment(Str line, Str varName, ProjectIndex index)
+  static Str? inferTypeFromAssignment(Str line, Str varName, Str source, Int lineNum, ProjectIndex index)
   {
     idx := findWordInLine(line, varName)
     if (idx == null) return null
@@ -204,7 +205,171 @@ class TypeResolver
       }
     }
 
+    // Method call chain: receiver.method(args) or method(args)
+    // e.g.: "this.consumptionRows.colToList(TAG_NAME)" -> sys::List
+    rhsType := inferReturnTypeFromMethodCall(rhs, source, lineNum, index)
+    if (rhsType != null) return rhsType
+
     return null
+  }
+
+  **
+  ** Try to infer the return type from a method-call expression on the RHS.
+  ** Handles patterns like: receiver.method(args)
+  ** First tries to resolve the receiver's type and look up the method slot.
+  ** Falls back to searching the method name across all pods from 'using' statements.
+  **
+  private static Str? inferReturnTypeFromMethodCall(Str rhs, Str source, Int lineNum, ProjectIndex index)
+  {
+    // Must contain a '(' to be a call
+    parenIdx := rhs.index("(")
+    if (parenIdx == null || parenIdx == 0) return null
+
+    // Everything before the first '(' is: receiver.methodName (or just methodName)
+    beforeParen := rhs[0..<parenIdx].trim
+    dotIdx := beforeParen.indexr(".")
+    if (dotIdx == null) return null
+
+    methodName := beforeParen[dotIdx + 1..-1].trim
+    receiverExpr := beforeParen[0..<dotIdx].trim
+
+    if (methodName.isEmpty || !methodName[0].isLower) return null
+
+    // Try reflected receiver type -> method return type
+    receiverReflType := resolveReceiverReflType(receiverExpr, source, lineNum, index)
+    if (receiverReflType != null)
+    {
+      slot := receiverReflType.slot(methodName, false)
+      if (slot != null && slot is Method)
+      {
+        retType := ((Method)slot).returns
+        Str? qname := reflTypeToQname(retType)
+        if (qname != null) return qname
+      }
+    }
+
+    // Fallback: search by method name across all pods referenced by 'using' statements
+    return findMethodReturnTypeByName(methodName, source, index)
+  }
+
+  **
+  ** Resolve the reflected Type corresponding to a receiver expression.
+  ** Handles: simple variable name, this.field, TypeName (uppercase).
+  ** Avoids recursive type inference to prevent loops.
+  **
+  private static Type? resolveReceiverReflType(Str expr, Str source, Int lineNum, ProjectIndex index)
+  {
+    if (expr.isEmpty) return null
+
+    // Strip leading "this." — treat the rest as a field/variable lookup
+    workExpr := expr
+    if (workExpr.startsWith("this."))
+      workExpr = workExpr["this.".size..-1]
+    else if (workExpr == "this" || workExpr == "super")
+      return null
+
+    // Discard further dots — only resolve the final segment
+    lastDot := workExpr.indexr(".")
+    varName := lastDot != null ? workExpr[lastDot + 1..-1].trim : workExpr.trim
+
+    if (varName.isEmpty) return null
+
+    // Direct uppercase: treat as a type name
+    if (varName[0].isUpper)
+    {
+      upi := UsingPodIndex.fromSource(source)
+      Type? t := upi.getType(varName)
+      if (t != null) return t
+      if (index.podName != null)
+        t = Pod.find(index.podName, false)?.type(varName, false)
+      return t
+    }
+
+    // Lowercase: find the variable's explicit type declaration only
+    // (we deliberately skip inferred assignments to avoid recursion)
+    typeName := resolveExplicitDeclaredType(varName, source)
+    if (typeName == null) return null
+
+    upi := UsingPodIndex.fromSource(source)
+    Type? t := upi.getType(typeName)
+    if (t != null) return t
+    if (index.podName != null)
+      t = Pod.find(index.podName, false)?.type(typeName, false)
+    return t
+  }
+
+  **
+  ** Scan the full source for an explicit type declaration of varName.
+  ** Only considers "Type varName" or "Type varName :=" patterns (not inferred).
+  ** Safe to call from within type inference — no recursion.
+  **
+  private static Str? resolveExplicitDeclaredType(Str varName, Str source)
+  {
+    lines := source.splitLines
+    for (i := 0; i < lines.size; i++)
+    {
+      line := lines[i].trim
+      if (line.isEmpty || line.startsWith("//") || line.startsWith("*")) continue
+      typeName := extractDeclaredType(line, varName)
+      if (typeName != null) return typeName
+    }
+    return null
+  }
+
+  **
+  ** Fallback: search all using-pod types (and project pod) for a method with
+  ** the given name, and return the first non-trivial return type found.
+  **
+  private static Str? findMethodReturnTypeByName(Str methodName, Str source, ProjectIndex index)
+  {
+    upi := UsingPodIndex.fromSource(source)
+    allTypes := upi.allTypes()
+    for (i := 0; i < allTypes.size; i++)
+    {
+      slot := allTypes[i].slot(methodName, false)
+      if (slot != null && slot is Method)
+      {
+        qname := reflTypeToQname(((Method)slot).returns)
+        if (qname != null) return qname
+      }
+    }
+    // Also check project pod
+    if (index.podName != null)
+    {
+      pod := Pod.find(index.podName, false)
+      if (pod != null)
+      {
+        podTypes := pod.types
+        for (i := 0; i < podTypes.size; i++)
+        {
+          slot := podTypes[i].slot(methodName, false)
+          if (slot != null && slot is Method)
+          {
+            qname := reflTypeToQname(((Method)slot).returns)
+            if (qname != null) return qname
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  **
+  ** Convert a reflected Type to a qualified type name suitable for display.
+  ** Returns null for Void and Obj (too generic to be useful).
+  **
+  private static Str? reflTypeToQname(Type? t)
+  {
+    if (t == null) return null
+    qname := t.qname
+    // Strip trailing nullable marker
+    if (qname.endsWith("?")) qname = qname[0..<qname.size - 1]
+    // Skip types that are too generic or meaningless for variable type display
+    if (qname == "sys::Void" || qname == "sys::Obj") return null
+    // Normalize list and map sugar notation
+    if (qname == "sys::List" || qname.endsWith("[]")) return "sys::List"
+    if (qname == "sys::Map") return "sys::Map"
+    return qname.isEmpty ? null : qname
   }
 
   **

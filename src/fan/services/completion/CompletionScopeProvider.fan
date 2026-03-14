@@ -120,7 +120,7 @@ class CompletionScopeProvider
         if (localName != null)
         {
           localType := TypeResolver.extractDeclaredType(trimmed, localName)
-          if (localType == null) localType = TypeResolver.inferTypeFromAssignment(trimmed, localName, index)
+          if (localType == null) localType = TypeResolver.inferTypeFromAssignment(trimmed, localName, source, i, index)
           detail := localType != null ? "${localType} ${localName}" : localName
           addScopeItem(methodItems, prefixLower, localName, CompletionItemKind.variable, detail)
         }
@@ -258,7 +258,7 @@ class CompletionScopeProvider
       if (localName != null)
       {
         localType := TypeResolver.extractDeclaredType(trimmed, localName)
-        if (localType == null) localType = TypeResolver.inferTypeFromAssignment(trimmed, localName, index)
+        if (localType == null) localType = TypeResolver.inferTypeFromAssignment(trimmed, localName, source, i, index)
         detail := localType != null ? "${localType} ${localName}" : localName
         addScopeItem(fallbackMap, prefixLower, localName, CompletionItemKind.variable, detail)
       }
