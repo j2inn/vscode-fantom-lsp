@@ -5,9 +5,21 @@
 
 > **Unofficial** Language Server Protocol support for [Fantom](https://fantom.org/) in Visual Studio Code.
 
+---
+
+## 🏢 About J2 Innovations & FIN Framework
+
+[**J2 Innovations**](https://www.j2inn.com/) is a technology company that created **FIN Framework** — a cutting-edge open platform for smart buildings, smart equipment control, and IoT systems. FIN powers supervisory & control solutions, microBMS, equipment optimization, and edge-to-cloud connectivity, and is trusted by major OEM partners including Siemens, SageGlass, and Coster Group.
+
+**FIN Framework is built on [Fantom](https://fantom.org/)** — a JVM-based, object-oriented programming language. All FIN application code, connectors, and extensions are written in Fantom, making a productive Fantom development environment essential for anyone building on the FIN platform.
+
+This extension was created to improve the day-to-day developer experience when working with FIN Framework and Fantom projects in Visual Studio Code. It brings real-time diagnostics, autocompletion, go-to-definition, hover documentation, and a full debugger — all tailored to the Fantom ecosystem that powers FIN.
+
+---
+
 This extension brings a rich developer experience to Fantom projects inside VSCode — syntax highlighting, real-time diagnostics, autocompletion, hover docs, go-to-definition, **debugging with breakpoints and variable inspection**, and more. It is powered by a Fantom LSP server written entirely in Fantom itself (`vscodeFantomLsp`), automatically deployed into your Fantom installation when the extension activates.
 
-⚠️ This is an **unofficial, community-driven** project. It is not affiliated with or endorsed by the Fantom language authors.
+⚠️ This is an **unofficial, community-driven** project. It is not affiliated with or endorsed by the Fantom language authors or J2 Innovations.
 
 ---
 
