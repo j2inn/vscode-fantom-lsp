@@ -5,6 +5,7 @@
   "version": "0.0.0",
   "publisher": "J2innovations",
   "license": "AFL-3.0",
+  "icon": "icons/fantom-icon.png",
   "engines": {
     "vscode": "^1.75.0"
   },
