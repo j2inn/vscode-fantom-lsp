@@ -975,4 +975,54 @@ class ProjectIndexTest : Test
     verify(result, "indexSavedFile should return true for a new error-free file")
     verify(idx.hasType("BrandNew"), "BrandNew must be discoverable right after save with no errors")
   }
+
+  **
+  ** Regression: static const Str (and other typed) fields must have typeStr
+  ** populated by the text-scan indexer so that hover shows "Str MyClass.fieldName"
+  ** instead of the "Obj? fieldName" fallback.
+  **
+  Void testFieldTypeStrIndexed()
+  {
+    idx := ProjectIndex()
+    uri := "file:///test/MyService.fan"
+    source :=
+      "class MyService\n" +
+      "{\n" +
+      "  static const Str defName := \"hello\"\n" +
+      "  const Int maxRetries := 3\n" +
+      "  Bool enabled := true\n" +
+      "  Str? label\n" +
+      "}"
+
+    idx.indexFile(uri, source)
+
+    // static const Str — must have typeStr populated
+    defNameSyms := idx.findSymbols("defName")
+    defNameFld := defNameSyms.find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(defNameFld, "defName field not indexed")
+    verifyEq(defNameFld.typeName, "MyService")
+    verifyEq(defNameFld.typeStr, "Str",
+      "static const Str field must have typeStr=\"Str\", not null (which renders as Obj?)")
+
+    // const Int
+    maxRetriesSyms := idx.findSymbols("maxRetries")
+    maxRetriesFld := maxRetriesSyms.find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(maxRetriesFld, "maxRetries field not indexed")
+    verifyEq(maxRetriesFld.typeStr, "Int",
+      "const Int field must have typeStr=\"Int\"")
+
+    // plain Bool
+    enabledSyms := idx.findSymbols("enabled")
+    enabledFld := enabledSyms.find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(enabledFld, "enabled field not indexed")
+    verifyEq(enabledFld.typeStr, "Bool",
+      "Bool field must have typeStr=\"Bool\"")
+
+    // nullable Str?
+    labelSyms := idx.findSymbols("label")
+    labelFld := labelSyms.find |s| { s.kind == SymbolKind.field }
+    verifyNotNull(labelFld, "label field not indexed")
+    verifyEq(labelFld.typeStr, "Str",
+      "Str? field must have typeStr=\"Str\" (nullable marker stripped by extractDeclaredType)")
+  }
 }

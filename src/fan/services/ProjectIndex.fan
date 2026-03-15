@@ -826,11 +826,13 @@ class ProjectIndex
         if (fieldMatch != null)
         {
           col := findIdentCol(line, fieldMatch)
+          fieldTypeStr := TypeResolver.extractDeclaredType(trimmed, fieldMatch)
           idx.symbols.add(IndexedSymbol
           {
             it.name = fieldMatch
             it.kind = SymbolKind.field
             it.typeName = currentType
+            it.typeStr = fieldTypeStr
             it.fileUri = fileUri
             it.line = i
             it.col = col
