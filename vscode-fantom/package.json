@@ -105,10 +105,10 @@
                 "description": "Rebuild the pod (fan build.fan) with debug=true before launching, so local variables are visible in the debugger. Requires a build.fan in sourceDir. Set to true the first time you debug, or whenever source changes.",
                 "default": false
               },
-              "envVars": {
-                "type": "object",
-                "description": "Extra environment variables to set for the launched process, e.g. { \"FIN_NO_AUTH\": \"true\" }.",
-                "default": {}
+              "startupTimeout": {
+                "type": "number",
+                "description": "Seconds to wait for the JVM JDWP agent to become ready. Default is 60. Increase this for applications that take a long time to start (e.g. 120 for large FIN stacks).",
+                "default": 60
               }
             }
           },
@@ -189,6 +189,11 @@
       {
         "command": "fantom.removeUnusedVariablesInProject",
         "title": "Remove Unused Variables in Project",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.createLaunchJson",
+        "title": "Create launch.json for Fantom Debugger",
         "category": "Fantom"
       }
     ],

@@ -65,6 +65,10 @@ jobs:
           OUTPUT: CHANGELOG.md
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build debug adapter JAR
+        working-directory: vscode-fantom
+        run: bash debug-adapter/build.sh
+
       - name: Package VSCode extension
         working-directory: vscode-fantom
         run: npx --yes @vscode/vsce package "${GITHUB_REF_NAME#v}"
