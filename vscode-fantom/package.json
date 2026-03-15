@@ -259,5 +259,14 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/fantom-lang/fantom"
+  },
+  "pnpm": {
+    "overrides": {
+      "eslint>minimatch": "^3.1.4",
+      "glob>minimatch": "^3.1.4",
+      "vscode-languageclient>minimatch": "^5.1.8",
+      "@typescript-eslint/typescript-estree>minimatch": "^9.0.7",
+      "flat-cache>flatted": "^3.4.0"
+    }
   }
 }
