@@ -109,11 +109,6 @@
                 "type": "number",
                 "description": "Seconds to wait for the JVM JDWP agent to become ready. Default is 60. Increase this for applications that take a long time to start (e.g. 120 for large FIN stacks).",
                 "default": 60
-              },
-              "envVars": {
-                "type": "object",
-                "description": "Extra environment variables to set for the launched process, e.g. { \"FIN_NO_AUTH\": \"true\" }.",
-                "default": {}
               }
             }
           },
@@ -194,6 +189,11 @@
       {
         "command": "fantom.removeUnusedVariablesInProject",
         "title": "Remove Unused Variables in Project",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.createLaunchJson",
+        "title": "Create launch.json for Fantom Debugger",
         "category": "Fantom"
       }
     ],

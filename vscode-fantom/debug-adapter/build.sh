@@ -44,7 +44,16 @@ javac --add-modules jdk.jdi \
   "$SRC/fan/lsp/debug/Main.java" \
   "$SRC/fan/lsp/debug/DapServer.java" \
   "$SRC/fan/lsp/debug/FantomDebugSession.java" \
-  "$SRC/fan/lsp/debug/SourceMapper.java"
+  "$SRC/fan/lsp/debug/SourceMapper.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/PendingBreakpoint.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/SessionContext.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/ValueFormatter.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/BreakpointManager.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/ExecutionController.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/StackInspector.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/EvalHandler.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/EventProcessor.java" \
+  "$SRC/fan/lsp/debug/fantomDebugSession/LaunchHandler.java"
 
 # ── Package fat JAR ───────────────────────────────────────────────────────────
 echo "[build] Packaging fat JAR..."

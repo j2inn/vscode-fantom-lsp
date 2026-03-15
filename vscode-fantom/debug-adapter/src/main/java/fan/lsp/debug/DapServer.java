@@ -143,7 +143,7 @@ public class DapServer {
         sendMessage(resp);
     }
 
-    void sendEvent(String event, JsonObject body) {
+    public void sendEvent(String event, JsonObject body) {
         JsonObject evt = new JsonObject();
         evt.addProperty("seq",   nextSeq());
         evt.addProperty("type",  "event");

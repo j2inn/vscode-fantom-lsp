@@ -12,7 +12,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history required by git-cliff
+          fetch-depth: 0 # full history required by git-cliff
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -39,6 +39,10 @@ jobs:
       - name: Install Node.js dependencies
         working-directory: vscode-fantom
         run: npm ci
+
+      - name: Build debug adapter JAR
+        working-directory: vscode-fantom
+        run: bash debug-adapter/build.sh
 
       - name: Compile TypeScript
         working-directory: vscode-fantom

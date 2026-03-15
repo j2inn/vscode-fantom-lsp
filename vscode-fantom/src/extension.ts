@@ -577,6 +577,98 @@ class FantomDebugConfigurationProvider implements vscode.DebugConfigurationProvi
   }
 }
 
+// ---------------------------------------------------------------------------
+// launch.json suggestion
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the default launch.json content for a Fantom workspace.
+ * Reads fan.config.json to pre-fill fanExe when possible; otherwise the
+ * FantomDebugConfigurationProvider will fill it in at debug time.
+ */
+function buildLaunchJson(folder: vscode.WorkspaceFolder): string {
+  let fanExe: string | undefined;
+  const configPath = path.join(folder.uri.fsPath, 'fan.config.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      const json = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      // Check finPath first (FIN installations), then fanPath
+      if (json.finPath && fs.existsSync(json.finPath)) {
+        fanExe = json.finPath;
+      } else if (json.fanPath) {
+        for (const bin of (isWindows ? ['fan.bat', 'fin.bat'] : ['fan', 'fin'])) {
+          const exe = path.join(json.fanPath, 'bin', bin);
+          if (fs.existsSync(exe)) { fanExe = exe; break; }
+        }
+      }
+    } catch (_) { /* ignore malformed config */ }
+  }
+
+  const launchConfig: Record<string, unknown> = {
+    type: 'fantom',
+    request: 'launch',
+    name: 'Launch Fantom',
+    mainClass: 'myPod::Main',
+    sourceDir: '${workspaceFolder}'
+  };
+  if (fanExe) {
+    launchConfig['fanExe'] = fanExe;
+  }
+
+  const attachConfig: Record<string, unknown> = {
+    type: 'fantom',
+    request: 'attach',
+    name: 'Attach to Fantom',
+    port: 5005,
+    sourceDir: '${workspaceFolder}'
+  };
+
+  const contents = {
+    version: '0.2.0',
+    configurations: [launchConfig, attachConfig]
+  };
+  return JSON.stringify(contents, null, 4) + '\n';
+}
+
+/**
+ * If .vscode/launch.json does not exist yet, offer to create one.
+ * The prompt is shown at most once per workspace (tracked via workspaceState).
+ */
+async function suggestLaunchJson(
+  context: vscode.ExtensionContext,
+  folder: vscode.WorkspaceFolder
+): Promise<void> {
+  const launchJsonPath = path.join(folder.uri.fsPath, '.vscode', 'launch.json');
+  if (fs.existsSync(launchJsonPath)) { return; }  // already exists
+
+  const stateKey = `fantom.launchJsonPrompted:${folder.uri.fsPath}`;
+  if (context.workspaceState.get<boolean>(stateKey)) { return; }  // already asked
+
+  await context.workspaceState.update(stateKey, true);
+
+  const choice = await vscode.window.showInformationMessage(
+    'Fantom: No launch.json found. Would you like to create one with a default Fantom debugger configuration?',
+    'Create launch.json',
+    'Not now'
+  );
+
+  if (choice !== 'Create launch.json') { return; }
+
+  const vscodDir = path.join(folder.uri.fsPath, '.vscode');
+  try {
+    fs.mkdirSync(vscodDir, { recursive: true });
+    fs.writeFileSync(launchJsonPath, buildLaunchJson(folder), 'utf8');
+    log(`Created launch.json at ${launchJsonPath}`);
+    const doc = await vscode.workspace.openTextDocument(launchJsonPath);
+    await vscode.window.showTextDocument(doc);
+    vscode.window.showInformationMessage(
+      'Fantom: launch.json created. Update "mainClass" to your pod\'s entry point (e.g. "myPod::Main").'
+    );
+  } catch (e: any) {
+    vscode.window.showErrorMessage(`Fantom: Could not create launch.json: ${e.message}`);
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
   log('Extension activating...');
@@ -846,6 +938,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // --- Command: Create launch.json ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fantom.createLaunchJson', async () => {
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showWarningMessage('Fantom: No workspace folder open.');
+        return;
+      }
+      const launchJsonPath = path.join(folder.uri.fsPath, '.vscode', 'launch.json');
+      if (fs.existsSync(launchJsonPath)) {
+        const doc = await vscode.workspace.openTextDocument(launchJsonPath);
+        await vscode.window.showTextDocument(doc);
+        vscode.window.showInformationMessage('Fantom: launch.json already exists.');
+        return;
+      }
+      try {
+        fs.mkdirSync(path.join(folder.uri.fsPath, '.vscode'), { recursive: true });
+        fs.writeFileSync(launchJsonPath, buildLaunchJson(folder), 'utf8');
+        log(`Created launch.json at ${launchJsonPath}`);
+        const doc = await vscode.workspace.openTextDocument(launchJsonPath);
+        await vscode.window.showTextDocument(doc);
+        vscode.window.showInformationMessage(
+          'Fantom: launch.json created. Update "mainClass" to your pod\'s entry point.');
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`Fantom: Could not create launch.json: ${e.message}`);
+      }
+    })
+  );
+
   // --- Watch fan.config.json — restart LSP on change ---
   const folders = vscode.workspace.workspaceFolders;
   if (folders && folders.length > 0) {
@@ -969,7 +1090,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
-  // --- Step 3: Start LSP server ---
+  // --- Step 3: Suggest launch.json if missing ---
+  if (folders && folders.length > 0) {
+    await suggestLaunchJson(context, folders[0]);
+  }
+
+  // --- Step 4: Start LSP server ---
   await startLspClient(context, finConfig);
 }
 

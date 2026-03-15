@@ -145,12 +145,13 @@ Additional settings available through the VSCode UI or `settings.json`:
 
 Access these from the Command Palette (`Ctrl+Shift+P`):
 
-| Command                                        | Description                                                          |
-| ---------------------------------------------- | -------------------------------------------------------------------- |
-| **Fantom: Remove Unused Imports in File**      | Deletes all unused `using` lines in the current file and saves       |
-| **Fantom: Remove Unused Imports in Project**   | Deletes unused `using` lines across every `.fan` file in the project |
-| **Fantom: Remove Unused Variables in File**    | Deletes unused variable declarations in the current file             |
-| **Fantom: Remove Unused Variables in Project** | Deletes unused variable declarations across the whole project        |
+| Command                                            | Description                                                                                                   |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Fantom: Remove Unused Imports in File**          | Deletes all unused `using` lines in the current file and saves                                                |
+| **Fantom: Remove Unused Imports in Project**       | Deletes unused `using` lines across every `.fan` file in the project                                          |
+| **Fantom: Remove Unused Variables in File**        | Deletes unused variable declarations in the current file                                                      |
+| **Fantom: Remove Unused Variables in Project**     | Deletes unused variable declarations across the whole project                                                 |
+| **Fantom: Create launch.json for Fantom Debugger** | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json` |
 
 ---
 
@@ -299,6 +300,8 @@ You will see `Listening for transport dt_socket at address: 5005` confirming the
 
 **Step 3.** Create `.vscode/launch.json`:
 
+> **Tip**: Run **Fantom: Create launch.json for Fantom Debugger** from the Command Palette (`Ctrl+Shift+P`) to generate this file automatically. The extension also offers to create it on first activation when `fan.config.json` is present and no `launch.json` exists.
+
 ```json
 {
   "version": "0.2.0",
@@ -393,7 +396,7 @@ In launch mode **VS Code starts the Fantom/FIN process for you** when you press 
 > **Why `"mainClass": ""`?**  
 > The `fin` script wraps `fanlaunch Fan finStackHost "$@"` — the pod name is hardcoded inside the script. Passing an extra `finStackHost::Main` argument after `-noAuth` confuses FIN's argument parser. Leave `mainClass` empty and rely on the script's built-in entry point.
 
-**`fin` with `-noAuth` and extra environment variables**:
+**`fin` with `-noAuth`**:
 
 ```json
 {
@@ -403,7 +406,6 @@ In launch mode **VS Code starts the Fantom/FIN process for you** when you press 
   "fanExe": "/path/to/intelliplant/bin/fin",
   "mainClass": "",
   "launcherArgs": ["-noAuth"],
-  "envVars": { "FIN_SOME_FLAG": "true" },
   "sourceDir": "${workspaceFolder}"
 }
 ```
@@ -459,7 +461,6 @@ Press the **Stop** button (red square) or `Shift+F5`. The launched process and a
 | `mainClass`        | string   | `""`                 | Fantom class to run, e.g. `myPod::Main`. **Leave empty for `fin`** — `fin` already embeds its entry point; passing an extra class name after launcher args confuses its argument parser.                                  |
 | `launcherArgs`     | string[] | `[]`                 | Arguments inserted between the executable and `mainClass`, e.g. `["-noAuth"]` → `fin -noAuth`. These are passed **to the launcher script itself**, before the Fantom pod name.                                            |
 | `args`             | string[] | `[]`                 | Arguments appended after `mainClass` — passed to the Fantom program's `main()` method.                                                                                                                                    |
-| `envVars`          | object   | `{}`                 | Extra environment variables set in the launched process, e.g. `{ "FIN_NO_AUTH": "true" }`. Merged on top of the inherited environment.                                                                                    |
 | `sourceDir`        | string   | `${workspaceFolder}` | Root directory searched for `.fan` source files (used for source ↔ JVM class mapping).                                                                                                                                    |
 | `debugPort`        | number   | `5005`               | Preferred JDWP port. If the port is already in use the adapter automatically picks a free ephemeral port.                                                                                                                 |
 | `noDebug`          | boolean  | `false`              | Launch without attaching the debugger (plain run).                                                                                                                                                                        |
@@ -499,7 +500,7 @@ npm run build-debug-adapter
 bash debug-adapter/build.sh
 ```
 
-This downloads Gson, compiles the four Java source files, and packages a self-contained fat JAR.
+This downloads Gson, compiles all Java source files, and packages a self-contained fat JAR.
 
 ---
 
@@ -551,12 +552,6 @@ This extension brings a rich developer experience to Fantom projects inside VSCo
 | 🧩 **Remove Unused Imports**              | Command to remove all unused `using` lines in a file or the whole project                 |
 | 🧩 **Remove Unused Variables**            | Command to remove all unused variable declarations in a file or the whole project         |
 | 📊 **Status bar diagnostics**             | Live error and warning counts in the VSCode status bar                                    |
-
-### 🔜 Coming Soon / Not Yet Implemented
-
-| Feature         | Notes                                                      |
-| --------------- | ---------------------------------------------------------- |
-| 🐛 **Debugger** | A Fantom debug adapter is in the works — coming very soon! |
 
 ---
 
@@ -666,12 +661,13 @@ Additional settings available through the VSCode UI or `settings.json`:
 
 Access these from the Command Palette (`Ctrl+Shift+P`):
 
-| Command                                        | Description                                                          |
-| ---------------------------------------------- | -------------------------------------------------------------------- |
-| **Fantom: Remove Unused Imports in File**      | Deletes all unused `using` lines in the current file and saves       |
-| **Fantom: Remove Unused Imports in Project**   | Deletes unused `using` lines across every `.fan` file in the project |
-| **Fantom: Remove Unused Variables in File**    | Deletes unused variable declarations in the current file             |
-| **Fantom: Remove Unused Variables in Project** | Deletes unused variable declarations across the whole project        |
+| Command                                            | Description                                                                                                   |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Fantom: Remove Unused Imports in File**          | Deletes all unused `using` lines in the current file and saves                                                |
+| **Fantom: Remove Unused Imports in Project**       | Deletes unused `using` lines across every `.fan` file in the project                                          |
+| **Fantom: Remove Unused Variables in File**        | Deletes unused variable declarations in the current file                                                      |
+| **Fantom: Remove Unused Variables in Project**     | Deletes unused variable declarations across the whole project                                                 |
+| **Fantom: Create launch.json for Fantom Debugger** | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json` |
 
 ---
 
