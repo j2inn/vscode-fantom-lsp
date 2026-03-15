@@ -40,8 +40,8 @@
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/fantom-icon.png",
-          "dark": "./icons/fantom-icon.png"
+          "light": "./icons/fantom-icon-transp.png",
+          "dark": "./icons/fantom-icon-transp.png"
         }
       }
     ],
