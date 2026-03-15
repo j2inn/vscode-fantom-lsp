@@ -230,14 +230,15 @@
       }
     }
   },
+  "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "vscode:prepublish": "cp ../README.md README.md && npm run compile && npm run bundle-lsp",
+    "vscode:prepublish": "cp ../README.md README.md && pnpm run compile && pnpm run bundle-lsp",
     "compile": "tsc -p ./",
     "bundle-lsp": "node scripts/bundle-lsp.js",
     "bundle-debug-adapter": "node scripts/bundle-debug-adapter.js",
     "build-debug-adapter": "bash debug-adapter/build.sh",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile",
+    "pretest": "pnpm run compile",
     "lint": "eslint src --ext ts",
     "test:extension": "node out/test/declarationRange.test.js",
     "test:grammar": "vscode-tmgrammar-snap -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",
