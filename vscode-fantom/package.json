@@ -231,7 +231,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile && npm run bundle-lsp",
+    "vscode:prepublish": "cp ../README.md README.md && npm run compile && npm run bundle-lsp",
     "compile": "tsc -p ./",
     "bundle-lsp": "node scripts/bundle-lsp.js",
     "bundle-debug-adapter": "node scripts/bundle-debug-adapter.js",
