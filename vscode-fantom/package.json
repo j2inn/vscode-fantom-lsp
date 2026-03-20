@@ -1,6 +1,6 @@
 {
-  "name": "fantom-language-support",
-  "displayName": "Fantom Language Support",
+  "name": "fantom-language-server",
+  "displayName": "Fantom Language Server",
   "description": "Language support for Fantom with syntax highlighting, diagnostics, and autocompletion",
   "version": "0.0.0",
   "publisher": "AndreaGiusti",
