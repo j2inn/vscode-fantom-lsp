@@ -21,8 +21,10 @@ import java.util.stream.Collectors;
  *    "bash -c kill -KILL -<pid>", which is bash-only.
  *  - linkOrCopy():   wraps Files.createSymbolicLink in a try/catch; on Windows
  *    without Developer Mode or administrator rights symbolic-link creation throws
- *    AccessDeniedException or UnsupportedOperationException, in which case the
- *    entry is copied instead (full copy for directories, file copy for files).
+ *    AccessDeniedException (ERROR_ACCESS_DENIED) or a plain FileSystemException
+ *    with "A required privilege is not held by the client" (ERROR_PRIVILEGE_NOT_HELD,
+ *    1314); both are caught via the FileSystemException superclass, in which case
+ *    the entry is copied instead (full copy for directories, file copy for files).
  */
 public class LaunchHandler {
 
@@ -104,16 +106,17 @@ public class LaunchHandler {
         String shadowHome = createDebugShadowHome(fanExe, port);
         if (shadowHome == null && !noDebug) {
             if (portReservation != null) try { portReservation.close(); } catch (IOException ignore) {}
+            String detail = ctx.shadowCreationError != null
+                ? ": " + ctx.shadowCreationError
+                : " (check stderr for details)";
             throw new RuntimeException(
-                "Could not create debug shadow FAN_HOME for " + fanExe +
-                ". Check stderr for details.");
+                "Could not create debug shadow FAN_HOME for " + fanExe + detail);
         }
         if (shadowHome != null) {
             ctx.consoleLog("[Fantom Debug] Shadow FAN_HOME: " + shadowHome);
         }
 
-        List<String> cmd = new ArrayList<>();
-        cmd.add(fanExe);
+        List<String> cmd = batCommand(fanExe);
         if (args.has("launcherArgs")) {
             for (JsonElement a : args.getAsJsonArray("launcherArgs"))
                 cmd.add(a.getAsString());
@@ -428,6 +431,8 @@ public class LaunchHandler {
                 catch (Exception ignore) {}
                 ctx.debugShadowHome = null;
             }
+            // Store the root cause so the caller can surface it to the user
+            ctx.shadowCreationError = e.getMessage() != null ? e.getMessage() : e.toString();
             return null;
         }
     }
@@ -441,18 +446,26 @@ public class LaunchHandler {
      * a full recursive copy for directories, a simple file copy for files.
      * This means changes to the real FAN_HOME are not reflected in the shadow
      * after creation, but for a single debug session that is acceptable.
+     *
+     * On Windows, any exception type can be thrown by the JVM's symlink
+     * implementation (FileSystemException, UnsupportedOperationException,
+     * SecurityException, etc.), so we catch all Throwable and fall back to copy.
+     * COPY_ATTRIBUTES is intentionally omitted: on Windows some files carry
+     * NTFS-specific attributes (reparse points, compressed, encrypted, etc.)
+     * that cannot be reproduced in the temp directory and cause Files.copy to
+     * throw even though the data itself copies cleanly without them.
      */
     private static void linkOrCopy(Path source, Path target) throws IOException {
         try {
             Files.createSymbolicLink(target, source);
-        } catch (UnsupportedOperationException | java.nio.file.AccessDeniedException e) {
-            // Windows doesn't allow symlinks without elevated permissions:
-            // fall back to a copy so the shadow still works.
+        } catch (Throwable e) {
+            // Any failure to create a symlink (privilege denied, unsupported
+            // filesystem, security manager rejection, etc.) is treated as
+            // "symlinks not available" and we fall back to a plain copy.
             if (Files.isDirectory(source)) {
                 copyDirectory(source, target);
             } else {
                 Files.copy(source, target,
-                    java.nio.file.StandardCopyOption.COPY_ATTRIBUTES,
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
         }
@@ -519,8 +532,9 @@ public class LaunchHandler {
         }
         ctx.consoleLog("[Fantom Debug] Rebuilding with debug=true for local variable support...");
         try {
-            ProcessBuilder pb = new ProcessBuilder(fanExe, "build.fan");
-            pb.directory(new File(sourceDir));
+            List<String> rebuildCmd = batCommand(fanExe);
+            rebuildCmd.add("build.fan");
+            ProcessBuilder pb = new ProcessBuilder(rebuildCmd);
             pb.redirectErrorStream(true);
             if (fanHome != null) pb.environment().put("FAN_HOME", fanHome);
             Process proc = pb.start();
@@ -577,6 +591,25 @@ public class LaunchHandler {
     // -----------------------------------------------------------------------
     // Static helpers
     // -----------------------------------------------------------------------
+
+    /**
+     * Build the start of a process command for the given fan/fin executable.
+     *
+     * On Windows, {@code .bat} files cannot be run directly by
+     * {@link ProcessBuilder} — CreateProcess returns ERROR 193 ("not a valid
+     * Win32 application").  They must be invoked through {@code cmd.exe /c}.
+     * This method prepends {@code cmd.exe /c} when {@code fanExe} ends with
+     * {@code .bat} so callers can simply append their remaining arguments.
+     */
+    private static List<String> batCommand(String fanExe) {
+        List<String> cmd = new ArrayList<>();
+        if (fanExe.toLowerCase().endsWith(".bat")) {
+            cmd.add("cmd.exe");
+            cmd.add("/c");
+        }
+        cmd.add(fanExe);
+        return cmd;
+    }
 
     /** Derive FAN_HOME as the grandparent directory of the fan executable. */
     private static String deriveFanHome(String fanExe) {

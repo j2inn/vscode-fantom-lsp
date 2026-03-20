@@ -135,8 +135,14 @@ public class StackInspector {
      *
      * Three-step strategy:
      *  1. LocalVariableTable (LVT) — full local names when debug=true.
-     *  2. Method arguments via getArgumentValues() — always available;
-     *     names from LVT first, then .fan source parse, then "argN".
+     *     hasLvt is set as soon as visibleVariables() succeeds (no AbsentInformationException),
+     *     regardless of whether any variables are currently in scope or readable.
+     *     Variables whose getValue() fails are still shown as &lt;unavailable&gt; so the user
+     *     can see all declared vars even at the first bytecode of a declaration line.
+     *  2. Method arguments via getArgumentValues() — always runs (not gated on hasLvt)
+     *     to complement params omitted from the LVT (Fantom does not emit LVT entries
+     *     for method parameters in all build configurations).  The `shown` set prevents
+     *     duplicates when params ARE already present in the LVT.
      *  3. this.* instance fields — appended once, deduplicated against
      *     locals/params already shown.  Fantom fields are accessible
      *     without "this." prefix, matching the Watch panel behaviour.
@@ -148,15 +154,26 @@ public class StackInspector {
         boolean hasLvt = false;
         try {
             List<LocalVariable> locals = frame.visibleVariables();
+            // FIX: set hasLvt as soon as visibleVariables() succeeds — the LVT is
+            // present even when no variables are in scope at the current PC, or when
+            // individual getValue() calls fail below.
+            hasLvt = true;
             for (LocalVariable lv : locals) {
+                String name = lv.name();
+                if (name.startsWith("$")) continue; // Fantom synthetic slots
                 try {
                     Value v = frame.getValue(lv);
-                    vars.add(makeSafeVar(lv.name(), lv.typeName(), v));
-                    shown.add(lv.name());
-                    hasLvt = true;
+                    vars.add(makeSafeVar(name, lv.typeName(), v));
                 } catch (Exception e) {
-                    System.err.println("[JDI] getValue(" + lv.name() + ") error: " + e);
+                    // FIX: show variable as <unavailable> rather than silently dropping it.
+                    // This preserves visibility at the first bytecode of a declaration line
+                    // where the slot hasn't been written yet.
+                    vars.add(makeSafeVar(name, lv.typeName(), null));
+                    System.err.println("[JDI] getValue(" + name + ") error: " + e);
                 }
+                // FIX: track the name regardless of getValue success so Step 2
+                // doesn't add a duplicate entry for the same variable.
+                shown.add(name);
             }
         } catch (AbsentInformationException ignored) {
         } catch (Exception e) {
@@ -164,44 +181,46 @@ public class StackInspector {
         }
 
         // ── Step 2: method arguments ──────────────────────────────────────
-        if (!hasLvt) {
-            try {
-                List<Value>         argVals   = frame.getArgumentValues();
-                List<LocalVariable> namedArgs = null;
-                try { namedArgs = frame.location().method().arguments(); }
-                catch (Exception ignore) {}
+        // FIX: always run (not gated on !hasLvt).  Fantom does not always emit
+        // LVT entries for method parameters, so once a local variable comes into
+        // scope the old `if (!hasLvt)` guard would hide all method params.
+        // The `shown` set above handles deduplication when params ARE in the LVT.
+        try {
+            List<Value>         argVals   = frame.getArgumentValues();
+            List<LocalVariable> namedArgs = null;
+            try { namedArgs = frame.location().method().arguments(); }
+            catch (Exception ignore) {}
 
-                // Fallback: parse parameter names from the .fan source file
-                List<String> sourceNames = null;
-                if (namedArgs == null && ctx.sourceMapper != null) {
-                    try {
-                        String srcName  = frame.location().sourceName();
-                        String jvmClass = frame.location().declaringType().name();
-                        String method   = frame.location().method().name();
-                        List<String> parsed = ctx.sourceMapper
-                            .getMethodParamNames(srcName, jvmClass, method);
-                        if (!parsed.isEmpty()) sourceNames = parsed;
-                    } catch (Exception ignore) {}
-                }
-
-                for (int i = 0; i < argVals.size(); i++) {
-                    String name;
-                    String typeName = null;
-                    if (namedArgs != null && i < namedArgs.size()) {
-                        name     = namedArgs.get(i).name();
-                        typeName = namedArgs.get(i).typeName();
-                    } else if (sourceNames != null && i < sourceNames.size()) {
-                        name = sourceNames.get(i);
-                    } else {
-                        name = "arg" + i;
-                    }
-                    if (shown.contains(name)) continue;
-                    vars.add(makeSafeVar(name, typeName, argVals.get(i)));
-                    shown.add(name);
-                }
-            } catch (Exception e) {
-                System.err.println("[JDI] getArgumentValues error: " + e);
+            // Fallback: parse parameter names from the .fan source file
+            List<String> sourceNames = null;
+            if (namedArgs == null && ctx.sourceMapper != null) {
+                try {
+                    String srcName  = frame.location().sourceName();
+                    String jvmClass = frame.location().declaringType().name();
+                    String method   = frame.location().method().name();
+                    List<String> parsed = ctx.sourceMapper
+                        .getMethodParamNames(srcName, jvmClass, method);
+                    if (!parsed.isEmpty()) sourceNames = parsed;
+                } catch (Exception ignore) {}
             }
+
+            for (int i = 0; i < argVals.size(); i++) {
+                String name;
+                String typeName = null;
+                if (namedArgs != null && i < namedArgs.size()) {
+                    name     = namedArgs.get(i).name();
+                    typeName = namedArgs.get(i).typeName();
+                } else if (sourceNames != null && i < sourceNames.size()) {
+                    name = sourceNames.get(i);
+                } else {
+                    name = "arg" + i;
+                }
+                if (shown.contains(name)) continue;
+                vars.add(makeSafeVar(name, typeName, argVals.get(i)));
+                shown.add(name);
+            }
+        } catch (Exception e) {
+            System.err.println("[JDI] getArgumentValues error: " + e);
         }
 
         // ── Step 3: this.* instance fields ───────────────────────────────

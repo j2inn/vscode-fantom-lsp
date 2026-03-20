@@ -32,6 +32,9 @@ public class SessionContext {
     /** Temp shadow FAN_HOME path — deleted on cleanup. */
     public String  debugShadowHome;
 
+    /** If shadow creation failed, holds the root-cause message for a better error. */
+    public String  shadowCreationError;
+
     /** True when we launched the process ourselves (vs. attach-only). */
     public boolean wasLaunched = false;
 

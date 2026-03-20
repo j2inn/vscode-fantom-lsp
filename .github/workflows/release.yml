@@ -81,7 +81,7 @@ jobs:
 
       - name: Package VSCode extension
         working-directory: vscode-fantom
-        run: pnpm dlx @vscode/vsce package "${GITHUB_REF_NAME#v}"
+        run: pnpm dlx @vscode/vsce package --no-dependencies "${GITHUB_REF_NAME#v}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

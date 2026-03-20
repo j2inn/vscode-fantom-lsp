@@ -71,3 +71,23 @@ rm "$MANIFEST"
 
 SIZE=$(wc -c < "$OUT")
 echo "[build] Done: bundled-debug/fantom-debug-adapter.jar (${SIZE} bytes)"
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+TEST_SRC="$WORK/src/test/java"
+TEST_CLASSES="$WORK/test-classes"
+
+echo "[test] Compiling tests..."
+rm -rf "$TEST_CLASSES"
+mkdir -p "$TEST_CLASSES"
+
+javac --add-modules jdk.jdi \
+  -cp "$GSON_JAR:$CLASSES" \
+  -d "$TEST_CLASSES" \
+  "$TEST_SRC/fan/lsp/debug/fantomDebugSession/StackInspectorTest.java"
+
+echo "[test] Running StackInspectorTest..."
+java --add-modules jdk.jdi \
+  -cp "$GSON_JAR:$CLASSES:$TEST_CLASSES" \
+  fan.lsp.debug.fantomDebugSession.StackInspectorTest
+
+echo "[test] All tests passed."

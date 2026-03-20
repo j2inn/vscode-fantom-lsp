@@ -11,4 +11,6 @@ vsc-extension-quickstart.md
 **/*.ts
 .npmignore
 test/**
+out/test/**
 debug-adapter/**
+node_modules/**
