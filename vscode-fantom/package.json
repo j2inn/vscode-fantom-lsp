@@ -232,9 +232,10 @@
   },
   "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "vscode:prepublish": "cp ../README.md README.md && pnpm run compile && pnpm run bundle-lsp",
+    "vscode:prepublish": "cp ../README.md README.md && pnpm run compile && pnpm run bundle-lsp && pnpm run bundle-extension -- --production",
     "compile": "tsc -p ./",
     "bundle-lsp": "node scripts/bundle-lsp.js",
+    "bundle-extension": "node scripts/bundle-extension.js",
     "bundle-debug-adapter": "node scripts/bundle-debug-adapter.js",
     "build-debug-adapter": "bash debug-adapter/build.sh",
     "watch": "tsc -watch -p ./",
@@ -244,11 +245,11 @@
     "test:grammar": "vscode-tmgrammar-snap -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",
     "test:grammar:update": "vscode-tmgrammar-snap -u -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\""
   },
-  "dependencies": {
-    "vscode-languageclient": "^9.0.1"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^20.x",
+    "esbuild": "^0.25.0",
+    "vscode-languageclient": "^9.0.1",
     "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^6.x",
     "@typescript-eslint/parser": "^6.x",
@@ -261,12 +262,15 @@
     "url": "https://github.com/fantom-lang/fantom"
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
     "overrides": {
       "eslint>minimatch": "^3.1.4",
       "glob>minimatch": "^3.1.4",
       "vscode-languageclient>minimatch": "^5.1.8",
       "@typescript-eslint/typescript-estree>minimatch": "^9.0.7",
-      "flat-cache>flatted": "^3.4.0"
+      "flat-cache>flatted": "^3.4.2"
     }
   }
 }

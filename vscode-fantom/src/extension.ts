@@ -208,8 +208,20 @@ function isFantomProject(): boolean {
 }
 
 /**
- * Resolve the fan executable from FAN_HOME.
+ * On Windows, Fantom ships batch wrappers (fin.bat, fan.bat) that must be used
+ * instead of the extension-less shell scripts.  If the given path exists as-is,
+ * return it; otherwise, on Windows, try appending '.bat'.
  */
+function resolveScriptExe(rawPath: string): string {
+  if (fs.existsSync(rawPath)) return rawPath;
+  if (isWindows && !rawPath.match(/\.(bat|exe|cmd)$/i)) {
+    const batPath = rawPath + '.bat';
+    if (fs.existsSync(batPath)) return batPath;
+  }
+  return rawPath;
+}
+
+/** Resolve the fan executable from FAN_HOME. */
 function resolveFanExecutable(fanHome: string): string | undefined {
   const fanBin = isWindows ? 'fan.bat' : 'fan';
   const fanExePath = path.join(fanHome, 'bin', fanBin);
@@ -561,10 +573,10 @@ class FantomDebugConfigurationProvider implements vscode.DebugConfigurationProvi
       if (configPath && fs.existsSync(configPath)) {
         try {
           const json = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-          if (json.finPath && fs.existsSync(json.finPath)) {
-            config.fanExe = json.finPath;
+          if (json.finPath) {
+            config.fanExe = resolveScriptExe(json.finPath);
           } else if (json.fanPath) {
-            for (const bin of ['fin', 'fan', 'fin.bat', 'fan.bat']) {
+            for (const bin of (isWindows ? ['fin.bat', 'fan.bat'] : ['fin', 'fan'])) {
               const exe = path.join(json.fanPath, 'bin', bin);
               if (fs.existsSync(exe)) { config.fanExe = exe; break; }
             }
@@ -593,8 +605,8 @@ function buildLaunchJson(folder: vscode.WorkspaceFolder): string {
     try {
       const json = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       // Check finPath first (FIN installations), then fanPath
-      if (json.finPath && fs.existsSync(json.finPath)) {
-        fanExe = json.finPath;
+      if (json.finPath) {
+        fanExe = resolveScriptExe(json.finPath);
       } else if (json.fanPath) {
         for (const bin of (isWindows ? ['fan.bat', 'fin.bat'] : ['fan', 'fin'])) {
           const exe = path.join(json.fanPath, 'bin', bin);
