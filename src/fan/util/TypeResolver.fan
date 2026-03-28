@@ -105,6 +105,8 @@ class TypeResolver
     }
 
     if (before.isEmpty) return null
+    // [MapType][] → List of maps (e.g. [Str:Obj?][] → List, not Map)
+    if (before.startsWith("[") && before.endsWith("][]")) return "List"
     // Map type: Str:Dict[] or [Str:Dict] — must check for ':' before '[]' check
     if (before.contains(":") &&
         (before.startsWith("[") || before.index(":") < (before.index("[]") ?: before.size)))
@@ -143,10 +145,19 @@ class TypeResolver
     if (rhs.startsWith("["))
     {
       if (rhs.startsWith("[:]")) return "sys::Map"
-      // Check for map literal
+      // Check for typed list/map literal: [Type][...] pattern
+      // e.g. [Str:Obj?][,] is a List (of maps), not a Map
       bracketEnd := rhs.index("]")
       if (bracketEnd != null)
       {
+        afterBracket := bracketEnd + 1
+        if (afterBracket < rhs.size && rhs[afterBracket] == '[')
+        {
+          // [Type][:] → typed empty Map; [Type][,] or [Type][...] → typed List
+          rest := rhs[afterBracket..-1]
+          if (rest.startsWith("[:]")) return "sys::Map"
+          return "sys::List"
+        }
         inner := rhs[1..<bracketEnd]
         if (inner.contains(":")) return "sys::Map"
       }

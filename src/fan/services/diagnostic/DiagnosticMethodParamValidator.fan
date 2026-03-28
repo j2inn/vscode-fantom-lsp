@@ -155,8 +155,9 @@ class DiagnosticMethodParamValidator
 
                   afterParen := callEnd
                   while (afterParen < line.size && line[afterParen].isSpace) afterParen++
-                  hasClosure := afterParen < line.size && line[afterParen] == '|' &&
-                                (afterParen + 1 >= line.size || line[afterParen + 1] != '|')
+                  hasClosure := afterParen < line.size &&
+                                ((line[afterParen] == '|' && (afterParen + 1 >= line.size || line[afterParen + 1] != '|')) ||
+                                 line[afterParen] == '{')
 
                   calls.add(MethodCall {
                     it.varName = varName
