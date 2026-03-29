@@ -16,7 +16,7 @@ import {
   ProviderResult,
 } from 'vscode';
 import { getPlatform } from './platform';
-import { initJavaSetup, resolveJavaCmd, checkJavaAtStartup, ensureDebugAdapterJar } from './javaSetup';
+import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -623,7 +623,11 @@ function buildLaunchJson(folder: vscode.WorkspaceFolder): string {
     request: 'launch',
     name: 'Launch Fantom',
     mainClass: 'myPod::Main',
-    sourceDir: '${workspaceFolder}'
+    sourceDir: '${workspaceFolder}',
+    // Rebuild pod with debug=true before each session so local variables
+    // declared inside method bodies are visible in the debugger.
+    // Set to false once the pod is stable to skip the rebuild overhead.
+    preLaunchRebuild: true
   };
   if (fanExe) {
     launchConfig['fanExe'] = fanExe;
@@ -686,7 +690,6 @@ async function suggestLaunchJson(
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
   log('Extension activating...');
-  initJavaSetup(context.globalState);
 
   // --- Register debug adapter (always, even outside Fantom projects) ---
   context.subscriptions.push(
@@ -702,8 +705,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     )
   );
 
-  // --- Check Java availability at startup (non-blocking) ---
-  checkJavaAtStartup(getPlatform(), log);
+  // --- Check Java, build debug adapter JAR if missing (non-blocking) ---
+  checkJavaAndBuildAdapterAtStartup(context.extensionPath, getPlatform(), log);
+
+  // --- Command: Rebuild Fantom debugger ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fantom.rebuildDebugAdapter', async () => {
+      await rebuildDebugAdapterJar(context.extensionPath, getPlatform(), log);
+    })
+  );
 
   // --- Step 0: Only proceed if this is a Fantom project ---
   if (!isFantomProject()) {

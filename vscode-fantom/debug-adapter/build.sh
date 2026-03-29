@@ -83,11 +83,17 @@ mkdir -p "$TEST_CLASSES"
 javac --add-modules jdk.jdi \
   -cp "$GSON_JAR:$CLASSES" \
   -d "$TEST_CLASSES" \
-  "$TEST_SRC/fan/lsp/debug/fantomDebugSession/StackInspectorTest.java"
+  "$TEST_SRC/fan/lsp/debug/fantomDebugSession/StackInspectorTest.java" \
+  "$TEST_SRC/fan/lsp/debug/fantomDebugSession/LaunchHandlerTest.java"
 
 echo "[test] Running StackInspectorTest..."
 java --add-modules jdk.jdi \
   -cp "$GSON_JAR:$CLASSES:$TEST_CLASSES" \
   fan.lsp.debug.fantomDebugSession.StackInspectorTest
+
+echo "[test] Running LaunchHandlerTest..."
+java --add-modules jdk.jdi \
+  -cp "$GSON_JAR:$CLASSES:$TEST_CLASSES" \
+  fan.lsp.debug.fantomDebugSession.LaunchHandlerTest
 
 echo "[test] All tests passed."

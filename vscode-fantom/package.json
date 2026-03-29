@@ -104,7 +104,7 @@
               "preLaunchRebuild": {
                 "type": "boolean",
                 "description": "Rebuild the pod (fan build.fan) with debug=true before launching, so local variables are visible in the debugger. Requires a build.fan in sourceDir. Set to true the first time you debug, or whenever source changes.",
-                "default": false
+                "default": true
               },
               "startupTimeout": {
                 "type": "number",
@@ -200,6 +200,11 @@
       {
         "command": "fantom.formatProject",
         "title": "Format Entire Project",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.rebuildDebugAdapter",
+        "title": "Rebuild debugger",
         "category": "Fantom"
       }
     ],
