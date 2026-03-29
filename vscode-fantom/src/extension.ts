@@ -432,6 +432,17 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   // enableUnusedImport defaults to true when absent from fan.config.json
   const enableUnusedImport = finConfig.enableUnusedImport !== false;
   const suppressWarningPopup = config.get<boolean>('suppressWarningPopup') ?? false;
+  const formatterOptions = {
+    enable:                  config.get<boolean>('format.enable')                  ?? true,
+    indentSize:              config.get<number>('format.indentSize')              ?? 2,
+    useTabs:                 config.get<boolean>('format.useTabs')                ?? false,
+    insertFinalNewline:      config.get<boolean>('format.insertFinalNewline')      ?? true,
+    trimTrailingWhitespace:  config.get<boolean>('format.trimTrailingWhitespace')  ?? true,
+    maxBlankLines:           config.get<number>('format.maxBlankLines')            ?? 1,
+    respectEditorConfig:     config.get<boolean>('format.respectEditorConfig')     ?? true,
+    collapseSpaces:          config.get<boolean>('format.collapseSpaces')          ?? true,
+    maxLineLength:           config.get<number>('format.maxLineLength')            ?? 0,
+  };
 
   const clientOptions: LanguageClientOptions = {
     documentSelector: [
@@ -446,7 +457,8 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
       debounceMs: debounceMs || undefined,
       pedanticMode: pedanticMode,
       enableUnusedImport: enableUnusedImport,
-      suppressWarningPopup: suppressWarningPopup
+      suppressWarningPopup: suppressWarningPopup,
+      formatterOptions: formatterOptions,
     },
     outputChannelName: 'Fantom Language Server',
     traceOutputChannel: vscode.window.createOutputChannel('Fantom Language Server Trace')
@@ -700,7 +712,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   log('👻 Fantom project detected!');
-  vscode.window.showInformationMessage('👻 A Fantom project has been found!');
+  {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    const seenKey = `fantom.projectFoundShown:${folder?.uri.fsPath ?? 'unknown'}`;
+    if (!context.workspaceState.get<boolean>(seenKey)) {
+      await context.workspaceState.update(seenKey, true);
+      vscode.window.showInformationMessage('👻 A Fantom project has been found!');
+    }
+  }
 
   // --- Status bar items (created once, reused across restarts) ---
   errorStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
@@ -715,6 +734,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.languages.onDidChangeDiagnostics(() => updateDiagnosticStatusItems())
+  );
+
+  // --- Format on save ---
+  // When fantom.format.formatOnSave is true, apply the formatter before each
+  // manual save for .fan files without requiring the global editor.formatOnSave.
+  context.subscriptions.push(
+    vscode.workspace.onWillSaveTextDocument((e) => {
+      if (e.document.languageId !== 'fantom') return;
+      if (e.reason !== vscode.TextDocumentSaveReason.Manual &&
+          e.reason !== vscode.TextDocumentSaveReason.AfterDelay) return;
+
+      const enabled = vscode.workspace
+        .getConfiguration('fantom', e.document.uri)
+        .get<boolean>('format.formatOnSave') ?? false;
+      if (!enabled) return;
+
+      const formatEdits = vscode.commands.executeCommand<vscode.TextEdit[]>(
+        'vscode.executeFormatDocumentProvider',
+        e.document.uri,
+        { tabSize: 2, insertSpaces: true }
+      );
+      e.waitUntil(formatEdits.then(edits => edits ?? []));
+    })
   );
 
   // --- Command: Remove Unused Imports in File ---
@@ -941,6 +983,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.showInformationMessage(
         `Fantom: Removed ${totalCount} unused variable${totalCount !== 1 ? 's' : ''} across ${fileCount} file${fileCount !== 1 ? 's' : ''}.`
       );
+    })
+  );
+
+  // --- Command: Format Entire Project ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fantom.formatProject', async () => {
+      const files = await vscode.workspace.findFiles('**/*.fan', '**/node_modules/**');
+      if (files.length === 0) {
+        vscode.window.showInformationMessage('Fantom: No .fan files found in workspace.');
+        return;
+      }
+
+      let formatted = 0;
+      let skipped = 0;
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Fantom: Formatting project',
+          cancellable: true,
+        },
+        async (progress, token) => {
+          for (let i = 0; i < files.length; i++) {
+            if (token.isCancellationRequested) { break; }
+            const uri = files[i];
+            const pct = Math.round((i / files.length) * 100);
+            progress.report({ message: `${pct}%  ${path.basename(uri.fsPath)}` });
+            try {
+              const doc = await vscode.workspace.openTextDocument(uri);
+              const cfg = vscode.workspace.getConfiguration('editor', doc.uri);
+              const tabSize     = cfg.get<number>('tabSize')     ?? 2;
+              const insertSpaces = cfg.get<boolean>('insertSpaces') ?? true;
+              const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+                'vscode.executeFormatDocumentProvider',
+                doc.uri,
+                { tabSize, insertSpaces }
+              );
+              if (edits && edits.length > 0) {
+                const wsEdit = new vscode.WorkspaceEdit();
+                wsEdit.set(uri, edits);
+                await vscode.workspace.applyEdit(wsEdit);
+                await doc.save();
+                formatted++;
+              }
+            } catch (_) { skipped++; }
+          }
+        }
+      );
+
+      const msg = `Fantom: Formatted ${formatted} file${formatted !== 1 ? 's' : ''}` +
+        (skipped > 0 ? ` (${skipped} skipped due to errors)` : '') + '.';
+      vscode.window.showInformationMessage(msg);
     })
   );
 

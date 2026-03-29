@@ -44,6 +44,7 @@ This extension brings a rich developer experience to Fantom projects inside VSCo
 | 🧩 **Remove Unused Imports**              | Command to remove all unused `using` lines in a file or the whole project                 |
 | 🧩 **Remove Unused Variables**            | Command to remove all unused variable declarations in a file or the whole project         |
 | 📊 **Status bar diagnostics**             | Live error and warning counts in the VSCode status bar                                    |
+| 🖋️ **Source formatter**                   | Format on demand or on save — indentation, blank-line limits, space collapsing, line wrapping, and `.editorconfig` support |
 | 🐛 **Debugger (DAP)**                     | Set breakpoints, step through code, and inspect variables in Fantom programs on the JVM   |
 
 ---
@@ -147,10 +148,20 @@ Additional settings available through the VSCode UI or `settings.json`:
 
 | Setting                   | Type      | Default | Description                                                                                                                                |
 | ------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `fantom.javaPath`         | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                       |
-| `fantom.useBuiltInLspPod` | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod.  |
-| `fantom.pedanticMode`     | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right). |
-| `fantom.trace.server`     | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                               |
+| `fantom.javaPath`                    | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                       |
+| `fantom.useBuiltInLspPod`            | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod.  |
+| `fantom.pedanticMode`                | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right). |
+| `fantom.trace.server`                | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                               |
+| `fantom.format.enable`               | `boolean` | `true`  | Enable the Fantom formatter (Format Document / Format Selection).                                                                           |
+| `fantom.format.formatOnSave`         | `boolean` | `false` | Automatically format Fantom files on save.                                                                                                  |
+| `fantom.format.indentSize`           | `number`  | `2`     | Spaces per indentation level (ignored when `useTabs` is `true`).                                                                            |
+| `fantom.format.useTabs`              | `boolean` | `false` | Use tab characters for indentation instead of spaces.                                                                                       |
+| `fantom.format.insertFinalNewline`   | `boolean` | `true`  | Ensure the file ends with a newline character.                                                                                              |
+| `fantom.format.trimTrailingWhitespace` | `boolean` | `true` | Remove trailing whitespace from each line.                                                                                                  |
+| `fantom.format.maxBlankLines`        | `number`  | `1`     | Maximum consecutive blank lines to preserve. `0` keeps all blank lines.                                                                    |
+| `fantom.format.respectEditorConfig`  | `boolean` | `true`  | Let `.editorconfig` files override the settings above.                                                                                      |
+| `fantom.format.collapseSpaces`       | `boolean` | `true`  | Collapse runs of two or more spaces into one in code regions (outside strings and comments).                                                |
+| `fantom.format.maxLineLength`        | `number`  | `0`     | Wrap lines that exceed this length. `0` disables wrapping.                                                                                  |
 
 ---
 
@@ -208,6 +219,100 @@ On activation the extension:
 - **While typing** — changes are debounced (`debounceTime` ms). No analysis runs until typing pauses.
 - **After the debounce window** — single-file analysis runs immediately for fast feedback.
 - **On save** — a full project re-index, cross-file validation, and `fan build.fan` all run together.
+
+---
+
+## 🖋️ Formatter
+
+The extension includes a full source formatter for Fantom files, implemented inside the LSP server (`FormatterService`). It supports **Format Document**, **Format Selection**, and optional **format on save**.
+
+### Activating the formatter
+
+- **Format Document** — `Shift+Alt+F` (or Command Palette → `Format Document`)
+- **Format Selection** — select code, then `Ctrl+K Ctrl+F`
+- **Format on Save** — enable `fantom.format.formatOnSave` in settings (see below)
+
+> The formatter respects VS Code's standard `editor.formatOnSave` setting too: when `fantom.format.formatOnSave` is enabled, the extension hooks into the save pipeline independently so you do not need to enable `editor.formatOnSave` globally.
+
+### What the formatter does
+
+#### Indentation
+
+Indentation is re-computed by tracking brace depth (`{` / `}`). Braces inside string literals and `//` comments are ignored. The unit is controlled by `fantom.format.indentSize` (spaces) or `fantom.format.useTabs` (tabs).
+
+#### Blank line limiting
+
+Consecutive blank lines are reduced to at most `fantom.format.maxBlankLines` (default `1`). Set to `0` to remove all consecutive blanks, or keep the default to allow one blank line between declarations.
+
+#### Trailing whitespace and final newline
+
+When `fantom.format.trimTrailingWhitespace` is `true` (default), trailing spaces and tabs are stripped from every line. When `fantom.format.insertFinalNewline` is `true` (default), a newline is added at the end of the file if one is missing.
+
+#### Line-ending preservation
+
+The formatter detects the dominant line ending in the file (`LF`, `CRLF`, or CR-only) and uses the same style in the output. A Windows CRLF file stays CRLF after formatting; a Unix LF file stays LF.
+
+#### Space collapsing
+
+When `fantom.format.collapseSpaces` is `true` (default), runs of two or more consecutive spaces are collapsed to a single space in **code regions** — spaces inside string literals and `//` comments are never touched.
+
+All Fantom string literal types are handled:
+
+| Type | Example | Spaces inside |
+|------|---------|---------------|
+| Double-quoted | `"hello   world"` | preserved |
+| Triple-quoted | `"""hello   world"""` | preserved |
+| Single-quoted (char) | `' '` | preserved |
+| Backtick (DSL / URI) | `` `path/to   thing` `` | preserved |
+
+Example:
+
+```fantom
+// Before
+return val ?        0 : 1
+
+// After
+return val ? 0 : 1
+```
+
+#### Line wrapping
+
+When `fantom.format.maxLineLength` is set to a positive value, lines that exceed that length are split automatically. The formatter looks for the best split point before the limit, in this priority order:
+
+| Priority | Split point | Example |
+|----------|-------------|---------|
+| 1 | Comma inside parentheses / brackets | `foo(a, b, c)` → split after `,` |
+| 2 | `&&` or `\|\|` operator (any nesting depth) | `if (a && b)` → split before `&&` |
+| 3 | Ternary `?` surrounded by spaces (at depth 0) | `x ? y : z` → split before `?` |
+| 4 | Word boundary inside a string literal | `"long string"` → split with `+` concatenation |
+
+String literal splitting produces a concatenation expression:
+
+```fantom
+// Before (exceeds maxLineLength)
+msg := "hello world this is a very long string"
+
+// After
+msg := "hello world this" +
+  "is a very long string"
+```
+
+The split is at the last word-boundary space before the column limit. Backtick (DSL) strings are **never** split — their content (URIs, raw values) must remain intact. Continuation lines are indented one level deeper than the base line.
+
+### `.editorconfig` support
+
+When `fantom.format.respectEditorConfig` is `true` (default), the formatter walks up the directory tree from the file being formatted and applies the first matching `.editorconfig` section. Supported properties:
+
+| `.editorconfig` key | Maps to |
+|---------------------|---------|
+| `indent_style = tab` | `useTabs = true` |
+| `indent_style = space` | `useTabs = false` |
+| `indent_size` / `tab_width` | `indentSize` |
+| `trim_trailing_whitespace` | `trimTrailingWhitespace` |
+| `insert_final_newline` | `insertFinalNewline` |
+| `max_blank_lines` | `maxBlankLines` |
+
+The `.editorconfig` walk stops at `root = true` or at the workspace root, whichever comes first. Per-file `.editorconfig` values override the VS Code settings for that file only.
 
 ---
 

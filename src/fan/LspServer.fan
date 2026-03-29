@@ -29,6 +29,15 @@ class LspServer
   ** Code action service
   private CodeActionService codeActionSvc
 
+  ** Formatter service
+  private FormatterService formatterSvc
+
+  ** Formatter options (from initializationOptions / .editorconfig)
+  private FormatterOptions formatterOpts := FormatterOptions()
+
+  ** Whether the formatter is enabled (from initializationOptions)
+  private Bool formatterEnabled := true
+
   new make(
     DocumentManager docMgr,
     ProjectIndex projectIndex,
@@ -37,7 +46,8 @@ class LspServer
     DefinitionService definition,
     HoverService hoverService,
     PodWatchService podWatcher,
-    CodeActionService codeActionSvc)
+    CodeActionService codeActionSvc,
+    FormatterService formatterSvc)
   {
     this.docMgr = docMgr
     this.projectIndex = projectIndex
@@ -47,6 +57,7 @@ class LspServer
     this.hoverService = hoverService
     this.podWatcher = podWatcher
     this.codeActionSvc = codeActionSvc
+    this.formatterSvc = formatterSvc
   }
 
   ** Output stream for sending responses
@@ -289,6 +300,10 @@ class LspServer
         return handleHover(params)
       case "textDocument/codeAction":
         return handleCodeAction(params)
+      case "textDocument/formatting":
+        return handleFormatting(params)
+      case "textDocument/rangeFormatting":
+        return handleRangeFormatting(params)
       default:
         LspProtocol.logInfo("Unhandled request: $method")
         return null
@@ -352,6 +367,13 @@ class LspServer
       if (ui is Bool) enableUnusedImport = (Bool)ui
       sw := initOptions["suppressWarningPopup"]
       if (sw is Bool) suppressWarningPopup = (Bool)sw
+      fmtOpts := initOptions["formatterOptions"] as Str:Obj?
+      if (fmtOpts != null)
+      {
+        formatterOpts.mergeMap(fmtOpts)
+        fe := fmtOpts["enable"]
+        if (fe is Bool) formatterEnabled = (Bool)fe
+      }
       LspProtocol.logInfo("fanPath: $fanPath, fanBuildTarget: $fanBuildTarget, debounceMs: $debounce.debounceMs, pedanticMode: $pedanticMode, enableUnusedImport: $enableUnusedImport")
     }
 
@@ -372,7 +394,9 @@ class LspServer
         "diagnosticProvider": [:],
         "definitionProvider": true,
         "hoverProvider": true,
-        "codeActionProvider": true
+        "codeActionProvider": true,
+        "documentFormattingProvider": formatterEnabled,
+        "documentRangeFormattingProvider": formatterEnabled
       ],
       "serverInfo": [
         "name": "Fantom Language Server",
@@ -473,7 +497,6 @@ class LspServer
       runBuild(dependentErrorFiles, true)
 
       sendProgress("end", "Ready")
-      showMessage("Fantom LSP: indexing complete", 3)
     }
     catch (Err e)
     {
@@ -881,8 +904,6 @@ class LspServer
               "\uD83D\uDC7B Fantom LSP: Errors found! \u2014 ${total} file(s) with errors: ${fileList}",
               clickableMap)
           }
-          else
-            showMessage("\uD83D\uDC7B Fantom LSP: No errors found")
         }
 
         // Yellow popup for files with warnings only — only at boot.
@@ -1052,6 +1073,77 @@ class LspServer
     actions := codeActionSvc.suggestUsingFixes(word, doc.text, uri)
     LspProtocol.logInfo("codeAction: found ${actions.size} fix(es) for '${word}'")
     return actions
+  }
+
+  **
+  ** Handle textDocument/formatting request.
+  **
+  private Obj? handleFormatting(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    if (textDocument == null) return [,]
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    LspProtocol.logInfo("formatting: $uri")
+
+    // Prefer the in-memory version; fall back to reading from disk.
+    doc := docMgr.get(uri)
+    text := doc?.text
+    if (text == null)
+    {
+      try
+      {
+        text = LspUtil.uriToFile(uri).readAllStr
+        LspProtocol.logInfo("formatting: read from disk (${text.size} chars)")
+      }
+      catch (Err e)
+      {
+        LspProtocol.logInfo("formatting: cannot read file — $e")
+        return [,]
+      }
+    }
+
+    edits := formatterSvc.format(uri, text, formatterOpts, workspaceRootUri)
+    LspProtocol.logInfo("formatting: returning ${edits.size} edit(s)")
+    return edits
+  }
+
+  **
+  ** Handle textDocument/rangeFormatting request.
+  **
+  private Obj? handleRangeFormatting(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    rangeMap := params["range"] as Str:Obj?
+    if (textDocument == null || rangeMap == null) return [,]
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    LspProtocol.logInfo("rangeFormatting: $uri")
+
+    doc := docMgr.get(uri)
+    text := doc?.text
+    if (text == null)
+    {
+      try
+      {
+        text = LspUtil.uriToFile(uri).readAllStr
+        LspProtocol.logInfo("rangeFormatting: read from disk (${text.size} chars)")
+      }
+      catch (Err e)
+      {
+        LspProtocol.logInfo("rangeFormatting: cannot read file — $e")
+        return [,]
+      }
+    }
+
+    startMap := rangeMap["start"] as Str:Obj?
+    endMap   := rangeMap["end"]   as Str:Obj?
+    if (startMap == null || endMap == null) return [,]
+
+    range := LspRange(LspPosition.fromMap(startMap), LspPosition.fromMap(endMap))
+    edits := formatterSvc.formatRange(uri, text, range, formatterOpts, workspaceRootUri)
+    LspProtocol.logInfo("rangeFormatting: returning ${edits.size} edit(s)")
+    return edits
   }
 
   **

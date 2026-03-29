@@ -196,6 +196,11 @@
         "command": "fantom.createLaunchJson",
         "title": "Create launch.json for Fantom Debugger",
         "category": "Fantom"
+      },
+      {
+        "command": "fantom.formatProject",
+        "title": "Format Entire Project",
+        "category": "Fantom"
       }
     ],
     "configuration": {
@@ -236,6 +241,69 @@
           ],
           "default": "off",
           "description": "Trace communication between VSCode and the language server"
+        },
+        "fantom.format.enable": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Enable the Fantom source formatter (Format Document / Format Selection)."
+        },
+        "fantom.format.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Automatically format Fantom files when saved. When enabled, the extension applies the formatter before each save without requiring editor.formatOnSave to be set globally."
+        },
+        "fantom.format.indentSize": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "scope": "resource",
+          "description": "Number of spaces per indentation level (used when fantom.format.useTabs is false)."
+        },
+        "fantom.format.useTabs": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Use tab characters for indentation instead of spaces."
+        },
+        "fantom.format.insertFinalNewline": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Ensure the file ends with a newline."
+        },
+        "fantom.format.trimTrailingWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Remove trailing whitespace from each line."
+        },
+        "fantom.format.maxBlankLines": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "scope": "resource",
+          "description": "Maximum number of consecutive blank lines to preserve. Set to 0 to keep all blank lines."
+        },
+        "fantom.format.respectEditorConfig": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Override formatter settings with values from .editorconfig files."
+        },
+        "fantom.format.collapseSpaces": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Collapse runs of two or more consecutive spaces into a single space in code regions (outside string literals and comments). For example: 'val ?        0 : 1' becomes 'val ? 0 : 1'."
+        },
+        "fantom.format.maxLineLength": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "scope": "resource",
+          "description": "Wrap lines that exceed this length. Splits at commas inside parentheses, '&&', '||', or ternary '?'. Set to 0 to disable wrapping."
         }
       }
     }
