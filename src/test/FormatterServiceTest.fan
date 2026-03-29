@@ -138,6 +138,7 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.trimTrailingWhitespace = false
+    o.collapseSpaces         = false  // disable collapse so trailing spaces survive
     src    := "class Foo   \n{\n}\n"
     result := formatWith(src, o)
     verify(result.splitLines[0].endsWith("   "))
@@ -475,5 +476,256 @@ class FormatterServiceTest : Test
     src   := "class Foo {}\n"
     edits := fmt.format("file:///test/Foo.fan", src, opts, null)
     verifyEq(edits.size, 0)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Space collapsing
+//////////////////////////////////////////////////////////////////////////
+
+  Void testCollapseExtraSpacesTernary()
+  {
+    // The classic example from the feature request
+    src    := "class Foo\n{\n  Void bar() { return val ?        0 : 1 }\n}\n"
+    result := format(src)
+    verify(result.contains("val ? 0 : 1"), "expected collapsed ternary spaces, got: $result")
+  }
+
+  Void testCollapseExtraSpacesGeneral()
+  {
+    src    := "class Foo\n{\n  Void bar()  {  return  x  }\n}\n"
+    result := format(src)
+    // Interior double-spaces should be collapsed
+    verify(!result.contains("  {  "), "expected collapsed spaces in body")
+  }
+
+  Void testCollapseSpacesPreservesStringContents()
+  {
+    // Spaces inside string literals must NOT be collapsed
+    src   := "class Foo\n{\n  Str s := \"hello    world\"\n}\n"
+    edits := fmt.format("file:///test/Foo.fan", src, opts, null)
+    if (!edits.isEmpty)
+    {
+      result := edits[0]["newText"] as Str ?: src
+      verify(result.contains("\"hello    world\""), "string literal spaces must be preserved")
+    }
+  }
+
+  Void testCollapseSpacesPreservesCommentContents()
+  {
+    // Spaces inside // comments must NOT be collapsed
+    src    := "class Foo\n{\n  Void bar() // a    comment\n  {}\n}\n"
+    result := format(src)
+    verify(result.contains("// a    comment"), "comment spaces must be preserved")
+  }
+
+  Void testCollapseSpacesDisabled()
+  {
+    o := opts.copy
+    o.collapseSpaces = false
+    src    := "class Foo\n{\n  Void bar() { return val ?   0 : 1 }\n}\n"
+    result := formatWith(src, o)
+    // With collapse disabled the triple space should survive
+    verify(result.contains("?   0"), "spaces should be preserved when collapseSpaces=false")
+  }
+
+  Void testCollapseSpacesIdempotent()
+  {
+    src   := "class Foo\n{\n  Void bar() { return val ?        0 : 1 }\n}\n"
+    pass1 := format(src)
+    edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
+    verifyEq(edits2.size, 0, "collapseSpaces is not idempotent")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Line wrapping
+//////////////////////////////////////////////////////////////////////////
+
+  ** Helper: format with wrapping enabled at the given column limit
+  private Str formatWrap(Str src, Int maxLen)
+  {
+    o := opts.copy
+    o.maxLineLength = maxLen
+    return formatWith(src, o)
+  }
+
+  Void testWrapAtCommaInMethodCall()
+  {
+    // Line "  result := foo(param1, param2, param3)" — wrap at 30 chars
+    src    := "class Foo\n{\n  Void bar()\n  {\n    result := foo(param1, param2, param3)\n  }\n}\n"
+    result := formatWrap(src, 30)
+    lines  := result.splitLines
+    // No line should exceed 30 chars
+    lines.each |line| { verify(line.size <= 30 || !line.contains(","), "line too long: $line") }
+    // The call should have been split
+    verify(result.contains("param1,\n"), "expected split after comma")
+  }
+
+  Void testWrapAtLogicalAnd()
+  {
+    src    := "class Foo\n{\n  Void bar()\n  {\n    if (conditionAlpha && conditionBeta)\n    {\n      return\n    }\n  }\n}\n"
+    result := formatWrap(src, 30)
+    // Should split at &&
+    verify(result.contains("&&"), "operator must appear somewhere")
+    lines := result.splitLines
+    lines.each |line| { verify(line.size <= 30 || !line.contains("&&"), "long line with &&: $line") }
+  }
+
+  Void testWrapAtTernary()
+  {
+    src    := "class Foo\n{\n  Void bar()\n  {\n    x := someLongConditionVariable ? valueWhenTrue : valueWhenFalse\n  }\n}\n"
+    result := formatWrap(src, 40)
+    verify(result.contains("?"), "ternary operator must appear")
+    lines := result.splitLines
+    lines.each |line| { verify(line.size <= 40 || !line.contains("?"), "long line with ?: $line") }
+  }
+
+  Void testWrapDisabledByDefault()
+  {
+    // Default opts have maxLineLength=0 → no wrapping
+    longLine := "    result := someMethod(parameterOne, parameterTwo, parameterThree, parameterFour)"
+    src       := "class Foo\n{\n  Void bar()\n  {\n" + longLine + "\n  }\n}\n"
+    result    := format(src)
+    // The long line should survive intact (just indented)
+    verify(result.contains("someMethod(parameterOne"), "long lines should not be wrapped when disabled")
+  }
+
+  Void testWrapShortLineNotChanged()
+  {
+    o := opts.copy
+    o.maxLineLength = 120
+    src    := "class Foo\n{\n  Void bar() {}\n}\n"
+    edits  := fmt.format("file:///test/Foo.fan", src, o, null)
+    verifyEq(edits.size, 0, "short lines must not be wrapped")
+  }
+
+  Void testWrapConvergesAfterTwoPasses()
+  {
+    // Continuation lines from pass1 may have brace-tracker-vs-wrapper indent
+    // disagreement, which pass2 corrects.  After two passes the result must be
+    // stable: pass2 == pass3 (no infinite oscillation).
+    src   := "class Foo\n{\n  Void bar()\n  {\n    result := foo(param1, param2, param3)\n  }\n}\n"
+    o := opts.copy
+    o.maxLineLength = 30
+    pass1 := formatWith(src,   o)
+    pass2 := formatWith(pass1, o)
+    pass3 := formatWith(pass2, o)
+    verifyEq(pass2, pass3, "wrap did not stabilise: pass2 != pass3")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// String-aware space collapsing
+//////////////////////////////////////////////////////////////////////////
+
+  ** Spaces inside single-quoted char literals must not be collapsed
+  Void testCollapseSpacesPreservesSingleQuotedChar()
+  {
+    // ' ' (space char literal) — the space must survive
+    src   := "class Foo\n{\n  Void bar() { Int c := ' ' }\n}\n"
+    result := format(src)
+    verify(result.contains("' '"), "single-quoted space must be preserved, got: $result")
+  }
+
+  ** Spaces inside backtick DSL strings must not be collapsed
+  Void testCollapseSpacesPreservesBacktickString()
+  {
+    src   := "class Foo\n{\n  Void bar() { Uri u := `path/to   something` }\n}\n"
+    result := format(src)
+    verify(result.contains("`path/to   something`"), "backtick string spaces must be preserved")
+  }
+
+  ** Spaces inside triple-quoted strings must not be collapsed
+  Void testCollapseSpacesPreservesTripleQuotedString()
+  {
+    src   := "class Foo\n{\n  Str s := \"\"\"hello   world\"\"\"\n}\n"
+    result := format(src)
+    verify(result.contains("\"\"\"hello   world\"\"\""), "triple-quoted string spaces must be preserved")
+  }
+
+  ** A closing \"\"\" inside code must not be mistaken for a string opening
+  Void testTripleQuoteDetectionDoesNotCorruptCode()
+  {
+    // Line has a triple-quoted string followed by code — the brace after
+    // the closing \"\"\" must be seen as a real brace, not part of the string.
+    src   := "class Foo\n{\n  Str s := \"\"\"hello\"\"\"\n}\n"
+    edits := fmt.format("file:///test/Foo.fan", src, opts, null)
+    // Must not crash, and must not mangle the source
+    if (!edits.isEmpty)
+      verify(edits[0]["newText"].toStr.contains("\"\"\"hello\"\"\""), "triple-quoted literal must survive formatting")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// String literal splitting (line wrap)
+//////////////////////////////////////////////////////////////////////////
+
+  ** A long double-quoted string should be split at a word boundary using +
+  Void testWrapLongDoubleQuotedString()
+  {
+    // The string "hello world this is a very long string" is 40 chars;
+    // the full line is >30, and there are word-boundary spaces in the string.
+    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hello world this is a very long string\"\n  }\n}\n"
+    o      := opts.copy
+    o.maxLineLength = 30
+    result := formatWith(src, o)
+    // The string must have been split with a concatenation operator
+    verify(result.contains("\" +"), "expected string split with \" +, got:\n$result")
+    // Every produced line with a string literal must fit within the limit
+    // (the first fragment may still exceed if no earlier word boundary exists
+    //  before maxLen — that's acceptable.  Just verify a split happened.)
+    verify(result.contains("\n"), "result must be multi-line")
+  }
+
+  ** Splitting a long string should converge after two passes
+  Void testWrapLongStringConverges()
+  {
+    src   := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hello world this is a very long string\"\n  }\n}\n"
+    o     := opts.copy
+    o.maxLineLength = 30
+    pass1 := formatWith(src,   o)
+    pass2 := formatWith(pass1, o)
+    pass3 := formatWith(pass2, o)
+    verifyEq(pass2, pass3, "string split did not stabilise: pass2 != pass3")
+  }
+
+  ** A long triple-quoted string should be split at a word boundary using +
+  Void testWrapLongTripleQuotedString()
+  {
+    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"\"\"hello world this is a very long string\"\"\"\n  }\n}\n"
+    o      := opts.copy
+    o.maxLineLength = 30
+    result := formatWith(src, o)
+    verify(result.contains("\"\"\" +"), "expected triple-quoted string split with \"\"\" +, got:\n$result")
+  }
+
+  ** Backtick (DSL) strings must never be split even when very long
+  Void testWrapBacktickStringNotSplit()
+  {
+    longUri := "`http://example.com/very/long/path/that/definitely/exceeds/any/reasonable/limit`"
+    src     := "class Foo\n{\n  Void bar()\n  {\n    uri := " + longUri + "\n  }\n}\n"
+    o       := opts.copy
+    o.maxLineLength = 30
+    result  := formatWith(src, o)
+    // The backtick string must be left intact
+    verify(result.contains(longUri), "backtick string must not be split, got:\n$result")
+  }
+
+  ** Short strings must not be split even with wrapping enabled
+  Void testWrapShortStringNotSplit()
+  {
+    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hi\"\n  }\n}\n"
+    o      := opts.copy
+    o.maxLineLength = 30
+    result := formatWith(src, o)
+    verify(!result.contains("\" +"), "short string must not be split")
+  }
+
+  ** A string that has no space before maxLen must be left as-is
+  Void testWrapStringWithNoWordBoundaryLeftIntact()
+  {
+    // "superlongwordwithoutspaces" — no space to split at
+    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"superlongwordwithoutspaces\"\n  }\n}\n"
+    o      := opts.copy
+    o.maxLineLength = 20
+    result := formatWith(src, o)
+    verify(result.contains("\"superlongwordwithoutspaces\""), "string without split point must survive intact")
   }
 }

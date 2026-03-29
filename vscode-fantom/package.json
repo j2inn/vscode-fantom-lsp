@@ -286,6 +286,19 @@
           "default": true,
           "scope": "resource",
           "description": "Override formatter settings with values from .editorconfig files."
+        },
+        "fantom.format.collapseSpaces": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Collapse runs of two or more consecutive spaces into a single space in code regions (outside string literals and comments). For example: 'val ?        0 : 1' becomes 'val ? 0 : 1'."
+        },
+        "fantom.format.maxLineLength": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "scope": "resource",
+          "description": "Wrap lines that exceed this length. Splits at commas inside parentheses, '&&', '||', or ternary '?'. Set to 0 to disable wrapping."
         }
       }
     }

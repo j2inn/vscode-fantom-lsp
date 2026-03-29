@@ -21,6 +21,21 @@ class FormatterOptions
   ** Whether to override these settings with values from .editorconfig files
   Bool respectEditorConfig := true
 
+  **
+  ** Collapse runs of two or more spaces into a single space in code regions
+  ** (outside string literals and // comments).
+  ** Default: true.
+  **
+  Bool collapseSpaces := true
+
+  **
+  ** Maximum line length before the formatter wraps long lines.
+  ** Wrapping splits at: commas inside parentheses, '&&', '||', or ternary '?'.
+  ** Set to 0 to disable wrapping entirely.
+  ** Default: 0 (disabled).
+  **
+  Int maxLineLength := 0
+
   ** Merge overrides from a Str:Obj? map (e.g. from initializationOptions)
   Void mergeMap(Str:Obj? map)
   {
@@ -36,18 +51,24 @@ class FormatterOptions
     if (v is Int) maxBlankLines = (Int)v
     v = map["respectEditorConfig"]
     if (v is Bool) respectEditorConfig = (Bool)v
+    v = map["collapseSpaces"]
+    if (v is Bool) collapseSpaces = (Bool)v
+    v = map["maxLineLength"]
+    if (v is Int) maxLineLength = (Int)v
   }
 
   ** Deep copy
   FormatterOptions copy()
   {
     dst := FormatterOptions()
-    dst.indentSize = indentSize
-    dst.useTabs = useTabs
-    dst.insertFinalNewline = insertFinalNewline
+    dst.indentSize             = indentSize
+    dst.useTabs                = useTabs
+    dst.insertFinalNewline     = insertFinalNewline
     dst.trimTrailingWhitespace = trimTrailingWhitespace
-    dst.maxBlankLines = maxBlankLines
-    dst.respectEditorConfig = respectEditorConfig
+    dst.maxBlankLines          = maxBlankLines
+    dst.respectEditorConfig    = respectEditorConfig
+    dst.collapseSpaces         = collapseSpaces
+    dst.maxLineLength          = maxLineLength
     return dst
   }
 }

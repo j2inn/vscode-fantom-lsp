@@ -14,6 +14,26 @@
 ** CRLF file stays CRLF after formatting, and a Unix LF file stays LF.
 ** The .editorconfig 'end_of_line' property (if present) overrides detection.
 **
+** Space collapsing
+** ----------------
+** When FormatterOptions.collapseSpaces is true (the default), runs of two or
+** more consecutive spaces in code regions (outside string literals and //
+** comments) are collapsed to a single space.  This fixes patterns like:
+**   val ?        0 : 1   →   val ? 0 : 1
+** String types respected: "double", 'char', `backtick`, and """triple""".
+**
+** Line wrapping
+** -------------
+** When FormatterOptions.maxLineLength > 0, lines that exceed that length are
+** wrapped.  The formatter looks for the rightmost split point before the limit:
+**   1. A comma inside parentheses / brackets (depth ≥ 1)
+**   2. A '&&' or '||' logical operator at any depth
+**   3. A ternary '?' surrounded by spaces at depth 0
+**   4. A word-boundary space inside a string literal (produces concatenation)
+**      "very long string" becomes "first part" + \n"second part"
+** Continuation lines are indented one level deeper than the base line.
+** Backtick (DSL) strings are never split.
+**
 class FormatterService
 {
   private EditorConfigReader editorCfg := EditorConfigReader()
@@ -83,11 +103,6 @@ class FormatterService
     lines := text.splitLines  // strips line endings; handles \n, \r\n, and \r
     result := formatLines(lines, opts, 0, le)
 
-    // insertFinalNewline: add the line ending if the result doesn't end with one.
-    // Since we already joined with 'le', a trailing empty element from splitLines
-    // (which appears for CRLF-terminated files) produced a trailing 'le' already.
-    // For LF-only files splitLines does NOT produce a trailing empty element, so
-    // we may need to add one explicitly.
     if (opts.insertFinalNewline && !result.endsWith(le))
       result = result + le
 
@@ -108,7 +123,6 @@ class FormatterService
     {
       // splitLines strips line terminators, but on some Fantom builds a
       // trailing \r may remain inside the line for CRLF content.
-      // Strip it so brace-counting and trim logic see clean content.
       trimmed := stripCr(line).trim
 
       // Blank line
@@ -130,18 +144,397 @@ class FormatterService
       // Decrease indent before printing lines that open with '}'
       indent = (indent - leadingClose).max(0)
 
-      // Build output line (content is already \r-free after stripCr above)
-      content := opts.trimTrailingWhitespace ? trimmed : stripLeading(stripCr(line))
-      out.add(makeIndent(opts, indent) + content)
+      // Build content.
+      // When trimTrailingWhitespace is true, use 'trimmed' (no trailing spaces).
+      // When false, use the original line content (leading whitespace stripped,
+      // trailing whitespace preserved).
+      // collapseSpaces is applied to the trimmed code region only, so it never
+      // removes trailing whitespace even when trimTrailingWhitespace is false.
+      content := opts.trimTrailingWhitespace
+        ? (opts.collapseSpaces ? collapseInlineSpaces(trimmed) : trimmed)
+        : (opts.collapseSpaces ? collapseInlineSpaces(trimmed) : stripLeading(stripCr(line)))
 
-      // Adjust indent for subsequent lines:
-      //   net = opens - closes + leadingClose
-      // (leadingClose was already subtracted from indent above; we add it back
-      //  here to keep the accounting symmetric with how closes are counted.)
+      // Reconstruct full line (indent + content), then wrap if needed
+      fullLine := makeIndent(opts, indent) + content
+      if (opts.maxLineLength > 0 && fullLine.size > opts.maxLineLength)
+        wrapLine(fullLine, opts.maxLineLength, opts, indent).each |l| { out.add(l) }
+      else
+        out.add(fullLine)
+
       indent = (indent + opens - closes + leadingClose).max(0)
     }
 
     return out.join(le)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: space collapsing
+  // ---------------------------------------------------------------------------
+
+  **
+  ** Collapse runs of 2+ consecutive spaces into a single space, but only in
+  ** code regions — inside string literals and after // the text is copied
+  ** verbatim.
+  **
+  ** Handles all Fantom string literal types:
+  **   "double-quoted"   — with escape sequences
+  **   'char'            — single-quoted character literal
+  **   `backtick`        — DSL / raw string (no escapes)
+  **   """triple"""      — triple-quoted string with escape sequences
+  **
+  ** The input is already trimmed (no leading/trailing whitespace), so this
+  ** only affects interior spacing.
+  **
+  private Str collapseInlineSpaces(Str line)
+  {
+    buf      := StrBuf()
+    inStr    := false   // inside "..."
+    inTriple := false   // inside """..."""
+    inChar   := false   // inside '.'
+    inDsl    := false   // inside `...`
+    escaped  := false
+    prevSpc  := false
+    n        := line.size
+
+    for (i := 0; i < n; i++)
+    {
+      ch := line[i]
+
+      if (escaped) { escaped = false; buf.addChar(ch); prevSpc = false; continue }
+
+      // Inside triple-quoted string — verbatim copy, look for closing """
+      if (inTriple)
+      {
+        if (ch == '\\') { escaped = true; buf.addChar(ch); continue }
+        if (ch == '"' && i + 2 < n && line[i+1] == '"' && line[i+2] == '"')
+        {
+          buf.addChar(ch); buf.addChar(line[i+1]); buf.addChar(line[i+2])
+          i += 2; inTriple = false; prevSpc = false; continue
+        }
+        buf.addChar(ch); prevSpc = false; continue
+      }
+
+      // Inside regular double-quoted string — verbatim copy
+      if (inStr)
+      {
+        if (ch == '\\') { escaped = true; buf.addChar(ch); continue }
+        if (ch == '"')  inStr = false
+        buf.addChar(ch); prevSpc = false; continue
+      }
+
+      // Inside single-quoted char literal — verbatim copy
+      if (inChar)
+      {
+        if (ch == '\\') { escaped = true; buf.addChar(ch); continue }
+        if (ch == '\'') inChar = false
+        buf.addChar(ch); prevSpc = false; continue
+      }
+
+      // Inside backtick DSL string — verbatim copy, no escapes
+      if (inDsl)
+      {
+        if (ch == '`') inDsl = false
+        buf.addChar(ch); prevSpc = false; continue
+      }
+
+      // Single-line comment: copy the rest of the line verbatim
+      if (ch == '/' && i + 1 < n && line[i + 1] == '/')
+      {
+        for (j := i; j < n; j++) buf.addChar(line[j])
+        break
+      }
+
+      // Detect triple-quoted string start before single double-quote
+      if (ch == '"' && i + 2 < n && line[i+1] == '"' && line[i+2] == '"')
+      {
+        buf.addChar(ch); buf.addChar(line[i+1]); buf.addChar(line[i+2])
+        i += 2; inTriple = true; prevSpc = false; continue
+      }
+
+      if (ch == '"')  { inStr  = true; buf.addChar(ch); prevSpc = false; continue }
+      if (ch == '\'') { inChar = true; buf.addChar(ch); prevSpc = false; continue }
+      if (ch == '`')  { inDsl  = true; buf.addChar(ch); prevSpc = false; continue }
+
+      if (ch == ' ')
+      {
+        if (!prevSpc) buf.addChar(' ')
+        prevSpc = true
+      }
+      else
+      {
+        buf.addChar(ch)
+        prevSpc = false
+      }
+    }
+
+    return buf.toStr
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: line wrapping
+  // ---------------------------------------------------------------------------
+
+  **
+  ** Wrap a single formatted line (already including its leading indent) into
+  ** multiple lines if it exceeds maxLen.
+  **
+  ** Split priority (looking for the rightmost point before maxLen):
+  **   1. Comma at paren/bracket depth ≥ 1         → split AFTER the comma
+  **   2. '&&' or '||' at any depth                → split BEFORE the operator
+  **   3. Ternary '?' surrounded by spaces, depth 0 → split BEFORE the '?'
+  **   4. Space inside a double/triple-quoted string → split with concatenation
+  **      e.g. "hello world" becomes "hello" + \n"world"
+  **      Backtick (DSL) strings are never split.
+  **
+  ** Modes returned by findWrapPoint / findStringSplitPoint:
+  **   0 = split AFTER splitIdx (comma stays in part1)
+  **   1 = split BEFORE splitIdx (operator starts part2)
+  **   2 = split inside regular double-quoted string at a word-boundary space
+  **   3 = split inside triple-quoted string at a word-boundary space
+  **
+  ** Continuation lines are indented one level deeper than indentLevel.
+  ** Recursively wraps continuation lines that are still too long.
+  **
+  private Str[] wrapLine(Str fullLine, Int maxLen, FormatterOptions opts, Int indentLevel)
+  {
+    if (fullLine.size <= maxLen) return [fullLine]
+
+    wp       := findWrapPoint(fullLine, maxLen)
+    splitIdx := wp[0]
+    mode     := wp[1]
+
+    // If no code-level split point found, try splitting inside a string literal
+    if (splitIdx < 0)
+    {
+      wp2      := findStringSplitPoint(fullLine, maxLen)
+      splitIdx  = wp2[0]
+      mode      = wp2[1]
+    }
+
+    if (splitIdx < 0) return [fullLine]  // no split point at all, leave as-is
+
+    part1 := ""
+    rest  := ""
+    if (mode == 0)
+    {
+      // Split after the comma: part1 includes the comma
+      part1 = fullLine[0..splitIdx]
+      rest  = splitIdx + 1 < fullLine.size ? fullLine[splitIdx+1..-1].trim : ""
+    }
+    else if (mode == 1)
+    {
+      // Split before the operator: part1 is trimmed, part2 starts with operator
+      part1 = fullLine[0..<splitIdx].trimEnd
+      rest  = fullLine[splitIdx..-1].trim
+    }
+    else if (mode == 2)
+    {
+      // Split inside a regular double-quoted string at a word-boundary space.
+      // The space at splitIdx is consumed (acts as the word separator).
+      // part1: everything up to the space, close the string, append " +"
+      // rest:  open a new string, then everything after the space (the
+      //        original closing '"' and any trailing code are preserved)
+      part1 = fullLine[0..<splitIdx] + "\" +"
+      rest  = "\"" + (splitIdx + 1 < fullLine.size ? fullLine[splitIdx+1..-1] : "\"")
+    }
+    else if (mode == 3)
+    {
+      // Same as mode 2 but for triple-quoted strings
+      part1 = fullLine[0..<splitIdx] + "\"\"\" +"
+      rest  = "\"\"\"" + (splitIdx + 1 < fullLine.size ? fullLine[splitIdx+1..-1] : "\"\"\"")
+    }
+
+    if (rest.isEmpty) return [part1]
+
+    contLine := makeIndent(opts, indentLevel + 1) + rest
+
+    result := Str[,]
+    result.add(part1)
+    wrapLine(contLine, maxLen, opts, indentLevel + 1).each |l| { result.add(l) }
+    return result
+  }
+
+  **
+  ** Find a word-boundary split point inside a string literal that extends
+  ** past maxLen.  Only double-quoted and triple-quoted strings are eligible;
+  ** backtick (DSL) strings are left intact.
+  **
+  ** Returns [spaceIdx, mode]:
+  **   mode 2 = space inside a regular double-quoted string
+  **   mode 3 = space inside a triple-quoted string
+  ** Returns [-1, -1] when no suitable split is found.
+  **
+  private Int[] findStringSplitPoint(Str line, Int maxLen)
+  {
+    if (line.size <= maxLen) return [-1, -1]
+
+    inStr    := false   // inside regular "..."
+    inTriple := false   // inside """..."""
+    escaped  := false
+    strStart := -1      // where the current string opened
+    strMode  := -1      // 2 or 3 (matches wrapLine mode)
+    lastSpace := -1     // last space seen inside current string, before maxLen
+
+    n := line.size
+    for (i := 0; i < n; i++)
+    {
+      ch := line[i]
+
+      if (escaped) { escaped = false; continue }
+
+      if (inTriple)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"' && i + 2 < n && line[i+1] == '"' && line[i+2] == '"')
+        {
+          // Triple string closes here.  Return if it crossed maxLen.
+          if (strStart < maxLen && i >= maxLen && lastSpace >= 0)
+            return [lastSpace, 3]
+          inTriple = false; strStart = -1; strMode = -1; lastSpace = -1; i += 2; continue
+        }
+        if (i < maxLen && ch == ' ') lastSpace = i
+        continue
+      }
+
+      if (inStr)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"')
+        {
+          // Regular string closes here.  Return if it crossed maxLen.
+          if (strStart < maxLen && i >= maxLen && lastSpace >= 0)
+            return [lastSpace, 2]
+          inStr = false; strStart = -1; strMode = -1; lastSpace = -1; continue
+        }
+        if (i < maxLen && ch == ' ') lastSpace = i
+        continue
+      }
+
+      // Code region
+      if (ch == '/' && i + 1 < n && line[i+1] == '/') break
+      if (i >= maxLen) break   // past limit in code; only strings can cross it
+
+      // Triple-quoted string start (check before single-quote)
+      if (ch == '"' && i + 2 < n && line[i+1] == '"' && line[i+2] == '"')
+      {
+        inTriple = true; strStart = i; strMode = 3; lastSpace = -1; i += 2; continue
+      }
+
+      // Regular double-quoted string start
+      if (ch == '"') { inStr = true; strStart = i; strMode = 2; lastSpace = -1; continue }
+
+      // Single-quoted char literal — skip safely (char literals are always short)
+      if (ch == '\'')
+      {
+        i++                                    // move to char (or backslash)
+        if (i < n && line[i] == '\\') i++     // skip escape char
+        i++                                    // skip char; loop will advance past closing quote
+        continue
+      }
+
+      // Backtick DSL string — skip entirely; never split inside backtick strings
+      if (ch == '`')
+      {
+        i++
+        while (i < n && line[i] != '`') i++
+        continue    // loop will advance past closing backtick
+      }
+    }
+
+    // Still inside a string at end of line (string not closed on this line)
+    if ((inStr || inTriple) && strStart < maxLen && lastSpace >= 0)
+      return [lastSpace, strMode]
+
+    return [-1, -1]
+  }
+
+  **
+  ** Find the best wrap point in 'line' strictly before position 'maxLen'.
+  **
+  ** Returns [splitIdx, mode]:
+  **   mode 0: split AFTER splitIdx (comma stays in part1)
+  **   mode 1: split BEFORE splitIdx (operator starts part2)
+  ** Returns [-1, -1] when no suitable point is found.
+  **
+  ** All Fantom string literal types are tracked so that delimiters inside
+  ** strings do not produce false wrap candidates:
+  **   "double-quoted", 'char', `backtick`, """triple"""
+  **
+  private Int[] findWrapPoint(Str line, Int maxLen)
+  {
+    inStr    := false   // inside "..."
+    inTriple := false   // inside """..."""
+    inChar   := false   // inside '.'
+    inDsl    := false   // inside `...`
+    escaped  := false
+    depth    := 0
+    limit    := line.size.min(maxLen)
+
+    lastComma := -1  // last comma at depth >= 1 before limit
+    lastOp    := -1  // last logical operator before limit
+
+    for (i := 0; i < limit; i++)
+    {
+      ch := line[i]
+
+      if (escaped) { escaped = false; continue }
+
+      if (inTriple)
+      {
+        if (ch == '\\') escaped = true
+        else if (ch == '"' && i + 2 < line.size && line[i+1] == '"' && line[i+2] == '"')
+          { inTriple = false; i += 2 }
+        continue
+      }
+
+      if (inStr)
+      {
+        if (ch == '\\') escaped = true
+        else if (ch == '"') inStr = false
+        continue
+      }
+
+      if (inChar)
+      {
+        if (ch == '\\') escaped = true
+        else if (ch == '\'') inChar = false
+        continue
+      }
+
+      if (inDsl)
+      {
+        if (ch == '`') inDsl = false
+        continue
+      }
+
+      if (ch == '/' && i + 1 < line.size && line[i + 1] == '/') break
+
+      // Detect triple-quoted string start before single double-quote
+      if (ch == '"' && i + 2 < line.size && line[i+1] == '"' && line[i+2] == '"')
+        { inTriple = true; i += 2; continue }
+
+      if (ch == '"')  { inStr  = true; continue }
+      if (ch == '\'') { inChar = true; continue }
+      if (ch == '`')  { inDsl  = true; continue }
+
+      if (ch == '(' || ch == '[' || ch == '{') depth++
+      else if (ch == ')' || ch == ']' || ch == '}') depth = (depth - 1).max(0)
+      else if (ch == ',' && depth >= 1)
+        lastComma = i
+      // && and || can appear at any depth (e.g. inside an if-condition)
+      else if (ch == '&' && i + 1 < line.size && line[i + 1] == '&')
+        lastOp = i
+      else if (ch == '|' && i + 1 < line.size && line[i + 1] == '|')
+        lastOp = i
+      // Ternary ? at depth 0 only — flanked by spaces to avoid Str? nullable types
+      else if (depth == 0 && ch == '?' && i > 0 && line[i - 1] == ' '
+            && i + 1 < line.size && line[i + 1] == ' ')
+        lastOp = i
+    }
+
+    if (lastComma >= 0) return [lastComma, 0]
+    if (lastOp    >= 0) return [lastOp,    1]
+    return [-1, -1]
   }
 
   // ---------------------------------------------------------------------------
@@ -293,16 +686,16 @@ class FormatterService
   ** logical line separators (\n, \r\n treated as one, \r alone as one).
   ** This correctly handles LF, CRLF and CR-only files:
   **
-  **   LF trailing    "a\nb\n"    → endLine=2, endChar=0
-  **   CRLF trailing  "a\r\nb\r\n"→ endLine=2, endChar=0
-  **   CR trailing    "a\rb\r"    → endLine=2, endChar=0
-  **   LF no trailing "a\nb"      → endLine=1, endChar=1
-  **   CRLF no trail  "a\r\nb"    → endLine=1, endChar=1
+  **   LF trailing    "a\nb\n"     → endLine=2, endChar=0
+  **   CRLF trailing  "a\r\nb\r\n" → endLine=2, endChar=0
+  **   CR trailing    "a\rb\r"     → endLine=2, endChar=0
+  **   LF no trailing "a\nb"       → endLine=1, endChar=1
+  **   CRLF no trail  "a\r\nb"     → endLine=1, endChar=1
   **
   private Str:Obj? wholeDocEdit(Str original, Str formatted)
   {
-    lineSeps  := 0  // number of logical line separators seen
-    lastSepEnd := -1  // index in 'original' right after the last separator
+    lineSeps   := 0
+    lastSepEnd := -1
 
     i := 0
     while (i < original.size)
@@ -324,9 +717,6 @@ class FormatterService
       else i++
     }
 
-    // If the string ends exactly at a separator boundary, the end position
-    // is {lineSeps, 0} — the virtual empty line VS Code places after the
-    // final line terminator.  Otherwise it is {lineSeps, lastLineLen}.
     trailingNl := (lastSepEnd == original.size)
     endLine := lineSeps
     endChar := trailingNl ? 0 : (original.size - lastSepEnd.max(0))

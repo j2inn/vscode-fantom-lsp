@@ -440,6 +440,8 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
     trimTrailingWhitespace:  config.get<boolean>('format.trimTrailingWhitespace')  ?? true,
     maxBlankLines:           config.get<number>('format.maxBlankLines')            ?? 1,
     respectEditorConfig:     config.get<boolean>('format.respectEditorConfig')     ?? true,
+    collapseSpaces:          config.get<boolean>('format.collapseSpaces')          ?? true,
+    maxLineLength:           config.get<number>('format.maxLineLength')            ?? 0,
   };
 
   const clientOptions: LanguageClientOptions = {
