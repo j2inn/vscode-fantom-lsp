@@ -280,7 +280,10 @@
       "glob>minimatch": "^3.1.4",
       "vscode-languageclient>minimatch": "^5.1.8",
       "@typescript-eslint/typescript-estree>minimatch": "^9.0.7",
-      "flat-cache>flatted": "^3.4.2"
+      "flat-cache>flatted": "^3.4.2",
+      "picomatch": "^2.3.2",
+      "ajv": "^6.14.0",
+      "brace-expansion": "^2.0.3"
     }
   }
 }

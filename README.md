@@ -1,7 +1,8 @@
 # 👻 VSCode Fantom LSP
 
 [![License: AFL-3.0](https://img.shields.io/badge/license-AFL--3.0-blue?style=flat-square)](https://opensource.org/licenses/AFL-3.0)
-[![AI assisted](https://img.shields.io/badge/AI%20assisted-Qwen2.5%20Coder-6B6EF9?style=flat-square&logo=openai&logoColor=white)](https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct)
+[![AI assisted](https://img.shields.io/badge/AI%20assisted-Claude%20by%20Anthropic-D97757?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/claude-code)
+[![AI assisted](https://img.shields.io/badge/AI%20assisted-Qwen2.5%20Coder%2030B-6B6EF9?style=flat-square&logo=openai&logoColor=white)](https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct)
 
 > **Unofficial** Language Server Protocol support for [Fantom](https://fantom.org/) in Visual Studio Code.
 
@@ -535,6 +536,14 @@ This downloads Gson, compiles all Java source files, and packages a self-contain
 | `bind failed: Address already in use`              | Port 5005 is taken by the running FIN server's own JDWP listener. In launch mode the adapter picks a free port automatically. In attach mode use a different port. Do **not** set `JAVA_TOOL_OPTIONS` when using launch mode. |
 | `-noAuth` or other launcher flags ignored          | Set `"mainClass": ""` in `launch.json` when using `fin`. The `fin` script already embeds its entry point; a non-empty `mainClass` is appended after your flags and confuses FIN's argument parser.                            |
 | FIN process keeps running after Stop               | Ensure you are using the latest JAR (rebuild with `bash debug-adapter/build.sh`). Launched sessions are always force-killed on disconnect.                                                                                    |
+
+## 🤖 AI-Assisted Development
+
+This project is developed with the assistance of AI coding tools.
+
+All AI-generated code is reviewed, tested against the full Fantom test suite (`fan build.fan test`), and compiled clean before being committed.
+
+---
 
 ## 🤝 Contributing
 
