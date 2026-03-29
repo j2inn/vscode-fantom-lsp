@@ -206,6 +206,16 @@
           "default": "",
           "description": "Path to java executable (defaults to $JAVA_HOME/bin/java)"
         },
+        "fantom.suppressJavaWarning": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress the startup warning when Java is not found. Enable this if you do not use the Fantom debugger."
+        },
+        "fantom.suppressWarningPopup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress the 'Warnings found' notification popup shown at startup when the build produces warnings."
+        },
         "fantom.useBuiltInLspPod": {
           "type": "boolean",
           "default": true,

@@ -96,6 +96,9 @@ class LspServer
   ** Whether to report unused 'using' imports (from initializationOptions / fan.config.json)
   private Bool enableUnusedImport := true
 
+  ** Whether to suppress the boot-time "warnings found" popup (from initializationOptions)
+  private Bool suppressWarningPopup := false
+
   ** Platform-aware relative URI for fan executable (fan.bat on Windows, fan on Unix)
   private static const Uri fanBinUri := isWindows ? `bin/fan.bat` : `bin/fan`
 
@@ -347,6 +350,8 @@ class LspServer
       if (pm is Bool) pedanticMode = (Bool)pm
       ui := initOptions["enableUnusedImport"]
       if (ui is Bool) enableUnusedImport = (Bool)ui
+      sw := initOptions["suppressWarningPopup"]
+      if (sw is Bool) suppressWarningPopup = (Bool)sw
       LspProtocol.logInfo("fanPath: $fanPath, fanBuildTarget: $fanBuildTarget, debounceMs: $debounce.debounceMs, pedanticMode: $pedanticMode, enableUnusedImport: $enableUnusedImport")
     }
 
@@ -881,7 +886,7 @@ class LspServer
         }
 
         // Yellow popup for files with warnings only — only at boot.
-        if (showPopups && !warnFileMap.isEmpty)
+        if (showPopups && !warnFileMap.isEmpty && !suppressWarningPopup)
         {
           total := warnFileMap.size
           allFiles := warnFileMap.keys
