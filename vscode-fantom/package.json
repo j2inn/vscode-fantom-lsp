@@ -206,6 +206,16 @@
           "default": "",
           "description": "Path to java executable (defaults to $JAVA_HOME/bin/java)"
         },
+        "fantom.suppressJavaWarning": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress the startup warning when Java is not found. Enable this if you do not use the Fantom debugger."
+        },
+        "fantom.suppressWarningPopup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress the 'Warnings found' notification popup shown at startup when the build produces warnings."
+        },
         "fantom.useBuiltInLspPod": {
           "type": "boolean",
           "default": true,
@@ -270,7 +280,10 @@
       "glob>minimatch": "^3.1.4",
       "vscode-languageclient>minimatch": "^5.1.8",
       "@typescript-eslint/typescript-estree>minimatch": "^9.0.7",
-      "flat-cache>flatted": "^3.4.2"
+      "flat-cache>flatted": "^3.4.2",
+      "picomatch": "^2.3.2",
+      "ajv": "^6.14.0",
+      "brace-expansion": "^2.0.3"
     }
   }
 }

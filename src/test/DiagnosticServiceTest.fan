@@ -3087,6 +3087,59 @@ class DiagnosticServiceTest : Test
     verifyEq(addDiags.size, 0)
   }
 
+  **
+  ** [Str:Obj?][,] is a typed List literal (List of maps), not a Map.
+  ** List.add takes 1 arg — calling result.add(singleArg) must NOT be flagged.
+  ** Regression for CodeActionService false positive.
+  **
+  Void testTypedListOfMapsAddNotFlaggedAsTooFewArgs()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    result := [Str:Obj?][,]\n" +
+      "    result.add([\"key\": \"val\"])\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+
+    addDiags := diags.findAll |d|
+    {
+      d.message.contains("'add'") && d.message.contains("argument")
+    }
+    verifyEq(addDiags.size, 0)
+  }
+
+  **
+  ** Map.getOrAdd can be called with a brace-closure (no |params|) as the
+  ** second argument: map.getOrAdd(key) { defaultVal }.
+  ** The { } must be detected as the trailing closure — must NOT be flagged.
+  ** Regression for Polyfills.fan false positive.
+  **
+  Void testGetOrAddWithBraceClosureNotFlagged()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    Obj:Obj[] myMap := [:]\n" +
+      "    myMap.getOrAdd(\"key\") { Obj[,] }\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+
+    getOrAddDiags := diags.findAll |d|
+    {
+      d.message.contains("'getOrAdd'") && d.message.contains("argument")
+    }
+    verifyEq(getOrAddDiags.size, 0)
+  }
+
 //////////////////////////////////////////////////////////////////////////
 // It-Block Unknown Variable (Regression)
 //////////////////////////////////////////////////////////////////////////

@@ -15,6 +15,8 @@ import {
   DebugSession,
   ProviderResult,
 } from 'vscode';
+import { getPlatform } from './platform';
+import { initJavaSetup, resolveJavaCmd, checkJavaAtStartup, ensureDebugAdapterJar } from './javaSetup';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -388,10 +390,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   if (!fanExe) { return; }
 
   const config = vscode.workspace.getConfiguration('fantom');
-  const javaPath = config.get<string>('javaPath') || '';
-  const javaHome = process.env.JAVA_HOME;
-  const javaExe = isWindows ? 'java.exe' : 'java';
-  const actualJavaPath = javaPath || (javaHome ? path.join(javaHome, 'bin', javaExe) : 'java');
+  const actualJavaPath = resolveJavaCmd(getPlatform());
   log(`Java path = "${actualJavaPath}"`);
 
   // Create a shadow copy of lsp.pod so builds can overwrite the original
@@ -432,6 +431,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   const pedanticMode = config.get<boolean>('pedanticMode') ?? false;
   // enableUnusedImport defaults to true when absent from fan.config.json
   const enableUnusedImport = finConfig.enableUnusedImport !== false;
+  const suppressWarningPopup = config.get<boolean>('suppressWarningPopup') ?? false;
 
   const clientOptions: LanguageClientOptions = {
     documentSelector: [
@@ -445,7 +445,8 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
       fanBuildTarget: fanBuildTarget || undefined,
       debounceMs: debounceMs || undefined,
       pedanticMode: pedanticMode,
-      enableUnusedImport: enableUnusedImport
+      enableUnusedImport: enableUnusedImport,
+      suppressWarningPopup: suppressWarningPopup
     },
     outputChannelName: 'Fantom Language Server',
     traceOutputChannel: vscode.window.createOutputChannel('Fantom Language Server Trace')
@@ -528,26 +529,15 @@ class FantomDebugAdapterFactory implements DebugAdapterDescriptorFactory {
     _session: DebugSession,
     _executable: DebugAdapterExecutable | undefined
   ): ProviderResult<DebugAdapterDescriptor> {
-    const jarPath = path.join(this.extensionPath, 'bundled-debug', 'fantom-debug-adapter.jar');
-
-    if (!fs.existsSync(jarPath)) {
-      vscode.window.showErrorMessage(
-        `Fantom: debug adapter JAR not found at "${jarPath}". ` +
-        'Build it with: bash vscode-fantom/debug-adapter/build.sh'
-      );
-      return undefined;
-    }
-
-    const config   = vscode.workspace.getConfiguration('fantom');
-    const javaPath = config.get<string>('javaPath') || '';
-    const javaHome = process.env.JAVA_HOME;
-    const javaExe  = isWindows ? 'java.exe' : 'java';
-    const javaCmd  = javaPath || (javaHome ? path.join(javaHome, 'bin', javaExe) : 'java');
-
-    const args = ['--add-modules', 'jdk.jdi', '-jar', jarPath];
-
-    log(`Debug adapter: ${javaCmd} ${args.join(' ')}`);
-    return new DebugAdapterExecutable(javaCmd, args, { env: { ...process.env as Record<string, string> } });
+    const platform = getPlatform();
+    return ensureDebugAdapterJar(this.extensionPath, platform, log)
+      .then(jarPath => {
+        if (!jarPath) { return undefined; }
+        const javaCmd = resolveJavaCmd(platform);
+        const args = ['--add-modules', 'jdk.jdi', '-jar', jarPath];
+        log(`Debug adapter: ${javaCmd} ${args.join(' ')}`);
+        return new DebugAdapterExecutable(javaCmd, args, { env: { ...process.env as Record<string, string> } });
+      });
   }
 }
 
@@ -684,6 +674,7 @@ async function suggestLaunchJson(
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
   log('Extension activating...');
+  initJavaSetup(context.globalState);
 
   // --- Register debug adapter (always, even outside Fantom projects) ---
   context.subscriptions.push(
@@ -698,6 +689,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       new FantomDebugConfigurationProvider()
     )
   );
+
+  // --- Check Java availability at startup (non-blocking) ---
+  checkJavaAtStartup(getPlatform(), log);
 
   // --- Step 0: Only proceed if this is a Fantom project ---
   if (!isFantomProject()) {
