@@ -432,6 +432,15 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   // enableUnusedImport defaults to true when absent from fan.config.json
   const enableUnusedImport = finConfig.enableUnusedImport !== false;
   const suppressWarningPopup = config.get<boolean>('suppressWarningPopup') ?? false;
+  const formatterOptions = {
+    enable:                  config.get<boolean>('format.enable')                  ?? true,
+    indentSize:              config.get<number>('format.indentSize')              ?? 2,
+    useTabs:                 config.get<boolean>('format.useTabs')                ?? false,
+    insertFinalNewline:      config.get<boolean>('format.insertFinalNewline')      ?? true,
+    trimTrailingWhitespace:  config.get<boolean>('format.trimTrailingWhitespace')  ?? true,
+    maxBlankLines:           config.get<number>('format.maxBlankLines')            ?? 1,
+    respectEditorConfig:     config.get<boolean>('format.respectEditorConfig')     ?? true,
+  };
 
   const clientOptions: LanguageClientOptions = {
     documentSelector: [
@@ -446,7 +455,8 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
       debounceMs: debounceMs || undefined,
       pedanticMode: pedanticMode,
       enableUnusedImport: enableUnusedImport,
-      suppressWarningPopup: suppressWarningPopup
+      suppressWarningPopup: suppressWarningPopup,
+      formatterOptions: formatterOptions,
     },
     outputChannelName: 'Fantom Language Server',
     traceOutputChannel: vscode.window.createOutputChannel('Fantom Language Server Trace')
@@ -715,6 +725,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.languages.onDidChangeDiagnostics(() => updateDiagnosticStatusItems())
+  );
+
+  // --- Format on save ---
+  // When fantom.format.formatOnSave is true, apply the formatter before each
+  // manual save for .fan files without requiring the global editor.formatOnSave.
+  context.subscriptions.push(
+    vscode.workspace.onWillSaveTextDocument((e) => {
+      if (e.document.languageId !== 'fantom') return;
+      if (e.reason !== vscode.TextDocumentSaveReason.Manual &&
+          e.reason !== vscode.TextDocumentSaveReason.AfterDelay) return;
+
+      const enabled = vscode.workspace
+        .getConfiguration('fantom', e.document.uri)
+        .get<boolean>('format.formatOnSave') ?? false;
+      if (!enabled) return;
+
+      const formatEdits = vscode.commands.executeCommand<vscode.TextEdit[]>(
+        'vscode.executeFormatDocumentProvider',
+        e.document.uri,
+        { tabSize: 2, insertSpaces: true }
+      );
+      e.waitUntil(formatEdits.then(edits => edits ?? []));
+    })
   );
 
   // --- Command: Remove Unused Imports in File ---
