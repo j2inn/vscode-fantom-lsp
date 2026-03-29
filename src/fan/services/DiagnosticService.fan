@@ -995,7 +995,7 @@ class DiagnosticService
 
   **
   ** Replace project type names throughout the source with Obj.
-  ** When a file references types from the same pod (e.g., IntelliplantNACoreModelProductParams),
+  ** When a file references types from the same pod,
   ** the single-file compiler can't resolve them. These errors cause the compiler
   ** to bomb (via bombIfErr) before reaching ResolveExpr, where real errors like
   ** undeclared variables would be detected. By replacing project type names with

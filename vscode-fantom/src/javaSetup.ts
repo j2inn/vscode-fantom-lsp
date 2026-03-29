@@ -63,44 +63,6 @@ export function isJavaAvailable(javaCmd: string): Promise<boolean> {
 // User prompt
 // ---------------------------------------------------------------------------
 
-/**
- * Show a warning popup telling the user Java was not found and offering to
- * configure it.  Updates `fantom.javaPath` if the user enters a path.
- * Returns the newly configured java command, or undefined if dismissed.
- */
-export async function promptForJavaPath(platform: Platform): Promise<string | undefined> {
-  const choice = await vscode.window.showWarningMessage(
-    'Fantom: Java (JDK 11+) not found. It is required for the Fantom debugger.',
-    'Set Java Path',
-    'Open Settings',
-    'Dismiss'
-  );
-
-  if (choice === 'Set Java Path') {
-    const placeholder = platform.javaExeName === 'java.exe'
-      ? 'C:\\Program Files\\Java\\jdk-17\\bin\\java.exe'
-      : '/usr/lib/jvm/java-17-openjdk-amd64/bin/java';
-    const input = await vscode.window.showInputBox({
-      prompt: `Full path to the ${platform.javaExeName} executable`,
-      placeHolder: placeholder,
-    });
-    if (input?.trim()) {
-      const trimmed = input.trim();
-      await vscode.workspace.getConfiguration('fantom').update(
-        'javaPath', trimmed, vscode.ConfigurationTarget.Global
-      );
-      vscode.window.showInformationMessage(
-        `Fantom: Java path saved. Restart VS Code if the debugger still does not work.`
-      );
-      return trimmed;
-    }
-  } else if (choice === 'Open Settings') {
-    await vscode.commands.executeCommand('workbench.action.openSettings', 'fantom.javaPath');
-  }
-
-  return undefined;
-}
-
 // ---------------------------------------------------------------------------
 // JAR auto-build
 // ---------------------------------------------------------------------------
@@ -211,9 +173,7 @@ export async function buildDebugAdapterJar(
         bundledDebug
       );
       if (compileResult.code !== 0) {
-        vscode.window.showErrorMessage(
-          `Fantom: javac failed. ${compileResult.stderr.slice(0, 400)}`
-        );
+        await showBuildError('Fantom: Compilation failed', compileResult.stderr);
         return false;
       }
 
@@ -222,7 +182,7 @@ export async function buildDebugAdapterJar(
       progress.report({ message: 'Packaging JAR…' });
       const extractResult = await runProcess(jarCmd, ['xf', gsonJar], classesDir);
       if (extractResult.code !== 0) {
-        vscode.window.showErrorMessage(`Fantom: Failed to extract Gson into classes.`);
+        await showBuildError('Fantom: Failed to extract Gson', extractResult.stderr);
         return false;
       }
       // Remove META-INF brought in by Gson to avoid manifest conflicts
@@ -242,7 +202,7 @@ export async function buildDebugAdapterJar(
       fs.rmSync(classesDir, { recursive: true, force: true });
 
       if (packageResult.code !== 0) {
-        vscode.window.showErrorMessage(`Fantom: jar packaging failed.`);
+        await showBuildError('Fantom: JAR packaging failed', packageResult.stderr);
         return false;
       }
 
@@ -252,70 +212,164 @@ export async function buildDebugAdapterJar(
 }
 
 // ---------------------------------------------------------------------------
+// Error display helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Show a build error message with a "Show Details" button that opens the
+ * full stderr output in a new editor tab.  This avoids truncating long
+ * compiler error listings in a notification popup.
+ */
+async function showBuildError(title: string, stderr: string): Promise<void> {
+  const choice = await vscode.window.showErrorMessage(title, 'Show Details', 'Dismiss');
+  if (choice === 'Show Details') {
+    const doc = await vscode.workspace.openTextDocument({
+      content: stderr || '(no output)',
+      language: 'plaintext',
+    });
+    await vscode.window.showTextDocument(doc, { preview: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
 
 /**
- * Ensure the debug-adapter JAR is present.
- * If missing, attempt to compile it from bundled Java sources.
- * Returns the JAR path on success, or undefined if unavailable.
+ * Return the path where the debug adapter JAR lives (whether or not it exists).
  */
-export async function ensureDebugAdapterJar(
-  extensionPath: string,
-  platform: Platform,
-  log: (msg: string) => void
-): Promise<string | undefined> {
-  const jarPath = path.join(extensionPath, 'bundled-debug', 'fantom-debug-adapter.jar');
-  if (fs.existsSync(jarPath)) { return jarPath; }
-
-  log('Debug adapter JAR not found — attempting to build from bundled sources.');
-
-  const srcDir = path.join(extensionPath, 'bundled-debug', 'java-src');
-  if (!fs.existsSync(srcDir)) {
-    vscode.window.showErrorMessage(
-      'Fantom: Debug adapter JAR is missing and Java sources are not bundled. ' +
-      'Re-install the extension, or build manually: bash debug-adapter/build.sh'
-    );
-    return undefined;
-  }
-
-  // Resolve and verify java
-  let javaCmd = resolveJavaCmd(platform);
-  if (!(await isJavaAvailable(javaCmd))) {
-    log(`Java not available at: ${javaCmd}`);
-    const configured = await promptForJavaPath(platform);
-    if (!configured) {
-      vscode.window.showErrorMessage(
-        'Fantom: Java is required to build the debug adapter. ' +
-        'Set fantom.javaPath in VS Code settings.'
-      );
-      return undefined;
-    }
-    javaCmd = configured;
-  }
-
-  const ok = await buildDebugAdapterJar(extensionPath, javaCmd, platform);
-  if (!ok) { return undefined; }
-
-  vscode.window.showInformationMessage('Fantom: Debug adapter built successfully.');
-  return jarPath;
+function debugAdapterJarPath(extensionPath: string): string {
+  return path.join(extensionPath, 'bundled-debug', 'fantom-debug-adapter.jar');
 }
 
 /**
- * Check Java availability at extension startup and warn the user if missing.
- * Non-blocking — does not prevent the extension from activating.
+ * Ensure the debug-adapter JAR exists.  Called by the debug adapter factory
+ * just before a debug session starts; by this point the JAR should already
+ * have been built by checkJavaAndBuildAdapterAtStartup().  If it is still
+ * absent (user dismissed the startup build or Java appeared later) we return
+ * undefined so VS Code shows a friendly "could not launch" message rather
+ * than a raw file-not-found error.
  */
-export async function checkJavaAtStartup(
+export function ensureDebugAdapterJar(
+  extensionPath: string,
+  _platform: Platform,
+  log: (msg: string) => void
+): Promise<string | undefined> {
+  const jarPath = debugAdapterJarPath(extensionPath);
+  if (fs.existsSync(jarPath)) {
+    return Promise.resolve(jarPath);
+  }
+  log('Debug adapter JAR not found. Run "Fantom: Rebuild debugger" to compile it.');
+  vscode.window.showErrorMessage(
+    'Fantom: Debug adapter JAR is not built. Run the command ' +
+    '"Fantom: Rebuild debugger" (Ctrl+Shift+P) to compile it.',
+    'Rebuild now'
+  ).then(choice => {
+    if (choice === 'Rebuild now') {
+      vscode.commands.executeCommand('fantom.rebuildDebugAdapter');
+    }
+  });
+  return Promise.resolve(undefined);
+}
+
+/**
+ * Run at extension startup:
+ *  1. Resolve Java (JAVA_HOME → fantom.javaPath setting → PATH).
+ *  2. If not found → show warning popup offering to configure it.
+ *  3. If found and the JAR is missing → build it with a progress notification.
+ *
+ * Non-blocking from the caller's perspective — the build runs asynchronously
+ * and does not delay extension activation.
+ */
+export async function checkJavaAndBuildAdapterAtStartup(
+  extensionPath: string,
   platform: Platform,
   log: (msg: string) => void
 ): Promise<void> {
   const javaCmd = resolveJavaCmd(platform);
-  const available = await isJavaAvailable(javaCmd);
-  if (available) {
-    log(`Java found: ${javaCmd}`);
+  log(`Checking Java: ${javaCmd}`);
+
+  if (!(await isJavaAvailable(javaCmd))) {
+    log(`Java not available at: ${javaCmd}`);
+    const choice = await vscode.window.showWarningMessage(
+      'Fantom: Java (JDK 11+) was not found. It is required to build and run the Fantom debugger. ' +
+      'Set JAVA_HOME or configure "fantom.javaPath" in VS Code settings.',
+      'Set Java Path',
+      'Open Settings',
+      'Dismiss'
+    );
+    if (choice === 'Set Java Path') {
+      const placeholder = platform.javaExeName === 'java.exe'
+        ? 'C:\\Program Files\\Java\\jdk-17\\bin\\java.exe'
+        : '/usr/lib/jvm/java-17-openjdk-amd64/bin/java';
+      const input = await vscode.window.showInputBox({
+        prompt: `Full path to the ${platform.javaExeName} executable`,
+        placeHolder: placeholder,
+      });
+      if (input?.trim()) {
+        await vscode.workspace.getConfiguration('fantom').update(
+          'javaPath', input.trim(), vscode.ConfigurationTarget.Global
+        );
+        vscode.window.showInformationMessage(
+          'Fantom: Java path saved. Restart VS Code to apply.'
+        );
+      }
+    } else if (choice === 'Open Settings') {
+      vscode.commands.executeCommand('workbench.action.openSettings', 'fantom.javaPath');
+    }
     return;
   }
-  log(`Java not found at: ${javaCmd}`);
-  // Show prompt asynchronously — don't await to keep activation fast
-  promptForJavaPath(platform).catch(() => { /* user dismissed */ });
+
+  log(`Java found: ${javaCmd}`);
+
+  const jarPath = debugAdapterJarPath(extensionPath);
+  if (fs.existsSync(jarPath)) {
+    log(`Debug adapter JAR already present: ${jarPath}`);
+    return;
+  }
+
+  log('Debug adapter JAR missing — building from bundled sources…');
+  const ok = await buildDebugAdapterJar(extensionPath, javaCmd, platform);
+  if (ok) {
+    vscode.window.showInformationMessage('Fantom: Debug adapter built successfully.');
+    log('Debug adapter JAR built successfully.');
+  } else {
+    log('Debug adapter JAR build failed.');
+  }
+}
+
+/**
+ * Force-rebuild the debug adapter JAR (deletes the existing one first).
+ * Used by the "Fantom: Rebuild debugger" command.
+ */
+export async function rebuildDebugAdapterJar(
+  extensionPath: string,
+  platform: Platform,
+  log: (msg: string) => void
+): Promise<void> {
+  const javaCmd = resolveJavaCmd(platform);
+
+  if (!(await isJavaAvailable(javaCmd))) {
+    const choice = await vscode.window.showErrorMessage(
+      'Fantom: Java not found. Set JAVA_HOME or "fantom.javaPath" in settings before rebuilding.',
+      'Open Settings'
+    );
+    if (choice === 'Open Settings') {
+      vscode.commands.executeCommand('workbench.action.openSettings', 'fantom.javaPath');
+    }
+    return;
+  }
+
+  // Delete existing JAR so buildDebugAdapterJar creates a fresh one
+  const jarPath = debugAdapterJarPath(extensionPath);
+  try { fs.unlinkSync(jarPath); } catch { /* does not exist yet — fine */ }
+
+  log('Rebuilding debug adapter JAR…');
+  const ok = await buildDebugAdapterJar(extensionPath, javaCmd, platform);
+  if (ok) {
+    vscode.window.showInformationMessage('Fantom: Debug adapter rebuilt successfully.');
+    log('Debug adapter JAR rebuilt successfully.');
+  } else {
+    log('Debug adapter JAR rebuild failed.');
+  }
 }

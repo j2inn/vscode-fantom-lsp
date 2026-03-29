@@ -176,6 +176,14 @@ public class StackInspector {
                 shown.add(name);
             }
         } catch (AbsentInformationException ignored) {
+            // Pod compiled without debug=true — no LocalVariableTable.
+            // Warn once per session so the user knows how to fix it.
+            if (ctx.lvtWarningShown.compareAndSet(false, true)) {
+                ctx.consoleLog("[Fantom Debug] ⚠ Local variables not available: the pod was compiled "
+                    + "without debug=true (no LocalVariableTable in bytecode). "
+                    + "Set \"preLaunchRebuild\": true in launch.json (or ensure your pod "
+                    + "was built with debug=true) to see local variables.");
+            }
         } catch (Exception e) {
             System.err.println("[JDI] visibleVariables error: " + e);
         }

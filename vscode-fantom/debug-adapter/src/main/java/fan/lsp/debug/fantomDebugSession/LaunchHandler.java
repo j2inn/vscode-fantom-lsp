@@ -70,7 +70,9 @@ public class LaunchHandler {
         String  sourceDir = SessionContext.str(args, "sourceDir",         ".");
         int     portHint  = SessionContext.num(args, "debugPort",         5005);
         boolean noDebug   = SessionContext.bool(args, "noDebug",          false);
-        boolean rebuild   = SessionContext.bool(args, "preLaunchRebuild", false);
+        // Default true: without a debug=true rebuild the JVM has no LocalVariableTable
+        // and local variables declared inside method bodies are invisible to the debugger.
+        boolean rebuild   = SessionContext.bool(args, "preLaunchRebuild", true);
 
         ctx.sourceMapper = new SourceMapper(sourceDir);
         ctx.wasLaunched  = true;
@@ -484,11 +486,15 @@ public class LaunchHandler {
     private static void writeConfigProps(Path dest, byte[] originalBytes, int jdwpPort)
             throws IOException {
         String original = new String(originalBytes, java.nio.charset.StandardCharsets.UTF_8);
+        // Strip java.options lines AND any existing debug= lines (commented or not).
+        // A simple `contains("debug=true")` check would match commented-out lines
+        // like "// debug=true" and incorrectly skip adding the real active setting.
         String modified = Arrays.stream(original.split("\r?\n"))
             .filter(line -> !line.trim().startsWith("java.options"))
+            .filter(line -> !line.trim().matches("(?://+\\s*)?debug\\s*=.*"))
             .collect(Collectors.joining("\n"));
-        if (!modified.contains("debug=true"))
-            modified = modified.stripTrailing() + "\ndebug=true\n";
+        // Always append debug=true unconditionally — no stale line can interfere.
+        modified = modified.stripTrailing() + "\ndebug=true\n";
         if (jdwpPort > 0) {
             modified = modified.stripTrailing()
                 + "\njava.options=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address="
@@ -522,6 +528,13 @@ public class LaunchHandler {
     /**
      * Run 'fan build.fan' in sourceDir using the shadow FAN_HOME (debug=true),
      * so the rebuilt pod contains LocalVariableTable entries.
+     *
+     * IMPORTANT: always use the 'fan' executable (generic Fantom launcher) for
+     * the build, regardless of what fanExe is.  fanExe may be 'fin' or another
+     * launcher that embeds its own entry-point (e.g. finStackHost); passing
+     * 'build.fan' as an argument to such a launcher would start the application
+     * stack instead of running the build script.  'fan' is always available in
+     * FAN_HOME/bin/ and is the canonical way to run build.fan.
      */
     private void rebuildWithDebug(String fanExe, String sourceDir, String fanHome) {
         File buildFile = new File(sourceDir, "build.fan");
@@ -532,9 +545,25 @@ public class LaunchHandler {
         }
         ctx.consoleLog("[Fantom Debug] Rebuilding with debug=true for local variable support...");
         try {
-            List<String> rebuildCmd = batCommand(fanExe);
+            // Resolve the plain 'fan' executable from fanHome (or from fanExe's
+            // grandparent directory when fanHome is null).  On Windows it is fan.bat.
+            String effectiveHome = (fanHome != null) ? fanHome : deriveFanHome(fanExe);
+            String fanBin = IS_WINDOWS ? "fan.bat" : "fan";
+            String fanCmd = (effectiveHome != null)
+                ? Paths.get(effectiveHome, "bin", fanBin).toString()
+                : "fan";  // last resort: hope it is on PATH
+
+            List<String> rebuildCmd = batCommand(fanCmd);
             rebuildCmd.add("build.fan");
+            // Pass fanTargetBuild from fan.config.json (e.g. "fan") so only the
+            // Fantom compilation target runs — skipping slow Node/npm steps.
+            String fanTarget = readFanConfigTarget(sourceDir);
+            if (fanTarget != null && !fanTarget.isEmpty()) {
+                rebuildCmd.add(fanTarget);
+                ctx.consoleLog("[Fantom Debug] Build target: " + fanTarget);
+            }
             ProcessBuilder pb = new ProcessBuilder(rebuildCmd);
+            pb.directory(new File(sourceDir));  // must run fan build.fan from sourceDir
             pb.redirectErrorStream(true);
             if (fanHome != null) pb.environment().put("FAN_HOME", fanHome);
             Process proc = pb.start();
@@ -549,6 +578,25 @@ public class LaunchHandler {
                 : "[Fantom Debug] Rebuild exited with code " + code);
         } catch (Exception e) {
             System.err.println("[Debug] Pre-launch rebuild failed: " + e);
+        }
+    }
+
+    /**
+     * Read "fanTargetBuild" from fan.config.json in sourceDir, if present.
+     * Returns null when the file is absent or the key is not set.
+     */
+    private static String readFanConfigTarget(String sourceDir) {
+        try {
+            File cfg = new File(sourceDir, "fan.config.json");
+            if (!cfg.exists()) return null;
+            String json = new String(java.nio.file.Files.readAllBytes(cfg.toPath()),
+                java.nio.charset.StandardCharsets.UTF_8);
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"fanTargetBuild\"\\s*:\\s*\"([^\"]+)\"")
+                .matcher(json);
+            return m.find() ? m.group(1) : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 

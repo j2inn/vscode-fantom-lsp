@@ -740,12 +740,12 @@ class FormatterServiceTest : Test
   **
   Void testJoinTrailingDotContinuation()
   {
-    src    := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, PanCommercialCloudModelProductParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
+    src    := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, MyPodModelParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
     result := format(src)
     verify(
-      result.contains("PanCommercialCloudModelProductParams.DEFAULT_PROGRAMS_URI"),
+      result.contains("MyPodModelParams.DEFAULT_PROGRAMS_URI"),
       "trailing-dot continuation must be joined onto one line; got:\n$result")
-    verify(!result.contains("PanCommercialCloudModelProductParams.\n"),
+    verify(!result.contains("MyPodModelParams.\n"),
       "trailing dot must not remain at end of line; got:\n$result")
   }
 
@@ -806,7 +806,7 @@ class FormatterServiceTest : Test
   **
   Void testJoinAndWrapConverges()
   {
-    src   := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, PanCommercialCloudModelProductParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
+    src   := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, MyPodModelParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
     o     := opts.copy
     o.maxLineLength = 120
     pass1 := formatWith(src,   o)

@@ -8,19 +8,9 @@
 
 ---
 
-## 🏢 About J2 Innovations & FIN Framework
-
-[**J2 Innovations**](https://www.j2inn.com/) is a technology company that created **FIN Framework** — a cutting-edge open platform for smart buildings, smart equipment control, and IoT systems. FIN powers supervisory & control solutions, microBMS, equipment optimization, and edge-to-cloud connectivity, and is trusted by major OEM partners including Siemens, SageGlass, and Coster Group.
-
-**FIN Framework is built on [Fantom](https://fantom.org/)** — a JVM-based, object-oriented programming language. All FIN application code, connectors, and extensions are written in Fantom, making a productive Fantom development environment essential for anyone building on the FIN platform.
-
-This extension was created to improve the day-to-day developer experience when working with FIN Framework and Fantom projects in Visual Studio Code. It brings real-time diagnostics, autocompletion, go-to-definition, hover documentation, and a full debugger — all tailored to the Fantom ecosystem that powers FIN.
-
----
-
 This extension brings a rich developer experience to Fantom projects inside VSCode — syntax highlighting, real-time diagnostics, autocompletion, hover docs, go-to-definition, **debugging with breakpoints and variable inspection**, and more. It is powered by a Fantom LSP server written entirely in Fantom itself (`vscodeFantomLsp`), automatically deployed into your Fantom installation when the extension activates.
 
-⚠️ This is an **unofficial, community-driven** project. It is not affiliated with or endorsed by the Fantom language authors or J2 Innovations.
+⚠️ This is an **unofficial, community-driven** project. It is not affiliated with or endorsed by the Fantom language authors.
 
 ---
 
@@ -85,17 +75,16 @@ code --install-extension fantom-language-support-${TAG}.vsix
 # 1. Build the LSP pod (requires Fantom installed and in PATH)
 fan build.fan
 
-# 2. Build the debug adapter JAR (requires JDK 11+)
+# 2. Install Node.js dependencies and build the extension
 cd vscode-fantom
-bash debug-adapter/build.sh
-
-# 3. Install Node.js dependencies and build the extension
 pnpm install
 pnpm run compile
 
-# 4. Package (optional)
+# 3. Package (optional)
 pnpm dlx @vscode/vsce package
 ```
+
+> The debug adapter JAR is built automatically the first time the extension activates (requires JDK 11+). To pre-build it manually: `bash vscode-fantom/debug-adapter/build.sh`
 
 ---
 
@@ -119,7 +108,7 @@ Create a `fan.config.json` file in the **root of your workspace**. The extension
 | Key                  | Type      | Default | Description                                                                                                                                                                                            |
 | -------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `fanPath`            | `string`  | `""`    | Absolute path to your Fantom installation directory (the folder that contains `bin/fan`). When empty or set to the placeholder value, the extension falls back to the `FAN_HOME` environment variable. |
-| `finPath`            | `string`  | `""`    | Direct path to the `fin` executable (e.g. `/opt/intelliplant/bin/fin`). When set, the debugger prefers this over `fanPath` for launch configurations.                                                  |
+| `finPath`            | `string`  | `""`    | Direct path to the `fin` executable (e.g. `/path/to/fin-installation/bin/fin`). When set, the debugger prefers this over `fanPath` for launch configurations.                                                  |
 | `fanTargetBuild`     | `string`  | `""`    | The build target passed to `fan build.fan <target>` on every save. Leave empty to run the default target.                                                                                              |
 | `debounceTime`       | `number`  | `2000`  | Milliseconds to wait after the last keystroke before running diagnostics. Lower values give faster feedback; higher values are gentler on large projects. Minimum: `100`.                              |
 | `enableUnusedImport` | `boolean` | `true`  | When `false`, unused `using` import warnings are suppressed entirely.                                                                                                                                  |
@@ -175,7 +164,9 @@ Access these from the Command Palette (`Ctrl+Shift+P`):
 | **Fantom: Remove Unused Imports in Project**       | Deletes unused `using` lines across every `.fan` file in the project                                          |
 | **Fantom: Remove Unused Variables in File**        | Deletes unused variable declarations in the current file                                                      |
 | **Fantom: Remove Unused Variables in Project**     | Deletes unused variable declarations across the whole project                                                 |
+| **Fantom: Format Entire Project**                  | Formats every `.fan` file in the project with a progress bar                                                  |
 | **Fantom: Create launch.json for Fantom Debugger** | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json` |
+| **Fantom: Rebuild debugger**                       | (Re)compiles the debug adapter JAR from the bundled Java sources. Run this if the debugger is missing or broken |
 
 ---
 
@@ -212,7 +203,8 @@ On activation the extension:
 2. Deploys (or updates) `vscodeFantomLsp` into `$FAN_HOME/lib/fan/`.
 3. Spawns the LSP server via `fan vscodeFantomLsp::Main`.
 4. Registers the Fantom debug adapter so it is available immediately in the Run & Debug panel.
-5. The server indexes all `.fan` sources from `build.fan`'s `srcDirs`, pre-loads available pods, runs diagnostics, and performs an initial build check — all in the background so the editor stays responsive.
+5. **Checks for Java** (`JAVA_HOME` → `fantom.javaPath` setting → `PATH`). If Java is not found, a warning popup is shown with options to configure the path. If Java is found and the debug adapter JAR has not been built yet, it is compiled automatically from the bundled Java sources in the background with a progress notification.
+6. The server indexes all `.fan` sources from `build.fan`'s `srcDirs`, pre-loads available pods, runs diagnostics, and performs an initial build check — all in the background so the editor stays responsive.
 
 ### Diagnostics lifecycle
 
@@ -321,6 +313,8 @@ The `.editorconfig` walk stops at `root = true` or at the workspace root, whiche
 The extension includes a full **Debug Adapter Protocol (DAP)** implementation that lets you set breakpoints, step through code, and inspect variables in Fantom programs running on the JVM.
 
 > **Prerequisite**: A JDK (not just a JRE) is required — the debugger uses JDI, which is part of the JDK tools (`jdk.jdi` module, available in JDK 9+).
+>
+> **Debug adapter JAR**: The JAR is **not pre-built** in the repository. On first activation the extension compiles it automatically from the bundled Java sources (requires JDK 11+). If the build is skipped or fails, use the **Fantom: Rebuild debugger** command from the Command Palette (`Ctrl+Shift+P`) to trigger a fresh build.
 
 ### How it works
 
@@ -503,7 +497,7 @@ In launch mode **VS Code starts the Fantom/FIN process for you** when you press 
       "type": "fantom",
       "request": "launch",
       "name": "Launch FIN",
-      "fanExe": "/path/to/intelliplant/bin/fin",
+      "fanExe": "/path/to/fin-installation/bin/fin",
       "mainClass": "",
       "sourceDir": "${workspaceFolder}"
     }
@@ -521,7 +515,7 @@ In launch mode **VS Code starts the Fantom/FIN process for you** when you press 
   "type": "fantom",
   "request": "launch",
   "name": "Launch FIN (no auth)",
-  "fanExe": "/path/to/intelliplant/bin/fin",
+  "fanExe": "/path/to/fin-installation/bin/fin",
   "mainClass": "",
   "launcherArgs": ["-noAuth"],
   "sourceDir": "${workspaceFolder}"
@@ -535,7 +529,7 @@ In launch mode **VS Code starts the Fantom/FIN process for you** when you press 
   "type": "fantom",
   "request": "launch",
   "name": "Launch FIN (full debug)",
-  "fanExe": "/path/to/intelliplant/bin/fin",
+  "fanExe": "/path/to/fin-installation/bin/fin",
   "mainClass": "",
   "launcherArgs": ["-noAuth"],
   "sourceDir": "${workspaceFolder}",
@@ -609,16 +603,17 @@ Set `sourceDir` to the root of your source tree. For a multi-pod workspace this 
 
 ### Building the debug adapter from source
 
-The debug adapter JAR is pre-built and bundled at `vscode-fantom/bundled-debug/fantom-debug-adapter.jar`. To rebuild (requires JDK 11+, no Maven needed):
+The debug adapter JAR is **built automatically** the first time the extension activates, using the Java sources bundled at `vscode-fantom/bundled-debug/java-src/` (requires JDK 11+, no Maven needed). You can also trigger a rebuild at any time:
+
+- **Command Palette** (`Ctrl+Shift+P`) → **Fantom: Rebuild debugger**
+- Or from a terminal:
 
 ```bash
 cd vscode-fantom
-pnpm run build-debug-adapter
-# or directly:
 bash debug-adapter/build.sh
 ```
 
-This downloads Gson, compiles all Java source files, and packages a self-contained fat JAR.
+This downloads Gson if needed, compiles all Java source files, and packages a self-contained fat JAR.
 
 ---
 
@@ -633,7 +628,7 @@ This downloads Gson, compiles all Java source files, and packages a self-contain
 | Build errors not appearing                         | Set `fanTargetBuild` in `fan.config.json` to match your build target (e.g. `"compile"`).                                                                                                                                      |
 | Diagnostics too slow / too fast                    | Tune `debounceTime` in `fan.config.json` (default 2000 ms).                                                                                                                                                                   |
 | LSP server crashes                                 | Open the **Fantom Language Server** output channel in VSCode and look for error messages. Enable `fantom.trace.server: "verbose"` for full protocol traces.                                                                   |
-| Debug adapter JAR not found                        | Run `bash vscode-fantom/debug-adapter/build.sh` to build it. Requires JDK 11+.                                                                                                                                                |
+| Debug adapter JAR not found                        | The JAR is built automatically at startup. If that failed, run **Fantom: Rebuild debugger** from the Command Palette. Requires JDK 11+.                                                                                       |
 | Breakpoints never hit                              | Confirm JDWP is enabled on the JVM (see Java configuration above). Check the port matches between `config.props` and `launch.json`.                                                                                           |
 | Variables show `<not found>`                       | The variable is out of scope or the frame is no longer active. Check the Call Stack panel to select the correct frame.                                                                                                        |
 | Local variables not shown (only method params)     | Rebuild your pod with `debug=true`: either set `"preLaunchRebuild": true` in `launch.json`, or manually build with `debug=true` in `etc/sys/config.props`.                                                                    |

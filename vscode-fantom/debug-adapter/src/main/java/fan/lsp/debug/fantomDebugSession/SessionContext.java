@@ -41,6 +41,9 @@ public class SessionContext {
     /** Guards against sending "terminated" more than once. */
     public final AtomicBoolean terminatedSent = new AtomicBoolean(false);
 
+    /** True after we have warned once that the pod has no LocalVariableTable. */
+    public final AtomicBoolean lvtWarningShown = new AtomicBoolean(false);
+
     // ── Breakpoint / variable state ───────────────────────────────────────
     public final List<PendingBreakpoint>       pendingBreakpoints = new ArrayList<>();
     public final Map<Integer, ObjectReference> objectStore        = new HashMap<>();
@@ -56,6 +59,7 @@ public class SessionContext {
     // ── Common helpers used by all handlers ──────────────────────────────
 
     public void consoleLog(String msg) {
+        if (server == null) return;  // no-op in unit tests
         JsonObject o = new JsonObject();
         o.addProperty("category", "console");
         o.addProperty("output",   msg + "\n");

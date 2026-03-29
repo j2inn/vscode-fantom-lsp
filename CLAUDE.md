@@ -3,7 +3,7 @@
 ## Environment
 
 - Fantom runtime: `/home/agiustij2/Public/fantom-1.0.82/bin/fan` (version 1.0.82)
-- `FAN_HOME` for build/test: `/home/agiustij2/Documents/sources/panasonic/commercialcloud/FIN_519/`
+- `FAN_HOME` for build/test: set to a local Fantom/FIN installation that has all required pods
 
 ## Build & Test Commands
 
@@ -11,20 +11,28 @@ Always prefix with `FAN_HOME=...` and use the full `fan` path:
 
 ```sh
 # Compile Fantom LSP pod
-FAN_HOME=/home/agiustij2/Documents/sources/panasonic/commercialcloud/FIN_519 \
-  /home/agiustij2/Public/fantom-1.0.82/bin/fan build.fan compile
+FAN_HOME=/path/to/fantom-installation \
+  /path/to/fantom/bin/fan build.fan compile
 
 # Run all tests
-FAN_HOME=/home/agiustij2/Documents/sources/panasonic/commercialcloud/FIN_519 \
-  /home/agiustij2/Public/fantom-1.0.82/bin/fan build.fan test
+FAN_HOME=/path/to/fantom-installation \
+  /path/to/fantom/bin/fan build.fan test
 
 # After changing LspServer.fan or any Fantom source, also rebundle the pod:
-cp /home/agiustij2/Documents/sources/panasonic/commercialcloud/FIN_519/lib/fan/vscodeFantomLsp.pod \
+cp /path/to/fantom-installation/lib/fan/vscodeFantomLsp.pod \
    vscode-fantom/bundled-pods/vscodeFantomLsp.pod
 
 # Compile TypeScript extension
 cd vscode-fantom && pnpm run compile
 ```
+
+## Comment & Documentation Style
+
+- All comments in source code, commit messages, and documentation must be **project-agnostic**.
+  Never reference specific customer names, company names, or proprietary project names.
+- Use generic placeholders in examples: `myPod`, `MyClass`, `/path/to/fantom`, `example.com`.
+- README and inline documentation must describe features in terms of the Fantom language
+  and standard tooling only — not in terms of any particular deployment or customer.
 
 ## Testing Policy
 
@@ -94,6 +102,11 @@ Always use `path.join()` / `path.resolve()` — never string-concatenate paths.
 - `vscode-fantom/src/javaSetup.ts` handles Java resolution, startup check,
   and debug-adapter JAR auto-compilation.
 - Uses `Platform` for all OS-specific names (java exe, javac, jar, classpath sep).
-- At extension startup `checkJavaAtStartup()` is called non-blocking.
-- When a debug session starts, `ensureDebugAdapterJar()` auto-builds the JAR
-  from `bundled-debug/java-src/` if the pre-built JAR is missing.
+- At extension startup `checkJavaAndBuildAdapterAtStartup()` is called non-blocking:
+  checks Java availability, shows a warning popup if Java is missing, and builds
+  the debug adapter JAR from `bundled-debug/java-src/` if it does not yet exist.
+- The JAR is **not bundled** in the repository — it is always compiled locally from
+  the bundled Java sources at first activation.
+- When a debug session starts, `ensureDebugAdapterJar()` verifies the JAR is present
+  and offers a one-click "Rebuild now" button if it is missing.
+- Users can force a rebuild at any time via **Fantom: Rebuild debugger** (Command Palette).
