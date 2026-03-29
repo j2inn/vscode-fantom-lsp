@@ -728,4 +728,165 @@ class FormatterServiceTest : Test
     result := formatWith(src, o)
     verify(result.contains("\"superlongwordwithoutspaces\""), "string without split point must survive intact")
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Continuation-line joining
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A method-call argument where a member access (dot) is split at the end
+  ** of one line must be joined with the next line into a single line.
+  ** Covers the reported case: Foo.method(a, b, SomeClass.\n    CONST)
+  **
+  Void testJoinTrailingDotContinuation()
+  {
+    src    := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, PanCommercialCloudModelProductParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
+    result := format(src)
+    verify(
+      result.contains("PanCommercialCloudModelProductParams.DEFAULT_PROGRAMS_URI"),
+      "trailing-dot continuation must be joined onto one line; got:\n$result")
+    verify(!result.contains("PanCommercialCloudModelProductParams.\n"),
+      "trailing dot must not remain at end of line; got:\n$result")
+  }
+
+  **
+  ** An argument list split across lines (unclosed paren) must be joined when
+  ** the result fits within maxLineLength.
+  **
+  Void testJoinUnclosedParenContinuation()
+  {
+    // "foo(a,\n    b)" fits on one line within 60 chars
+    src    := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA,\n        paramB)\n  }\n}\n"
+    result := formatWrap(src, 60)
+    lines  := result.splitLines
+    // Should be joined back to a single call expression
+    verify(result.contains("foo(paramA, paramB)"),
+      "unclosed-paren split must be joined when it fits; got:\n$result")
+  }
+
+  **
+  ** After joining a trailing-dot continuation, if the joined line still
+  ** exceeds maxLineLength, wrapLine must re-split it at a comma.
+  **
+  Void testJoinThenRewrapExceedingMaxLen()
+  {
+    // The joined line "foo(paramA, SomeVeryLongClass.LONG_CONSTANT)" is > 30 chars:
+    // wrapLine should split at the comma.
+    src    := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA, SomeVeryLongClass.\n        LONG_CONSTANT)\n  }\n}\n"
+    result := formatWrap(src, 30)
+    // The trailing dot must not survive
+    verify(!result.contains("SomeVeryLongClass.\n"),
+      "trailing dot must be eliminated even when re-wrapping is needed; got:\n$result")
+  }
+
+  **
+  ** Joining must not cross a blank line between continuation fragments.
+  **
+  Void testJoinDoesNotCrossBlankLine()
+  {
+    // The blank line between the two non-blank lines must be preserved
+    src    := "class Foo\n{\n  Void bar()\n  {\n    foo(a,\n\n        b)\n  }\n}\n"
+    result := format(src)
+    verify(result.contains("\n\n"), "blank line between continuation lines must be preserved; got:\n$result")
+  }
+
+  **
+  ** Already-joined lines must not be changed (idempotency for join pass).
+  **
+  Void testJoinAlreadySingleLineIsIdempotent()
+  {
+    src   := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA, paramB)\n  }\n}\n"
+    pass1 := format(src)
+    pass2 := format(pass1)
+    verifyEq(pass1, pass2, "already-single-line must not be changed on second format pass")
+  }
+
+  **
+  ** The join+wrap cycle must converge (pass2 == pass3) for the reported case.
+  **
+  Void testJoinAndWrapConverges()
+  {
+    src   := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, PanCommercialCloudModelProductParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
+    o     := opts.copy
+    o.maxLineLength = 120
+    pass1 := formatWith(src,   o)
+    pass2 := formatWith(pass1, o)
+    pass3 := formatWith(pass2, o)
+    verifyEq(pass2, pass3, "join+wrap did not stabilise: pass2 != pass3")
+  }
+
+  **
+  ** A trailing // comment on a continuation-fragment line must be converted
+  ** to a /* */ block comment when joining, so it does not eat subsequent
+  ** content on the same logical line.
+  **
+  Void testJoinConvertsTrailingCommentToBlockComment()
+  {
+    // Trailing comment on "bar" line must be converted; "baz" must survive.
+    src := "Str[] x := [\n  \"foo\",\n  \"bar\", // this is a trailing comment\n  \"baz\",\n]\n"
+    result := format(src)
+    verify(result.contains("\"baz\""),
+      "\"baz\" must not be eaten by the trailing comment on the previous line; got:\n$result")
+    verify(!result.contains("// this is a trailing comment"),
+      "raw // comment must not appear in joined output; got:\n$result")
+    verify(result.contains("/* this is a trailing comment */"),
+      "trailing comment must be converted to /* */ in joined output; got:\n$result")
+  }
+
+  **
+  ** Comment-only lines that appear inside a bracket continuation (e.g.
+  ** commented-out entries in a list literal) must be converted to block
+  ** comments when joining; real entries after them must be preserved.
+  **
+  Void testJoinConvertsCommentOnlyLinesToBlockComments()
+  {
+    // The two //icon lines are inside the unclosed '['; they must become /* */.
+    src :=
+      "Str[] deps := [\n" +
+      "  // icon24 = `fan://res/icon24.png`\n" +
+      "  // icon72 = `fan://res/icon72.png`\n" +
+      "  \"finEntityModelTools\",\n" +
+      "  \"finHisKitExt\",\n" +
+      "]\n"
+    result := format(src)
+    verify(result.contains("\"finEntityModelTools\""),
+      "finEntityModelTools must not be eaten by comment-only lines; got:\n$result")
+    verify(result.contains("\"finHisKitExt\""),
+      "finHisKitExt must survive after comment-only lines are converted; got:\n$result")
+    verify(result.contains("/* icon24"),
+      "comment-only lines must be converted to /* */ in joined output; got:\n$result")
+  }
+
+  **
+  ** Full @ExtMeta-style scenario: a list literal with both comment-only lines
+  ** and trailing inline comments must join without producing a syntax error.
+  **
+  Void testJoinExtMetaStyleDependsList()
+  {
+    src :=
+      "@ExtMeta\n" +
+      "{\n" +
+      "  name = \"myExt\"\n" +
+      "  //icon24 = `fan://res/icon.png`\n" +
+      "  //icon72 = `fan://res/icon.png`\n" +
+      "  depends = [\n" +
+      "    \"alpha\",\n" +
+      "    \"beta\",  // Needed for feature X\n" +
+      "    \"gamma\",\n" +
+      "  ]\n" +
+      "}\n"
+    result := format(src)
+    // All real entries must appear in the result
+    verify(result.contains("\"alpha\""),  "alpha missing; got:\n$result")
+    verify(result.contains("\"beta\""),   "beta missing; got:\n$result")
+    verify(result.contains("\"gamma\""),  "gamma missing; got:\n$result")
+    // The inline comment on beta must be converted to /* */ when joining
+    verify(!result.contains("// Needed for feature X"),
+      "raw // comment must not appear in joined output; got:\n$result")
+    verify(result.contains("/* Needed for feature X */"),
+      "inline comment on beta must be converted to /* */ in joined output; got:\n$result")
+    // Comment-only lines before depends must be preserved (they are NOT inside
+    // the continuation — they come before 'depends = [')
+    verify(result.contains("//icon24"), "comment-only line before depends must be preserved; got:\n$result")
+  }
 }

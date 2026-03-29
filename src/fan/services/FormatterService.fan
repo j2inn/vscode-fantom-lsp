@@ -119,11 +119,15 @@ class FormatterService
     indent   := startIndent
     blankRun := 0
 
-    lines.each |line|
+    // Pre-pass: join continuation lines (trailing-dot or unclosed-paren splits)
+    // back into single logical lines so wrapLine can re-split optimally.
+    processedLines := joinContinuationLines(lines)
+
+    processedLines.each |line|
     {
-      // splitLines strips line terminators, but on some Fantom builds a
-      // trailing \r may remain inside the line for CRLF content.
-      trimmed := stripCr(line).trim
+      // 'line' from joinContinuationLines: joined lines are trimmed; passthrough
+      // lines are CR-stripped but otherwise original (may have trailing spaces).
+      trimmed := line.trim
 
       // Blank line
       if (trimmed.isEmpty)
@@ -145,14 +149,14 @@ class FormatterService
       indent = (indent - leadingClose).max(0)
 
       // Build content.
-      // When trimTrailingWhitespace is true, use 'trimmed' (no trailing spaces).
-      // When false, use the original line content (leading whitespace stripped,
-      // trailing whitespace preserved).
-      // collapseSpaces is applied to the trimmed code region only, so it never
-      // removes trailing whitespace even when trimTrailingWhitespace is false.
+      // trimTrailingWhitespace=true  → use 'trimmed' (trailing spaces gone).
+      // trimTrailingWhitespace=false → use line.trimStart() which strips only
+      //   leading whitespace, preserving any intentional trailing spaces.
+      // collapseSpaces is applied to the code region only.
+      rawContent := line.trimStart
       content := opts.trimTrailingWhitespace
-        ? (opts.collapseSpaces ? collapseInlineSpaces(trimmed) : trimmed)
-        : (opts.collapseSpaces ? collapseInlineSpaces(trimmed) : stripLeading(stripCr(line)))
+        ? (opts.collapseSpaces ? collapseInlineSpaces(trimmed)    : trimmed)
+        : (opts.collapseSpaces ? collapseInlineSpaces(rawContent) : rawContent)
 
       // Reconstruct full line (indent + content), then wrap if needed
       fullLine := makeIndent(opts, indent) + content
@@ -268,6 +272,134 @@ class FormatterService
     }
 
     return buf.toStr
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: line joining (continuation lines)
+  // ---------------------------------------------------------------------------
+
+  **
+  ** Returns true if a trimmed line "continues" onto the next line, meaning
+  ** the parser would not end a statement here.  Two conditions qualify:
+  **   1. Unclosed parentheses / brackets at end of line (depth > 0)
+  **   2. Last code character is '.' (member access split across lines)
+  **
+  ** All Fantom string literal types and single-line comments are tracked so
+  ** that delimiters inside strings / comments do not produce false results.
+  **
+  private Bool endsAsContinuation(Str line)
+  {
+    inStr    := false
+    inTriple := false
+    inChar   := false
+    inDsl    := false
+    escaped  := false
+    depth    := 0
+    lastCode := 0
+    n        := line.size
+
+    for (i := 0; i < n; i++)
+    {
+      ch := line[i]
+
+      if (escaped) { escaped = false; lastCode = ch; continue }
+
+      if (inTriple)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+          { inTriple = false; lastCode = '"'; i += 2 }
+        continue
+      }
+
+      if (inStr)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"')  { inStr = false; lastCode = '"' }
+        continue
+      }
+
+      if (inChar)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '\'') { inChar = false; lastCode = '\'' }
+        continue
+      }
+
+      if (inDsl)
+      {
+        if (ch == '`') { inDsl = false; lastCode = '`' }
+        continue
+      }
+
+      // Single-line comment: stop scanning
+      if (ch == '/' && i+1 < n && line[i+1] == '/') break
+
+      // Triple-quoted string start (must check before single '"')
+      if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+        { inTriple = true; i += 2; continue }
+
+      if (ch == '"')  { inStr  = true; continue }
+      if (ch == '\'') { inChar = true; continue }
+      if (ch == '`')  { inDsl  = true; continue }
+
+      if (ch == '(' || ch == '[') depth++
+      else if (ch == ')' || ch == ']') depth = (depth-1).max(0)
+
+      if (ch != ' ' && ch != '\t') lastCode = ch
+    }
+
+    return depth > 0 || lastCode == '.'
+  }
+
+  **
+  ** Pre-pass: join lines that were split mid-expression back into single
+  ** logical lines.  A line "continues" when it ends with unclosed
+  ** parentheses / brackets or with a trailing '.' (member-access split).
+  **
+  ** Blank lines are never crossed.  The separator between the joined
+  ** fragments is empty when the current fragment ends with '.', '(', or '['
+  ** (no extra space needed), and a single space otherwise.
+  **
+  ** After joining, the regular wrapLine pass will re-split any result that
+  ** still exceeds maxLineLength.
+  **
+  private Str[] joinContinuationLines(Str[] lines)
+  {
+    Str[] result := [,]
+    i := 0
+    while (i < lines.size)
+    {
+      raw    := stripCr(lines[i])
+      // Convert any trailing // comment to /* */ before testing for continuation
+      // so that "foo( // remark" is seen as "foo( /* remark */" — open paren
+      // still detected as continuation, comment text preserved but harmless.
+      buf    := convertLineComment(raw.trim)
+      joined := false
+
+      // Accumulate continuation lines
+      while (!buf.isEmpty && endsAsContinuation(buf) && i + 1 < lines.size)
+      {
+        nextRaw := stripCr(lines[i+1]).trim
+        if (nextRaw.isEmpty) break   // never cross a blank line
+        nextConverted := convertLineComment(nextRaw)
+        i++
+        // Lines whose entire content was an empty // comment (nothing after //)
+        // reduce to "" — skip them silently.
+        if (nextConverted.isEmpty) continue
+        lastCh := buf[buf.size-1]
+        sep := (lastCh == '.' || lastCh == '(' || lastCh == '[') ? "" : " "
+        buf = buf + sep + nextConverted
+        joined = true
+      }
+
+      // For passthrough lines, preserve the original (CR-stripped but not
+      // trimmed) so that trimTrailingWhitespace=false can see trailing spaces.
+      // For joined lines, the concatenated buf is inherently trimmed.
+      result.add(joined ? buf : raw)
+      i++
+    }
+    return result
   }
 
   // ---------------------------------------------------------------------------
@@ -677,6 +809,86 @@ class FormatterService
   {
     if (s.size > 0 && s[-1] == '\r') return s[0..<s.size-1]
     return s
+  }
+
+  **
+  ** Convert a trailing '//' line comment in 'line' into an inline block
+  ** comment (/* text */) so that joining continuation lines does not produce
+  ** code that comments-out everything that follows on the same logical line.
+  **
+  ** String literals (double, single, triple-quoted, backtick) are tracked so
+  ** that '//' inside a string is never mistaken for a comment delimiter.
+  **
+  ** Returns:
+  **   - "code /* text */"  — when there is a non-empty trailing comment
+  **   - "/* text */"       — when the entire line is a non-empty comment
+  **   - "code"             — when there is no comment or the comment is blank
+  **
+  ** Note: '*'-only comment text (e.g. "// *") is preserved as "/* * */"
+  ** because the comment text is kept verbatim; only surrounding whitespace
+  ** is trimmed.
+  **
+  private Str convertLineComment(Str line)
+  {
+    inStr    := false
+    inTriple := false
+    inChar   := false
+    inDsl    := false
+    escaped  := false
+    n        := line.size
+
+    for (i := 0; i < n; i++)
+    {
+      ch := line[i]
+
+      if (escaped) { escaped = false; continue }
+
+      if (inTriple)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+          { inTriple = false; i += 2 }
+        continue
+      }
+
+      if (inStr)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"')  inStr = false
+        continue
+      }
+
+      if (inChar)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '\'') inChar = false
+        continue
+      }
+
+      if (inDsl)
+      {
+        if (ch == '`') inDsl = false
+        continue
+      }
+
+      if (ch == '/' && i+1 < n && line[i+1] == '/')
+      {
+        code    := line[0..<i].trim
+        comment := line[i+2..-1].trim   // text after "//"
+        if (comment.isEmpty) return code
+        if (code.isEmpty)    return "/* ${comment} */"
+        return "${code} /* ${comment} */"
+      }
+
+      if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+        { inTriple = true; i += 2; continue }
+
+      if (ch == '"')  { inStr  = true; continue }
+      if (ch == '\'') { inChar = true; continue }
+      if (ch == '`')  { inDsl  = true; continue }
+    }
+
+    return line
   }
 
   **

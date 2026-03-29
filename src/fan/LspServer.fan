@@ -497,7 +497,6 @@ class LspServer
       runBuild(dependentErrorFiles, true)
 
       sendProgress("end", "Ready")
-      showMessage("Fantom LSP: indexing complete", 3)
     }
     catch (Err e)
     {
@@ -905,8 +904,6 @@ class LspServer
               "\uD83D\uDC7B Fantom LSP: Errors found! \u2014 ${total} file(s) with errors: ${fileList}",
               clickableMap)
           }
-          else
-            showMessage("\uD83D\uDC7B Fantom LSP: No errors found")
         }
 
         // Yellow popup for files with warnings only — only at boot.

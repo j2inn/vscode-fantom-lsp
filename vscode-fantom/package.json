@@ -196,6 +196,11 @@
         "command": "fantom.createLaunchJson",
         "title": "Create launch.json for Fantom Debugger",
         "category": "Fantom"
+      },
+      {
+        "command": "fantom.formatProject",
+        "title": "Format Entire Project",
+        "category": "Fantom"
       }
     ],
     "configuration": {
