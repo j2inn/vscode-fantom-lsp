@@ -149,6 +149,8 @@ Additional settings available through the VSCode UI or `settings.json`:
 | Setting                                | Type      | Default | Description                                                                                                                                |
 | -------------------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `fantom.javaPath`                      | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                       |
+| `fantom.suppressJavaWarning`           | `boolean` | `false` | Suppress the startup warning when Java is not found. Enable this if you do not use the Fantom debugger.                                    |
+| `fantom.suppressWarningPopup`          | `boolean` | `false` | Suppress the "Warnings found" notification popup shown at startup when the build produces warnings.                                        |
 | `fantom.useBuiltInLspPod`              | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod.  |
 | `fantom.pedanticMode`                  | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right). |
 | `fantom.trace.server`                  | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                               |
@@ -176,6 +178,8 @@ Access these from the Command Palette (`Ctrl+Shift+P`):
 | **Fantom: Remove Unused Variables in File**        | Deletes unused variable declarations in the current file                                                      |
 | **Fantom: Remove Unused Variables in Project**     | Deletes unused variable declarations across the whole project                                                 |
 | **Fantom: Create launch.json for Fantom Debugger** | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json` |
+| **Fantom: Format Entire Project**                  | Formats every `.fan` file in the project using the configured formatter settings                              |
+| **Fantom: Rebuild debugger**                       | Recompiles the debug adapter JAR from bundled Java sources (useful after a JDK upgrade or a corrupt build)    |
 
 ---
 

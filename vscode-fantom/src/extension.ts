@@ -755,9 +755,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (e.reason !== vscode.TextDocumentSaveReason.Manual &&
           e.reason !== vscode.TextDocumentSaveReason.AfterDelay) return;
 
-      const enabled = vscode.workspace
-        .getConfiguration('fantom', e.document.uri)
-        .get<boolean>('format.formatOnSave') ?? false;
+      const cfg = vscode.workspace.getConfiguration('fantom', e.document.uri);
+      const formatEnabled = cfg.get<boolean>('format.enable') ?? true;
+      if (!formatEnabled) return;
+      const enabled = cfg.get<boolean>('format.formatOnSave') ?? false;
       if (!enabled) return;
 
       const formatEdits = vscode.commands.executeCommand<vscode.TextEdit[]>(
@@ -1147,7 +1148,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const targetBuf = fs.readFileSync(targetPod);
       if (bundledBuf.equals(targetBuf)) {
         log(`${bundledPodName} is identical to bundled version`);
-        vscode.window.showInformationMessage(`Fantom: ${bundledPodName} with latest version already exists.`);
       } else {
         const choice = await vscode.window.showInformationMessage(
           `Fantom: A language server pod (${bundledPodName}) already exists. It is recommended to update it to get the latest features and fixes.`,
