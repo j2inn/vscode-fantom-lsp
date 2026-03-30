@@ -18,24 +18,24 @@ This extension brings a rich developer experience to Fantom projects inside VSCo
 
 ### ✅ Implemented
 
-| Feature                                   | Description                                                                               |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 🔍 **Go to Definition**                   | Jump to the definition of types, methods, and fields across project files                 |
-| 💡 **Auto Completion**                    | Context-aware suggestions triggered on `.` (dot) and keyword prefix                       |
-| ⇥ **Tab Completion**                      | Complete identifiers and keywords without reaching for the mouse                          |
-| 🔁 **Duplicate `static const` detection** | Warns when two or more static const fields share the same string value across the project |
-| 🗑️ **Unused variable detection**          | Highlights variables that are declared but never read                                     |
-| 🧹 **Unused import detection**            | Warns on `using` statements that are not referenced in the file                           |
-| 🎯 **Hover information**                  | Shows type signatures and pod documentation when hovering over a symbol                   |
-| 🚨 **Real-time diagnostics**              | Syntax errors and type errors from the Fantom compiler, debounced while typing            |
-| 🔗 **Cross-file validation**              | Detects unresolved type references across all project source files                        |
-| 🏗️ **Build integration**                  | Runs `fan build.fan` on save and reports compiler errors with clickable file links        |
-| 🖊️ **Syntax highlighting**                | Full TextMate grammar for `.fan` files                                                    |
-| 🧩 **Remove Unused Imports**              | Command to remove all unused `using` lines in a file or the whole project                 |
-| 🧩 **Remove Unused Variables**            | Command to remove all unused variable declarations in a file or the whole project         |
-| 📊 **Status bar diagnostics**             | Live error and warning counts in the VSCode status bar                                    |
+| Feature                                   | Description                                                                                                                |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 🔍 **Go to Definition**                   | Jump to the definition of types, methods, and fields across project files                                                  |
+| 💡 **Auto Completion**                    | Context-aware suggestions triggered on `.` (dot) and keyword prefix                                                        |
+| ⇥ **Tab Completion**                      | Complete identifiers and keywords without reaching for the mouse                                                           |
+| 🔁 **Duplicate `static const` detection** | Warns when two or more static const fields share the same string value across the project                                  |
+| 🗑️ **Unused variable detection**          | Highlights variables that are declared but never read                                                                      |
+| 🧹 **Unused import detection**            | Warns on `using` statements that are not referenced in the file                                                            |
+| 🎯 **Hover information**                  | Shows type signatures and pod documentation when hovering over a symbol                                                    |
+| 🚨 **Real-time diagnostics**              | Syntax errors and type errors from the Fantom compiler, debounced while typing                                             |
+| 🔗 **Cross-file validation**              | Detects unresolved type references across all project source files                                                         |
+| 🏗️ **Build integration**                  | Runs `fan build.fan` on save and reports compiler errors with clickable file links                                         |
+| 🖊️ **Syntax highlighting**                | Full TextMate grammar for `.fan` files                                                                                     |
+| 🧩 **Remove Unused Imports**              | Command to remove all unused `using` lines in a file or the whole project                                                  |
+| 🧩 **Remove Unused Variables**            | Command to remove all unused variable declarations in a file or the whole project                                          |
+| 📊 **Status bar diagnostics**             | Live error and warning counts in the VSCode status bar                                                                     |
 | 🖋️ **Source formatter**                   | Format on demand or on save — indentation, blank-line limits, space collapsing, line wrapping, and `.editorconfig` support |
-| 🐛 **Debugger (DAP)**                     | Set breakpoints, step through code, and inspect variables in Fantom programs on the JVM   |
+| 🐛 **Debugger (DAP)**                     | Set breakpoints, step through code, and inspect variables in Fantom programs on the JVM                                    |
 
 ---
 
@@ -108,7 +108,7 @@ Create a `fan.config.json` file in the **root of your workspace**. The extension
 | Key                  | Type      | Default | Description                                                                                                                                                                                            |
 | -------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `fanPath`            | `string`  | `""`    | Absolute path to your Fantom installation directory (the folder that contains `bin/fan`). When empty or set to the placeholder value, the extension falls back to the `FAN_HOME` environment variable. |
-| `finPath`            | `string`  | `""`    | Direct path to the `fin` executable (e.g. `/path/to/fin-installation/bin/fin`). When set, the debugger prefers this over `fanPath` for launch configurations.                                                  |
+| `finPath`            | `string`  | `""`    | Direct path to the `fin` executable (e.g. `/path/to/fin-installation/bin/fin`). When set, the debugger prefers this over `fanPath` for launch configurations.                                          |
 | `fanTargetBuild`     | `string`  | `""`    | The build target passed to `fan build.fan <target>` on every save. Leave empty to run the default target.                                                                                              |
 | `debounceTime`       | `number`  | `2000`  | Milliseconds to wait after the last keystroke before running diagnostics. Lower values give faster feedback; higher values are gentler on large projects. Minimum: `100`.                              |
 | `enableUnusedImport` | `boolean` | `true`  | When `false`, unused `using` import warnings are suppressed entirely.                                                                                                                                  |
@@ -135,22 +135,22 @@ export PATH=$FAN_HOME/bin:$PATH
 
 Additional settings available through the VSCode UI or `settings.json`:
 
-| Setting                   | Type      | Default | Description                                                                                                                                |
-| ------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `fantom.javaPath`                    | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                       |
-| `fantom.useBuiltInLspPod`            | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod.  |
-| `fantom.pedanticMode`                | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right). |
-| `fantom.trace.server`                | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                               |
-| `fantom.format.enable`               | `boolean` | `true`  | Enable the Fantom formatter (Format Document / Format Selection).                                                                           |
-| `fantom.format.formatOnSave`         | `boolean` | `false` | Automatically format Fantom files on save.                                                                                                  |
-| `fantom.format.indentSize`           | `number`  | `2`     | Spaces per indentation level (ignored when `useTabs` is `true`).                                                                            |
-| `fantom.format.useTabs`              | `boolean` | `false` | Use tab characters for indentation instead of spaces.                                                                                       |
-| `fantom.format.insertFinalNewline`   | `boolean` | `true`  | Ensure the file ends with a newline character.                                                                                              |
-| `fantom.format.trimTrailingWhitespace` | `boolean` | `true` | Remove trailing whitespace from each line.                                                                                                  |
-| `fantom.format.maxBlankLines`        | `number`  | `1`     | Maximum consecutive blank lines to preserve. `0` keeps all blank lines.                                                                    |
-| `fantom.format.respectEditorConfig`  | `boolean` | `true`  | Let `.editorconfig` files override the settings above.                                                                                      |
-| `fantom.format.collapseSpaces`       | `boolean` | `true`  | Collapse runs of two or more spaces into one in code regions (outside strings and comments).                                                |
-| `fantom.format.maxLineLength`        | `number`  | `0`     | Wrap lines that exceed this length. `0` disables wrapping.                                                                                  |
+| Setting                                | Type      | Default | Description                                                                                                                                |
+| -------------------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --- | ---------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `fantom.javaPath`                      | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                       |     | `fantom.suppressJavaWarning` | `boolean` | `false` | Suppress the startup warning when Java is not found. Enable this if you do not use the Fantom debugger.                                   |
+| `fantom.suppressWarningPopup`          | `boolean` | `false` | Suppress the "Warnings found" notification popup shown at startup when the build produces warnings.                                        |     | `fantom.useBuiltInLspPod`    | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod. |
+| `fantom.pedanticMode`                  | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right). |
+| `fantom.trace.server`                  | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                               |
+| `fantom.format.enable`                 | `boolean` | `true`  | Enable the Fantom formatter (Format Document / Format Selection).                                                                          |
+| `fantom.format.formatOnSave`           | `boolean` | `false` | Automatically format Fantom files on save.                                                                                                 |
+| `fantom.format.indentSize`             | `number`  | `2`     | Spaces per indentation level (ignored when `useTabs` is `true`).                                                                           |
+| `fantom.format.useTabs`                | `boolean` | `false` | Use tab characters for indentation instead of spaces.                                                                                      |
+| `fantom.format.insertFinalNewline`     | `boolean` | `true`  | Ensure the file ends with a newline character.                                                                                             |
+| `fantom.format.trimTrailingWhitespace` | `boolean` | `true`  | Remove trailing whitespace from each line.                                                                                                 |
+| `fantom.format.maxBlankLines`          | `number`  | `1`     | Maximum consecutive blank lines to preserve. `0` keeps all blank lines.                                                                    |
+| `fantom.format.respectEditorConfig`    | `boolean` | `true`  | Let `.editorconfig` files override the settings above.                                                                                     |
+| `fantom.format.collapseSpaces`         | `boolean` | `true`  | Collapse runs of two or more spaces into one in code regions (outside strings and comments).                                               |
+| `fantom.format.maxLineLength`          | `number`  | `0`     | Wrap lines that exceed this length. `0` disables wrapping.                                                                                 |
 
 ---
 
@@ -158,14 +158,14 @@ Additional settings available through the VSCode UI or `settings.json`:
 
 Access these from the Command Palette (`Ctrl+Shift+P`):
 
-| Command                                            | Description                                                                                                   |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| **Fantom: Remove Unused Imports in File**          | Deletes all unused `using` lines in the current file and saves                                                |
-| **Fantom: Remove Unused Imports in Project**       | Deletes unused `using` lines across every `.fan` file in the project                                          |
-| **Fantom: Remove Unused Variables in File**        | Deletes unused variable declarations in the current file                                                      |
-| **Fantom: Remove Unused Variables in Project**     | Deletes unused variable declarations across the whole project                                                 |
-| **Fantom: Format Entire Project**                  | Formats every `.fan` file in the project with a progress bar                                                  |
-| **Fantom: Create launch.json for Fantom Debugger** | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json` |
+| Command                                            | Description                                                                                                     |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Fantom: Remove Unused Imports in File**          | Deletes all unused `using` lines in the current file and saves                                                  |
+| **Fantom: Remove Unused Imports in Project**       | Deletes unused `using` lines across every `.fan` file in the project                                            |
+| **Fantom: Remove Unused Variables in File**        | Deletes unused variable declarations in the current file                                                        |
+| **Fantom: Remove Unused Variables in Project**     | Deletes unused variable declarations across the whole project                                                   |
+| **Fantom: Format Entire Project**                  | Formats every `.fan` file in the project with a progress bar                                                    |
+| **Fantom: Create launch.json for Fantom Debugger** | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json`   |
 | **Fantom: Rebuild debugger**                       | (Re)compiles the debug adapter JAR from the bundled Java sources. Run this if the debugger is missing or broken |
 
 ---
@@ -250,12 +250,12 @@ When `fantom.format.collapseSpaces` is `true` (default), runs of two or more con
 
 All Fantom string literal types are handled:
 
-| Type | Example | Spaces inside |
-|------|---------|---------------|
-| Double-quoted | `"hello   world"` | preserved |
-| Triple-quoted | `"""hello   world"""` | preserved |
-| Single-quoted (char) | `' '` | preserved |
-| Backtick (DSL / URI) | `` `path/to   thing` `` | preserved |
+| Type                 | Example                 | Spaces inside |
+| -------------------- | ----------------------- | ------------- |
+| Double-quoted        | `"hello   world"`       | preserved     |
+| Triple-quoted        | `"""hello   world"""`   | preserved     |
+| Single-quoted (char) | `' '`                   | preserved     |
+| Backtick (DSL / URI) | `` `path/to   thing` `` | preserved     |
 
 Example:
 
@@ -271,12 +271,12 @@ return val ? 0 : 1
 
 When `fantom.format.maxLineLength` is set to a positive value, lines that exceed that length are split automatically. The formatter looks for the best split point before the limit, in this priority order:
 
-| Priority | Split point | Example |
-|----------|-------------|---------|
-| 1 | Comma inside parentheses / brackets | `foo(a, b, c)` → split after `,` |
-| 2 | `&&` or `\|\|` operator (any nesting depth) | `if (a && b)` → split before `&&` |
-| 3 | Ternary `?` surrounded by spaces (at depth 0) | `x ? y : z` → split before `?` |
-| 4 | Word boundary inside a string literal | `"long string"` → split with `+` concatenation |
+| Priority | Split point                                   | Example                                        |
+| -------- | --------------------------------------------- | ---------------------------------------------- |
+| 1        | Comma inside parentheses / brackets           | `foo(a, b, c)` → split after `,`               |
+| 2        | `&&` or `\|\|` operator (any nesting depth)   | `if (a && b)` → split before `&&`              |
+| 3        | Ternary `?` surrounded by spaces (at depth 0) | `x ? y : z` → split before `?`                 |
+| 4        | Word boundary inside a string literal         | `"long string"` → split with `+` concatenation |
 
 String literal splitting produces a concatenation expression:
 
@@ -295,14 +295,14 @@ The split is at the last word-boundary space before the column limit. Backtick (
 
 When `fantom.format.respectEditorConfig` is `true` (default), the formatter walks up the directory tree from the file being formatted and applies the first matching `.editorconfig` section. Supported properties:
 
-| `.editorconfig` key | Maps to |
-|---------------------|---------|
-| `indent_style = tab` | `useTabs = true` |
-| `indent_style = space` | `useTabs = false` |
-| `indent_size` / `tab_width` | `indentSize` |
-| `trim_trailing_whitespace` | `trimTrailingWhitespace` |
-| `insert_final_newline` | `insertFinalNewline` |
-| `max_blank_lines` | `maxBlankLines` |
+| `.editorconfig` key         | Maps to                  |
+| --------------------------- | ------------------------ |
+| `indent_style = tab`        | `useTabs = true`         |
+| `indent_style = space`      | `useTabs = false`        |
+| `indent_size` / `tab_width` | `indentSize`             |
+| `trim_trailing_whitespace`  | `trimTrailingWhitespace` |
+| `insert_final_newline`      | `insertFinalNewline`     |
+| `max_blank_lines`           | `maxBlankLines`          |
 
 The `.editorconfig` walk stops at `root = true` or at the workspace root, whichever comes first. Per-file `.editorconfig` values override the VS Code settings for that file only.
 
