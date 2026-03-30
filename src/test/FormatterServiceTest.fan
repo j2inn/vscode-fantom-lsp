@@ -2,21 +2,21 @@
 ** FormatterServiceTest - unit tests for the Fantom source formatter.
 **
 ** Coverage:
-**   - indentation (spaces and tabs)
-**   - trailing whitespace
-**   - blank line collapsing
-**   - final newline insertion
-**   - no-op detection for already-formatted source
-**   - brace counting inside strings / line comments
-**   - range formatting
-**   - edit range correctness (range must cover the full document including
-**     any trailing newline so VS Code does not duplicate it)
-**   - line-ending preservation: LF, CRLF, CR-only input → same style output
-**   - idempotency (formatting twice == no second edit)
+** - indentation (spaces and tabs)
+** - trailing whitespace
+** - blank line collapsing
+** - final newline insertion
+** - no-op detection for already-formatted source
+** - brace counting inside strings / line comments
+** - range formatting
+** - edit range correctness (range must cover the full document including
+** any trailing newline so VS Code does not duplicate it)
+** - line-ending preservation: LF, CRLF, CR-only input → same style output
+** - idempotency (formatting twice == no second edit)
 **
 class FormatterServiceTest : Test
 {
-  private FormatterService fmt  := FormatterService()
+  private FormatterService fmt := FormatterService()
   private FormatterOptions opts := FormatterOptions()
 
   // Convenience: apply full-doc format, return resulting text (or original if no edits).
@@ -38,13 +38,13 @@ class FormatterServiceTest : Test
     return edits.isEmpty ? null : edits[0]
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Indentation — spaces
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Indentation — spaces
+  //////////////////////////////////////////////////////////////////////////
 
   Void testSimpleClassIndent()
   {
-    src      := "class Foo\n{\nVoid bar() {}\n}"
+    src := "class Foo\n{\nVoid bar() {}\n}"
     expected := "class Foo\n{\n  Void bar() {}\n}\n"
     verifyEq(format(src), expected)
   }
@@ -53,7 +53,7 @@ class FormatterServiceTest : Test
   {
     src := "class Foo\n{\nVoid bar()\n{\nif (x)\n{\nreturn\n}\n}\n}"
     result := format(src)
-    lines  := result.splitLines
+    lines := result.splitLines
     verifyEq(lines[0], "class Foo")
     verifyEq(lines[1], "{")
     verifyEq(lines[2], "  Void bar()")
@@ -70,17 +70,17 @@ class FormatterServiceTest : Test
   {
     src := "class Foo\n{\nVoid bar()\n{\nif (x)\n{\nreturn\n}\nelse\n{\nreturn\n}\n}\n}"
     result := format(src)
-    lines  := result.splitLines
-    verifyEq(lines[8],  "    else")
-    verifyEq(lines[9],  "    {")
+    lines := result.splitLines
+    verifyEq(lines[8], "    else")
+    verifyEq(lines[9], "    {")
     verifyEq(lines[10], "      return")
   }
 
   Void testClosingBraceDecreasesIndent()
   {
-    src    := "class Foo {\nVoid bar() {\nreturn\n}\n}"
+    src := "class Foo {\nVoid bar() {\nreturn\n}\n}"
     result := format(src)
-    lines  := result.splitLines
+    lines := result.splitLines
     verifyEq(lines[3], "  }")
     verifyEq(lines[4], "}")
   }
@@ -89,23 +89,23 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.indentSize = 4
-    src    := "class Foo\n{\nVoid bar() {}\n}"
+    src := "class Foo\n{\nVoid bar() {}\n}"
     result := formatWith(src, o)
-    lines  := result.splitLines
+    lines := result.splitLines
     verifyEq(lines[2], "    Void bar() {}")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Indentation — tabs
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Indentation — tabs
+  //////////////////////////////////////////////////////////////////////////
 
   Void testTabIndent()
   {
     o := opts.copy
     o.useTabs = true
-    src    := "class Foo\n{\nVoid bar() {}\n}"
+    src := "class Foo\n{\nVoid bar() {}\n}"
     result := formatWith(src, o)
-    lines  := result.splitLines
+    lines := result.splitLines
     verify(lines[2].startsWith("\t"), "expected tab indent, got: ${lines[2]}")
     verifyEq(lines[2], "\tVoid bar() {}")
   }
@@ -114,19 +114,19 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.useTabs = true
-    src    := "class Foo\n{\nVoid bar()\n{\nreturn\n}\n}"
+    src := "class Foo\n{\nVoid bar()\n{\nreturn\n}\n}"
     result := formatWith(src, o)
-    lines  := result.splitLines
+    lines := result.splitLines
     verifyEq(lines[4], "\t\treturn")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Trailing whitespace
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Trailing whitespace
+  //////////////////////////////////////////////////////////////////////////
 
   Void testTrailingWhitespaceTrimmed()
   {
-    src    := "class Foo   \n{\n  Void bar()   \n}\n"
+    src := "class Foo   \n{\n  Void bar()   \n}\n"
     result := format(src)
     result.splitLines.each |line|
     {
@@ -138,21 +138,21 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.trimTrailingWhitespace = false
-    o.collapseSpaces         = false  // disable collapse so trailing spaces survive
-    src    := "class Foo   \n{\n}\n"
+    o.collapseSpaces = false // disable collapse so trailing spaces survive
+    src := "class Foo   \n{\n}\n"
     result := formatWith(src, o)
     verify(result.splitLines[0].endsWith("   "))
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Blank lines
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Blank lines
+  //////////////////////////////////////////////////////////////////////////
 
   Void testExcessiveBlankLinesCollapsed()
   {
-    src    := "class Foo\n{\n\n\n\n  Void bar() {}\n}\n"
+    src := "class Foo\n{\n\n\n\n  Void bar() {}\n}\n"
     result := format(src)
-    lines  := result.splitLines
+    lines := result.splitLines
     consecutiveBlanks := 0
     lines.each |line|
     {
@@ -166,7 +166,7 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.maxBlankLines = 0
-    src    := "class Foo\n{\n\n\n\n  Void bar() {}\n}\n"
+    src := "class Foo\n{\n\n\n\n  Void bar() {}\n}\n"
     result := formatWith(src, o)
     verify(result.contains("\n\n\n"))
   }
@@ -175,15 +175,15 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.maxBlankLines = 2
-    src    := "class Foo\n{\n\n\n\n\n  Void bar() {}\n}\n"
+    src := "class Foo\n{\n\n\n\n\n  Void bar() {}\n}\n"
     result := formatWith(src, o)
     verify(!result.contains("\n\n\n\n"), "should not have 4 blank lines")
     verify(result.contains("\n\n\n"), "should preserve up to 2 blank lines")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Final newline
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Final newline
+  //////////////////////////////////////////////////////////////////////////
 
   Void testFinalNewlineInserted()
   {
@@ -208,53 +208,53 @@ class FormatterServiceTest : Test
   Void testNoDoubleTrailingNewline()
   {
     // A file that ends with \n and needs reformatting must NOT gain an extra \n
-    src    := "class Foo\n{\nVoid bar() {}\n}\n"
+    src := "class Foo\n{\nVoid bar() {}\n}\n"
     result := format(src)
-    verify(result.endsWith("\n"),   "must end with newline")
+    verify(result.endsWith("\n"), "must end with newline")
     verify(!result.endsWith("\n\n"), "must not end with double newline")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// No-op: already-formatted source
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // No-op: already-formatted source
+  //////////////////////////////////////////////////////////////////////////
 
   Void testAlreadyFormattedReturnsEmpty()
   {
-    src   := "class Foo\n{\n  Void bar() {}\n}\n"
+    src := "class Foo\n{\n  Void bar() {}\n}\n"
     edits := fmt.format("file:///test/Foo.fan", src, opts, null)
     verifyEq(edits.size, 0)
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Edit range correctness
-//
-// The LSP TextEdit range must cover the ENTIRE document, including any
-// trailing '\n'/'\r\n'/'\r'.  If it does not, VS Code keeps the original
-// trailing separator AND adds the one from newText → double newline on every
-// format invocation.
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Edit range correctness
+  //
+  // The LSP TextEdit range must cover the ENTIRE document, including any
+  // trailing '\n'/'\r\n'/'\r'.  If it does not, VS Code keeps the original
+  // trailing separator AND adds the one from newText → double newline on every
+  // format invocation.
+  //////////////////////////////////////////////////////////////////////////
 
   ** LF trailing: end = {nlCount, 0}
   Void testEditRangeCoversTrailingLf()
   {
-    src  := "class Foo\n{\nVoid bar() {}\n}\n"  // 4 \n → endLine=4
+    src := "class Foo\n{\nVoid bar() {}\n}\n" // 4 \n → endLine=4
     edit := editFor(src)
     verify(edit != null, "expected at least one edit")
     rangeMap := edit["range"] as Str:Obj?
-    endMap   := rangeMap["end"] as Str:Obj?
-    verifyEq(endMap["line"]      as Int, 4)
+    endMap := rangeMap["end"] as Str:Obj?
+    verifyEq(endMap["line"] as Int, 4)
     verifyEq(endMap["character"] as Int, 0)
   }
 
   ** LF no trailing: end = {nlCount, lastLineLen}
   Void testEditRangeNoTrailingLf()
   {
-    src  := "class Foo\n{\nVoid bar() {}\n}"  // 3 \n, last line "}" (1 char)
+    src := "class Foo\n{\nVoid bar() {}\n}" // 3 \n, last line "}" (1 char)
     edit := editFor(src)
     verify(edit != null)
     rangeMap := edit["range"] as Str:Obj?
-    endMap   := rangeMap["end"] as Str:Obj?
-    verifyEq(endMap["line"]      as Int, 3)
+    endMap := rangeMap["end"] as Str:Obj?
+    verifyEq(endMap["line"] as Int, 3)
     verifyEq(endMap["character"] as Int, 1)
   }
 
@@ -262,12 +262,12 @@ class FormatterServiceTest : Test
   Void testEditRangeCoversTrailingCrlf()
   {
     crlf := "\r\n"
-    src  := "class Foo" + crlf + "{" + crlf + "Void bar() {}" + crlf + "}" + crlf
+    src := "class Foo" + crlf + "{" + crlf + "Void bar() {}" + crlf + "}" + crlf
     edit := editFor(src)
     verify(edit != null, "expected edit for CRLF file needing indent fix")
     rangeMap := edit["range"] as Str:Obj?
-    endMap   := rangeMap["end"] as Str:Obj?
-    verifyEq(endMap["line"]      as Int, 4)
+    endMap := rangeMap["end"] as Str:Obj?
+    verifyEq(endMap["line"] as Int, 4)
     verifyEq(endMap["character"] as Int, 0)
   }
 
@@ -275,65 +275,65 @@ class FormatterServiceTest : Test
   Void testEditRangeNoTrailingCrlf()
   {
     crlf := "\r\n"
-    src  := "class Foo" + crlf + "{" + crlf + "}"
+    src := "class Foo" + crlf + "{" + crlf + "}"
     edit := editFor(src)
     verify(edit != null)
     rangeMap := edit["range"] as Str:Obj?
-    endMap   := rangeMap["end"] as Str:Obj?
-    verifyEq(endMap["line"]      as Int, 2)
+    endMap := rangeMap["end"] as Str:Obj?
+    verifyEq(endMap["line"] as Int, 2)
     verifyEq(endMap["character"] as Int, 1)
   }
 
   ** CR-only trailing: end = {crCount, 0}
   Void testEditRangeCoversTrailingCr()
   {
-    cr  := "\r"
+    cr := "\r"
     src := "class Foo" + cr + "{" + cr + "Void bar() {}" + cr + "}" + cr
     edit := editFor(src)
     verify(edit != null, "expected edit for CR-only file")
     rangeMap := edit["range"] as Str:Obj?
-    endMap   := rangeMap["end"] as Str:Obj?
-    verifyEq(endMap["line"]      as Int, 4)
+    endMap := rangeMap["end"] as Str:Obj?
+    verifyEq(endMap["line"] as Int, 4)
     verifyEq(endMap["character"] as Int, 0)
   }
 
   ** CR-only no trailing: end = {crCount, lastLineLen}
   Void testEditRangeNoTrailingCr()
   {
-    cr  := "\r"
+    cr := "\r"
     src := "class Foo" + cr + "{" + cr + "}"
     edit := editFor(src)
     verify(edit != null)
     rangeMap := edit["range"] as Str:Obj?
-    endMap   := rangeMap["end"] as Str:Obj?
-    verifyEq(endMap["line"]      as Int, 2)
+    endMap := rangeMap["end"] as Str:Obj?
+    verifyEq(endMap["line"] as Int, 2)
     verifyEq(endMap["character"] as Int, 1)
   }
 
   ** Range start must always be {0, 0}
   Void testEditRangeStartIsZero()
   {
-    src  := "class Foo\n{\nVoid bar() {}\n}\n"
+    src := "class Foo\n{\nVoid bar() {}\n}\n"
     edit := editFor(src)
     verify(edit != null)
-    rangeMap  := edit["range"] as Str:Obj?
-    startMap  := rangeMap["start"] as Str:Obj?
-    verifyEq(startMap["line"]      as Int, 0)
+    rangeMap := edit["range"] as Str:Obj?
+    startMap := rangeMap["start"] as Str:Obj?
+    verifyEq(startMap["line"] as Int, 0)
     verifyEq(startMap["character"] as Int, 0)
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Line-ending preservation
-//
-// The formatter must use the same line-ending style as the input.  A CRLF
-// file must stay CRLF after formatting; applying the edit a second time
-// should produce no further edits (idempotency proves round-trip safety).
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Line-ending preservation
+  //
+  // The formatter must use the same line-ending style as the input.  A CRLF
+  // file must stay CRLF after formatting; applying the edit a second time
+  // should produce no further edits (idempotency proves round-trip safety).
+  //////////////////////////////////////////////////////////////////////////
 
   Void testCrlfPreservedInOutput()
   {
     crlf := "\r\n"
-    src  := "class Foo" + crlf + "{" + crlf + "Void bar() {}" + crlf + "}" + crlf
+    src := "class Foo" + crlf + "{" + crlf + "Void bar() {}" + crlf + "}" + crlf
     result := format(src)
     // Must contain CRLF
     verify(result.contains(crlf), "CRLF must be preserved in output")
@@ -345,14 +345,14 @@ class FormatterServiceTest : Test
   {
     crlf := "\r\n"
     // File has no trailing newline; insertFinalNewline should add \r\n not \n
-    src    := "class Foo" + crlf + "{" + crlf + "}"
+    src := "class Foo" + crlf + "{" + crlf + "}"
     result := format(src)
     verify(result.endsWith(crlf), "final newline must be CRLF for CRLF file")
   }
 
   Void testCrOnlyPreservedInOutput()
   {
-    cr  := "\r"
+    cr := "\r"
     src := "class Foo" + cr + "{" + cr + "Void bar() {}" + cr + "}" + cr
     result := format(src)
     verify(result.contains("\r"), "CR must appear in output for CR-only file")
@@ -362,41 +362,41 @@ class FormatterServiceTest : Test
 
   Void testLfOutputForLfInput()
   {
-    src    := "class Foo\n{\nVoid bar() {}\n}\n"  // already formatted
+    src := "class Foo\n{\nVoid bar() {}\n}\n" // already formatted
     // A file needing reformatting:
-    src2   := "class Foo\n{\nVoid bar() {}\n}"
+    src2 := "class Foo\n{\nVoid bar() {}\n}"
     result := format(src2)
     verify(!result.contains("\r"), "LF input must not produce CR in output")
     verify(result.endsWith("\n"), "LF input: final newline must be LF")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Idempotency
-//
-// After one format pass, the result must be stable: a second pass must
-// produce no edits.  This is the ultimate end-to-end check.
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Idempotency
+  //
+  // After one format pass, the result must be stable: a second pass must
+  // produce no edits.  This is the ultimate end-to-end check.
+  //////////////////////////////////////////////////////////////////////////
 
   Void testFormatIsIdempotentLf()
   {
-    src    := "class Foo\n{\nVoid bar() {}\n}\n"
-    pass1  := format(src)
+    src := "class Foo\n{\nVoid bar() {}\n}\n"
+    pass1 := format(src)
     edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
     verifyEq(edits2.size, 0, "LF format is not idempotent: second pass produced edits")
   }
 
   Void testFormatIsIdempotentLfNoTrailing()
   {
-    src    := "class Foo\n{\nVoid bar() {}\n}"
-    pass1  := format(src)
+    src := "class Foo\n{\nVoid bar() {}\n}"
+    pass1 := format(src)
     edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
     verifyEq(edits2.size, 0, "LF (no trailing \\n) format is not idempotent")
   }
 
   Void testFormatIsIdempotentCrlf()
   {
-    crlf  := "\r\n"
-    src   := "class Foo" + crlf + "{" + crlf + "Void bar() {}" + crlf + "}" + crlf
+    crlf := "\r\n"
+    src := "class Foo" + crlf + "{" + crlf + "Void bar() {}" + crlf + "}" + crlf
     pass1 := format(src)
     edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
     verifyEq(edits2.size, 0, "CRLF format is not idempotent: second pass produced edits")
@@ -404,16 +404,16 @@ class FormatterServiceTest : Test
 
   Void testFormatIsIdempotentCrOnly()
   {
-    cr    := "\r"
-    src   := "class Foo" + cr + "{" + cr + "Void bar() {}" + cr + "}" + cr
+    cr := "\r"
+    src := "class Foo" + cr + "{" + cr + "Void bar() {}" + cr + "}" + cr
     pass1 := format(src)
     edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
     verifyEq(edits2.size, 0, "CR-only format is not idempotent: second pass produced edits")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Brace counting in strings / comments
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Brace counting in strings / comments
+  //////////////////////////////////////////////////////////////////////////
 
   Void testBracesInStringsIgnored()
   {
@@ -424,18 +424,18 @@ class FormatterServiceTest : Test
 
   Void testBracesInLineCommentIgnored()
   {
-    src   := "class Foo\n{\n  Void bar() // returns { x }\n  {\n    return\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar() // returns { x }\n  {\n    return\n  }\n}\n"
     edits := fmt.format("file:///test/Foo.fan", src, opts, null)
     verifyEq(edits.size, 0)
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Range formatting
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Range formatting
+  //////////////////////////////////////////////////////////////////////////
 
   Void testRangeFormat()
   {
-    src   := "class Foo\n{\nVoid bar() {}\nVoid baz() {}\n}\n"
+    src := "class Foo\n{\nVoid bar() {}\nVoid baz() {}\n}\n"
     range := LspRange(LspPosition(2, 0), LspPosition(2, 14))
     edits := fmt.formatRange("file:///test/Foo.fan", src, range, opts, null)
     if (!edits.isEmpty)
@@ -447,52 +447,52 @@ class FormatterServiceTest : Test
 
   Void testRangeFormatAlreadyCorrect()
   {
-    src   := "class Foo\n{\n  Void bar() {}\n}\n"
+    src := "class Foo\n{\n  Void bar() {}\n}\n"
     range := LspRange(LspPosition(2, 0), LspPosition(2, 16))
     edits := fmt.formatRange("file:///test/Foo.fan", src, range, opts, null)
     verifyEq(edits.size, 0)
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Edge cases
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Edge cases
+  //////////////////////////////////////////////////////////////////////////
 
   Void testEmptyFile()
   {
-    src   := ""
+    src := ""
     edits := fmt.format("file:///test/Foo.fan", src, opts, null)
-    verify(edits.size >= 0)  // must not crash
+    verify(edits.size >= 0) // must not crash
   }
 
   Void testSingleLineNoNewline()
   {
-    src    := "class Foo {}"
+    src := "class Foo {}"
     result := format(src)
     verifyEq(result, "class Foo {}\n")
   }
 
   Void testSingleLineWithNewline()
   {
-    src   := "class Foo {}\n"
+    src := "class Foo {}\n"
     edits := fmt.format("file:///test/Foo.fan", src, opts, null)
     verifyEq(edits.size, 0)
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Space collapsing
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Space collapsing
+  //////////////////////////////////////////////////////////////////////////
 
   Void testCollapseExtraSpacesTernary()
   {
     // The classic example from the feature request
-    src    := "class Foo\n{\n  Void bar() { return val ?        0 : 1 }\n}\n"
+    src := "class Foo\n{\n  Void bar() { return val ?        0 : 1 }\n}\n"
     result := format(src)
     verify(result.contains("val ? 0 : 1"), "expected collapsed ternary spaces, got: $result")
   }
 
   Void testCollapseExtraSpacesGeneral()
   {
-    src    := "class Foo\n{\n  Void bar()  {  return  x  }\n}\n"
+    src := "class Foo\n{\n  Void bar()  {  return  x  }\n}\n"
     result := format(src)
     // Interior double-spaces should be collapsed
     verify(!result.contains("  {  "), "expected collapsed spaces in body")
@@ -501,7 +501,7 @@ class FormatterServiceTest : Test
   Void testCollapseSpacesPreservesStringContents()
   {
     // Spaces inside string literals must NOT be collapsed
-    src   := "class Foo\n{\n  Str s := \"hello    world\"\n}\n"
+    src := "class Foo\n{\n  Str s := \"hello    world\"\n}\n"
     edits := fmt.format("file:///test/Foo.fan", src, opts, null)
     if (!edits.isEmpty)
     {
@@ -513,7 +513,7 @@ class FormatterServiceTest : Test
   Void testCollapseSpacesPreservesCommentContents()
   {
     // Spaces inside // comments must NOT be collapsed
-    src    := "class Foo\n{\n  Void bar() // a    comment\n  {}\n}\n"
+    src := "class Foo\n{\n  Void bar() // a    comment\n  {}\n}\n"
     result := format(src)
     verify(result.contains("// a    comment"), "comment spaces must be preserved")
   }
@@ -522,7 +522,7 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.collapseSpaces = false
-    src    := "class Foo\n{\n  Void bar() { return val ?   0 : 1 }\n}\n"
+    src := "class Foo\n{\n  Void bar() { return val ?   0 : 1 }\n}\n"
     result := formatWith(src, o)
     // With collapse disabled the triple space should survive
     verify(result.contains("?   0"), "spaces should be preserved when collapseSpaces=false")
@@ -530,15 +530,15 @@ class FormatterServiceTest : Test
 
   Void testCollapseSpacesIdempotent()
   {
-    src   := "class Foo\n{\n  Void bar() { return val ?        0 : 1 }\n}\n"
+    src := "class Foo\n{\n  Void bar() { return val ?        0 : 1 }\n}\n"
     pass1 := format(src)
     edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
     verifyEq(edits2.size, 0, "collapseSpaces is not idempotent")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Line wrapping
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Line wrapping
+  //////////////////////////////////////////////////////////////////////////
 
   ** Helper: format with wrapping enabled at the given column limit
   private Str formatWrap(Str src, Int maxLen)
@@ -551,9 +551,9 @@ class FormatterServiceTest : Test
   Void testWrapAtCommaInMethodCall()
   {
     // Line "  result := foo(param1, param2, param3)" — wrap at 30 chars
-    src    := "class Foo\n{\n  Void bar()\n  {\n    result := foo(param1, param2, param3)\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    result := foo(param1, param2, param3)\n  }\n}\n"
     result := formatWrap(src, 30)
-    lines  := result.splitLines
+    lines := result.splitLines
     // No line should exceed 30 chars
     lines.each |line| { verify(line.size <= 30 || !line.contains(","), "line too long: $line") }
     // The call should have been split
@@ -562,7 +562,7 @@ class FormatterServiceTest : Test
 
   Void testWrapAtLogicalAnd()
   {
-    src    := "class Foo\n{\n  Void bar()\n  {\n    if (conditionAlpha && conditionBeta)\n    {\n      return\n    }\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    if (conditionAlpha && conditionBeta)\n    {\n      return\n    }\n  }\n}\n"
     result := formatWrap(src, 30)
     // Should split at &&
     verify(result.contains("&&"), "operator must appear somewhere")
@@ -572,7 +572,7 @@ class FormatterServiceTest : Test
 
   Void testWrapAtTernary()
   {
-    src    := "class Foo\n{\n  Void bar()\n  {\n    x := someLongConditionVariable ? valueWhenTrue : valueWhenFalse\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    x := someLongConditionVariable ? valueWhenTrue : valueWhenFalse\n  }\n}\n"
     result := formatWrap(src, 40)
     verify(result.contains("?"), "ternary operator must appear")
     lines := result.splitLines
@@ -583,8 +583,8 @@ class FormatterServiceTest : Test
   {
     // Default opts have maxLineLength=0 → no wrapping
     longLine := "    result := someMethod(parameterOne, parameterTwo, parameterThree, parameterFour)"
-    src       := "class Foo\n{\n  Void bar()\n  {\n" + longLine + "\n  }\n}\n"
-    result    := format(src)
+    src := "class Foo\n{\n  Void bar()\n  {\n" + longLine + "\n  }\n}\n"
+    result := format(src)
     // The long line should survive intact (just indented)
     verify(result.contains("someMethod(parameterOne"), "long lines should not be wrapped when disabled")
   }
@@ -593,8 +593,8 @@ class FormatterServiceTest : Test
   {
     o := opts.copy
     o.maxLineLength = 120
-    src    := "class Foo\n{\n  Void bar() {}\n}\n"
-    edits  := fmt.format("file:///test/Foo.fan", src, o, null)
+    src := "class Foo\n{\n  Void bar() {}\n}\n"
+    edits := fmt.format("file:///test/Foo.fan", src, o, null)
     verifyEq(edits.size, 0, "short lines must not be wrapped")
   }
 
@@ -603,24 +603,24 @@ class FormatterServiceTest : Test
     // Continuation lines from pass1 may have brace-tracker-vs-wrapper indent
     // disagreement, which pass2 corrects.  After two passes the result must be
     // stable: pass2 == pass3 (no infinite oscillation).
-    src   := "class Foo\n{\n  Void bar()\n  {\n    result := foo(param1, param2, param3)\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    result := foo(param1, param2, param3)\n  }\n}\n"
     o := opts.copy
     o.maxLineLength = 30
-    pass1 := formatWith(src,   o)
+    pass1 := formatWith(src, o)
     pass2 := formatWith(pass1, o)
     pass3 := formatWith(pass2, o)
     verifyEq(pass2, pass3, "wrap did not stabilise: pass2 != pass3")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// String-aware space collapsing
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // String-aware space collapsing
+  //////////////////////////////////////////////////////////////////////////
 
   ** Spaces inside single-quoted char literals must not be collapsed
   Void testCollapseSpacesPreservesSingleQuotedChar()
   {
     // ' ' (space char literal) — the space must survive
-    src   := "class Foo\n{\n  Void bar() { Int c := ' ' }\n}\n"
+    src := "class Foo\n{\n  Void bar() { Int c := ' ' }\n}\n"
     result := format(src)
     verify(result.contains("' '"), "single-quoted space must be preserved, got: $result")
   }
@@ -628,7 +628,7 @@ class FormatterServiceTest : Test
   ** Spaces inside backtick DSL strings must not be collapsed
   Void testCollapseSpacesPreservesBacktickString()
   {
-    src   := "class Foo\n{\n  Void bar() { Uri u := `path/to   something` }\n}\n"
+    src := "class Foo\n{\n  Void bar() { Uri u := `path/to   something` }\n}\n"
     result := format(src)
     verify(result.contains("`path/to   something`"), "backtick string spaces must be preserved")
   }
@@ -636,7 +636,7 @@ class FormatterServiceTest : Test
   ** Spaces inside triple-quoted strings must not be collapsed
   Void testCollapseSpacesPreservesTripleQuotedString()
   {
-    src   := "class Foo\n{\n  Str s := \"\"\"hello   world\"\"\"\n}\n"
+    src := "class Foo\n{\n  Str s := \"\"\"hello   world\"\"\"\n}\n"
     result := format(src)
     verify(result.contains("\"\"\"hello   world\"\"\""), "triple-quoted string spaces must be preserved")
   }
@@ -646,41 +646,38 @@ class FormatterServiceTest : Test
   {
     // Line has a triple-quoted string followed by code — the brace after
     // the closing \"\"\" must be seen as a real brace, not part of the string.
-    src   := "class Foo\n{\n  Str s := \"\"\"hello\"\"\"\n}\n"
+    src := "class Foo\n{\n  Str s := \"\"\"hello\"\"\"\n}\n"
     edits := fmt.format("file:///test/Foo.fan", src, opts, null)
     // Must not crash, and must not mangle the source
     if (!edits.isEmpty)
-      verify(edits[0]["newText"].toStr.contains("\"\"\"hello\"\"\""), "triple-quoted literal must survive formatting")
+    verify(edits[0]["newText"].toStr.contains("\"\"\"hello\"\"\""), "triple-quoted literal must survive formatting")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// String literal splitting (line wrap)
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // String literal splitting (line wrap)
+  //////////////////////////////////////////////////////////////////////////
 
   ** A long double-quoted string should be split at a word boundary using +
   Void testWrapLongDoubleQuotedString()
   {
     // The string "hello world this is a very long string" is 40 chars;
     // the full line is >30, and there are word-boundary spaces in the string.
-    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hello world this is a very long string\"\n  }\n}\n"
-    o      := opts.copy
+    src := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hello world this is a very long string\"\n  }\n}\n"
+    o := opts.copy
     o.maxLineLength = 30
     result := formatWith(src, o)
     // The string must have been split with a concatenation operator
     verify(result.contains("\" +"), "expected string split with \" +, got:\n$result")
     // Every produced line with a string literal must fit within the limit
-    // (the first fragment may still exceed if no earlier word boundary exists
-    //  before maxLen — that's acceptable.  Just verify a split happened.)
-    verify(result.contains("\n"), "result must be multi-line")
-  }
+    /* (the first fragment may still exceed if no earlier word boundary exists */ /* before maxLen — that's acceptable.  Just verify a split happened.) */ verify(result.contains("\n"), "result must be multi-line") }
 
   ** Splitting a long string should converge after two passes
   Void testWrapLongStringConverges()
   {
-    src   := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hello world this is a very long string\"\n  }\n}\n"
-    o     := opts.copy
+    src := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hello world this is a very long string\"\n  }\n}\n"
+    o := opts.copy
     o.maxLineLength = 30
-    pass1 := formatWith(src,   o)
+    pass1 := formatWith(src, o)
     pass2 := formatWith(pass1, o)
     pass3 := formatWith(pass2, o)
     verifyEq(pass2, pass3, "string split did not stabilise: pass2 != pass3")
@@ -689,8 +686,8 @@ class FormatterServiceTest : Test
   ** A long triple-quoted string should be split at a word boundary using +
   Void testWrapLongTripleQuotedString()
   {
-    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"\"\"hello world this is a very long string\"\"\"\n  }\n}\n"
-    o      := opts.copy
+    src := "class Foo\n{\n  Void bar()\n  {\n    msg := \"\"\"hello world this is a very long string\"\"\"\n  }\n}\n"
+    o := opts.copy
     o.maxLineLength = 30
     result := formatWith(src, o)
     verify(result.contains("\"\"\" +"), "expected triple-quoted string split with \"\"\" +, got:\n$result")
@@ -700,10 +697,10 @@ class FormatterServiceTest : Test
   Void testWrapBacktickStringNotSplit()
   {
     longUri := "`http://example.com/very/long/path/that/definitely/exceeds/any/reasonable/limit`"
-    src     := "class Foo\n{\n  Void bar()\n  {\n    uri := " + longUri + "\n  }\n}\n"
-    o       := opts.copy
+    src := "class Foo\n{\n  Void bar()\n  {\n    uri := " + longUri + "\n  }\n}\n"
+    o := opts.copy
     o.maxLineLength = 30
-    result  := formatWith(src, o)
+    result := formatWith(src, o)
     // The backtick string must be left intact
     verify(result.contains(longUri), "backtick string must not be split, got:\n$result")
   }
@@ -711,8 +708,8 @@ class FormatterServiceTest : Test
   ** Short strings must not be split even with wrapping enabled
   Void testWrapShortStringNotSplit()
   {
-    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hi\"\n  }\n}\n"
-    o      := opts.copy
+    src := "class Foo\n{\n  Void bar()\n  {\n    msg := \"hi\"\n  }\n}\n"
+    o := opts.copy
     o.maxLineLength = 30
     result := formatWith(src, o)
     verify(!result.contains("\" +"), "short string must not be split")
@@ -722,31 +719,28 @@ class FormatterServiceTest : Test
   Void testWrapStringWithNoWordBoundaryLeftIntact()
   {
     // "superlongwordwithoutspaces" — no space to split at
-    src    := "class Foo\n{\n  Void bar()\n  {\n    msg := \"superlongwordwithoutspaces\"\n  }\n}\n"
-    o      := opts.copy
+    src := "class Foo\n{\n  Void bar()\n  {\n    msg := \"superlongwordwithoutspaces\"\n  }\n}\n"
+    o := opts.copy
     o.maxLineLength = 20
     result := formatWith(src, o)
     verify(result.contains("\"superlongwordwithoutspaces\""), "string without split point must survive intact")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Continuation-line joining
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Continuation-line joining
+  //////////////////////////////////////////////////////////////////////////
 
   **
   ** A method-call argument where a member access (dot) is split at the end
   ** of one line must be joined with the next line into a single line.
-  ** Covers the reported case: Foo.method(a, b, SomeClass.\n    CONST)
+  ** Covers the reported case: Foo.method(a, b, SomeClass.\n CONST)
   **
   Void testJoinTrailingDotContinuation()
   {
-    src    := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, MyPodModelParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, MyPodModelParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
     result := format(src)
-    verify(
-      result.contains("MyPodModelParams.DEFAULT_PROGRAMS_URI"),
-      "trailing-dot continuation must be joined onto one line; got:\n$result")
-    verify(!result.contains("MyPodModelParams.\n"),
-      "trailing dot must not remain at end of line; got:\n$result")
+    verify(result.contains("MyPodModelParams.DEFAULT_PROGRAMS_URI"), "trailing-dot continuation must be joined onto one line; got:\n$result")
+    verify(!result.contains("MyPodModelParams.\n"), "trailing dot must not remain at end of line; got:\n$result")
   }
 
   **
@@ -756,12 +750,11 @@ class FormatterServiceTest : Test
   Void testJoinUnclosedParenContinuation()
   {
     // "foo(a,\n    b)" fits on one line within 60 chars
-    src    := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA,\n        paramB)\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA,\n        paramB)\n  }\n}\n"
     result := formatWrap(src, 60)
-    lines  := result.splitLines
+    lines := result.splitLines
     // Should be joined back to a single call expression
-    verify(result.contains("foo(paramA, paramB)"),
-      "unclosed-paren split must be joined when it fits; got:\n$result")
+    verify(result.contains("foo(paramA, paramB)"), "unclosed-paren split must be joined when it fits; got:\n$result")
   }
 
   **
@@ -772,11 +765,10 @@ class FormatterServiceTest : Test
   {
     // The joined line "foo(paramA, SomeVeryLongClass.LONG_CONSTANT)" is > 30 chars:
     // wrapLine should split at the comma.
-    src    := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA, SomeVeryLongClass.\n        LONG_CONSTANT)\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA, SomeVeryLongClass.\n        LONG_CONSTANT)\n  }\n}\n"
     result := formatWrap(src, 30)
     // The trailing dot must not survive
-    verify(!result.contains("SomeVeryLongClass.\n"),
-      "trailing dot must be eliminated even when re-wrapping is needed; got:\n$result")
+    verify(!result.contains("SomeVeryLongClass.\n"), "trailing dot must be eliminated even when re-wrapping is needed; got:\n$result")
   }
 
   **
@@ -785,7 +777,7 @@ class FormatterServiceTest : Test
   Void testJoinDoesNotCrossBlankLine()
   {
     // The blank line between the two non-blank lines must be preserved
-    src    := "class Foo\n{\n  Void bar()\n  {\n    foo(a,\n\n        b)\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    foo(a,\n\n        b)\n  }\n}\n"
     result := format(src)
     verify(result.contains("\n\n"), "blank line between continuation lines must be preserved; got:\n$result")
   }
@@ -795,7 +787,7 @@ class FormatterServiceTest : Test
   **
   Void testJoinAlreadySingleLineIsIdempotent()
   {
-    src   := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA, paramB)\n  }\n}\n"
+    src := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA, paramB)\n  }\n}\n"
     pass1 := format(src)
     pass2 := format(pass1)
     verifyEq(pass1, pass2, "already-single-line must not be changed on second format pass")
@@ -806,10 +798,10 @@ class FormatterServiceTest : Test
   **
   Void testJoinAndWrapConverges()
   {
-    src   := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, MyPodModelParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
-    o     := opts.copy
+    src := "class Foo\n{\n  Void bar()\n  {\n    ProgramHandler.podProgramsNeedOverride(cx, pod, MyPodModelParams.\n        DEFAULT_PROGRAMS_URI)\n  }\n}\n"
+    o := opts.copy
     o.maxLineLength = 120
-    pass1 := formatWith(src,   o)
+    pass1 := formatWith(src, o)
     pass2 := formatWith(pass1, o)
     pass3 := formatWith(pass2, o)
     verifyEq(pass2, pass3, "join+wrap did not stabilise: pass2 != pass3")
@@ -825,12 +817,9 @@ class FormatterServiceTest : Test
     // Trailing comment on "bar" line must be converted; "baz" must survive.
     src := "Str[] x := [\n  \"foo\",\n  \"bar\", // this is a trailing comment\n  \"baz\",\n]\n"
     result := format(src)
-    verify(result.contains("\"baz\""),
-      "\"baz\" must not be eaten by the trailing comment on the previous line; got:\n$result")
-    verify(!result.contains("// this is a trailing comment"),
-      "raw // comment must not appear in joined output; got:\n$result")
-    verify(result.contains("/* this is a trailing comment */"),
-      "trailing comment must be converted to /* */ in joined output; got:\n$result")
+    verify(result.contains("\"baz\""), "\"baz\" must not be eaten by the trailing comment on the previous line; got:\n$result")
+    verify(!result.contains("// this is a trailing comment"), "raw // comment must not appear in joined output; got:\n$result")
+    verify(result.contains("/* this is a trailing comment */"), "trailing comment must be converted to /* */ in joined output; got:\n$result")
   }
 
   **
@@ -842,19 +831,16 @@ class FormatterServiceTest : Test
   {
     // The two //icon lines are inside the unclosed '['; they must become /* */.
     src :=
-      "Str[] deps := [\n" +
-      "  // icon24 = `fan://res/icon24.png`\n" +
-      "  // icon72 = `fan://res/icon72.png`\n" +
-      "  \"finEntityModelTools\",\n" +
-      "  \"finHisKitExt\",\n" +
-      "]\n"
+    "Str[] deps := [\n" +
+    "  // icon24 = `fan://res/icon24.png`\n" +
+    "  // icon72 = `fan://res/icon72.png`\n" +
+    "  \"finEntityModelTools\",\n" +
+    "  \"finHisKitExt\",\n" +
+    "]\n"
     result := format(src)
-    verify(result.contains("\"finEntityModelTools\""),
-      "finEntityModelTools must not be eaten by comment-only lines; got:\n$result")
-    verify(result.contains("\"finHisKitExt\""),
-      "finHisKitExt must survive after comment-only lines are converted; got:\n$result")
-    verify(result.contains("/* icon24"),
-      "comment-only lines must be converted to /* */ in joined output; got:\n$result")
+    verify(result.contains("\"finEntityModelTools\""), "finEntityModelTools must not be eaten by comment-only lines; got:\n$result")
+    verify(result.contains("\"finHisKitExt\""), "finHisKitExt must survive after comment-only lines are converted; got:\n$result")
+    verify(result.contains("/* icon24"), "comment-only lines must be converted to /* */ in joined output; got:\n$result")
   }
 
   **
@@ -864,35 +850,32 @@ class FormatterServiceTest : Test
   Void testJoinExtMetaStyleDependsList()
   {
     src :=
-      "@ExtMeta\n" +
-      "{\n" +
-      "  name = \"myExt\"\n" +
-      "  //icon24 = `fan://res/icon.png`\n" +
-      "  //icon72 = `fan://res/icon.png`\n" +
-      "  depends = [\n" +
-      "    \"alpha\",\n" +
-      "    \"beta\",  // Needed for feature X\n" +
-      "    \"gamma\",\n" +
-      "  ]\n" +
-      "}\n"
+    "@ExtMeta\n" +
+    "{\n" +
+    "  name = \"myExt\"\n" +
+    "  //icon24 = `fan://res/icon.png`\n" +
+    "  //icon72 = `fan://res/icon.png`\n" +
+    "  depends = [\n" +
+    "    \"alpha\",\n" +
+    "    \"beta\",  // Needed for feature X\n" +
+    "    \"gamma\",\n" +
+    "  ]\n" +
+    "}\n"
     result := format(src)
     // All real entries must appear in the result
-    verify(result.contains("\"alpha\""),  "alpha missing; got:\n$result")
-    verify(result.contains("\"beta\""),   "beta missing; got:\n$result")
-    verify(result.contains("\"gamma\""),  "gamma missing; got:\n$result")
+    verify(result.contains("\"alpha\""), "alpha missing; got:\n$result")
+    verify(result.contains("\"beta\""), "beta missing; got:\n$result")
+    verify(result.contains("\"gamma\""), "gamma missing; got:\n$result")
     // The inline comment on beta must be converted to /* */ when joining
-    verify(!result.contains("// Needed for feature X"),
-      "raw // comment must not appear in joined output; got:\n$result")
-    verify(result.contains("/* Needed for feature X */"),
-      "inline comment on beta must be converted to /* */ in joined output; got:\n$result")
-    // Comment-only lines before depends must be preserved (they are NOT inside
-    // the continuation — they come before 'depends = [')
+    verify(!result.contains("// Needed for feature X"), "raw // comment must not appear in joined output; got:\n$result")
+    verify(result.contains("/* Needed for feature X */"), "inline comment on beta must be converted to /* */ in joined output; got:\n$result")
+    /* Comment-only lines before depends must be preserved (they are NOT inside */ /* the continuation — they come before 'depends = [') */
     verify(result.contains("//icon24"), "comment-only line before depends must be preserved; got:\n$result")
   }
 
-//////////////////////////////////////////////////////////////////////////
-// Doc-comment lines must never be joined to the following line
-//////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////
+  // Doc-comment lines must never be joined to the following line
+  //////////////////////////////////////////////////////////////////////////
 
   **
   ** A single doc-comment line ending with '.' must not be joined to the
@@ -901,13 +884,13 @@ class FormatterServiceTest : Test
   Void testDocCommentNotJoinedToMethodSignature()
   {
     src :=
-      "class Foo\n" +
-      "{\n" +
-      "  ** Removes every active alarm.\n" +
-      "  Void clearAll() {}\n" +
-      "}\n"
+    "class Foo\n" +
+    "{\n" +
+    "  ** Removes every active alarm.\n" +
+    "  Void clearAll() {}\n" +
+    "}\n"
     result := format(src)
-    lines  := result.splitLines
+    lines := result.splitLines
     // The doc-comment and the method must remain on separate lines
     docLine := lines.find |l| { l.trim.startsWith("** Removes") }
     verify(docLine != null, "doc-comment line must be present; got:\n$result")
@@ -923,29 +906,29 @@ class FormatterServiceTest : Test
   Void testMultiDocCommentLinesNotJoinedToSignature()
   {
     src :=
-      "class Foo\n" +
-      "{\n" +
-      "  ** Removes every active alarm currently present in the alarm database.\n" +
-      "  ** A no-op when the database is unavailable or already empty.\n" +
-      "  Void clearAllActiveAlarms()\n" +
-      "  {\n" +
-      "    return\n" +
-      "  }\n" +
-      "}\n"
+    "class Foo\n" +
+    "{\n" +
+    "  ** Removes every active alarm currently present in the alarm database.\n" +
+    "  ** A no-op when the database is unavailable or already empty.\n" +
+    "  Void clearAllActiveAlarms()\n" +
+    "  {\n" +
+    "    return\n" +
+    "  }\n" +
+    "}\n"
     result := format(src)
-    lines  := result.splitLines
+    lines := result.splitLines
     // Both doc-comment lines must be individually present
     line1 := lines.find |l| { l.trim.startsWith("** Removes every") }
     line2 := lines.find |l| { l.trim.startsWith("** A no-op") }
-    sig   := lines.find |l| { l.trim.startsWith("Void clearAllActiveAlarms") }
+    sig := lines.find |l| { l.trim.startsWith("Void clearAllActiveAlarms") }
     verify(line1 != null, "first doc-comment line missing; got:\n$result")
     verify(line2 != null, "second doc-comment line missing; got:\n$result")
-    verify(sig   != null, "method signature missing; got:\n$result")
+    verify(sig != null, "method signature missing; got:\n$result")
     // No doc-comment line may bleed into the signature
     verify(!line1.contains("Void"), "first doc-comment must not contain 'Void'; got:\n$result")
     verify(!line2.contains("Void"), "second doc-comment must not contain 'Void'; got:\n$result")
     // No code may appear on a doc-comment line
-    verify(!line1.contains("Alarm"),  "no code on first doc-comment line; got:\n$result")
+    verify(!line1.contains("Alarm"), "no code on first doc-comment line; got:\n$result")
     verify(!line2.contains("AlarmD"), "no code on second doc-comment line; got:\n$result")
   }
 
@@ -956,22 +939,22 @@ class FormatterServiceTest : Test
   Void testDocCommentBeforeMethodWithTryCatch()
   {
     src :=
-      "class Foo\n" +
-      "{\n" +
-      "  ** Removes every active alarm currently present in the alarm database.\n" +
-      "  ** A no-op when the database is unavailable or already empty.\n" +
-      "  Void clearAllActiveAlarms()\n" +
-      "  {\n" +
-      "    try\n" +
-      "    {\n" +
-      "      return\n" +
-      "    }\n" +
-      "    catch (Err ex)\n" +
-      "    {\n" +
-      "      log.err(ex.toStr)\n" +
-      "    }\n" +
-      "  }\n" +
-      "}\n"
+    "class Foo\n" +
+    "{\n" +
+    "  ** Removes every active alarm currently present in the alarm database.\n" +
+    "  ** A no-op when the database is unavailable or already empty.\n" +
+    "  Void clearAllActiveAlarms()\n" +
+    "  {\n" +
+    "    try\n" +
+    "    {\n" +
+    "      return\n" +
+    "    }\n" +
+    "    catch (Err ex)\n" +
+    "    {\n" +
+    "      log.err(ex.toStr)\n" +
+    "    }\n" +
+    "  }\n" +
+    "}\n"
     result := format(src)
     // The two doc-comment lines must survive as separate lines
     lines := result.splitLines
@@ -979,8 +962,295 @@ class FormatterServiceTest : Test
     verifyEq(docLines.size, 2, "expected exactly 2 doc-comment lines; got:\n$result")
     docLines.each |dl|
     {
-      verify(!dl.contains("Void") && !dl.contains("try") && !dl.contains("return"),
-        "doc-comment line must not contain code; got line: $dl\n---\n$result")
+      verify(!dl.contains("Void") && !dl.contains("try") && !dl.contains("return"), "doc-comment line must not contain code; got line: $dl\n---\n$result")
     }
   }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Closure-body statement joining
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A closure with multiple statements split across lines must be joined
+  ** using '; ' as the statement separator so the result is valid Fantom.
+  **
+  Void testJoinClosureMultipleStatementsUsesSemicolon()
+  {
+    src :=
+    "class Foo\n" +
+    "{\n" +
+    "  Void bar()\n" +
+    "  {\n" +
+    "    Str[] ids := items.map(|Item it| {\n" +
+    "      Str s := it.name\n" +
+    "      return s\n" +
+    "    })\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    verify(result.contains("Str s := it.name; return s"), "closure statements must be joined with '; ', got:\n$result")
+    verify(!result.contains("it.name return"), "closure statements must not be joined with plain space; got:\n$result")
+  }
+
+  **
+  ** A closure with a single statement must not gain a spurious ';'.
+  **
+  Void testJoinClosureSingleStatementNoSemicolon()
+  {
+    src :=
+    "class Foo\n" +
+    "{\n" +
+    "  Void bar()\n" +
+    "  {\n" +
+    "    Str[] ids := items.map(|Item it| {\n" +
+    "      return it.name\n" +
+    "    })\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    verify(!result.contains("; return"), "single-statement closure must not introduce '; '; got:\n$result")
+    verify(result.contains("return it.name"), "closure body must be preserved; got:\n$result")
+  }
+
+  **
+  ** A multi-statement closure followed by a chained call must join correctly,
+  ** using '; ' between statements and preserving the chain after '}'.
+**
+Void testJoinClosureWithChainedCall()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    Str[] ids := items.map(|Item it| {\n" +
+  "      Str s := it.name\n" +
+  "      return s\n" +
+  "    }).findNotNull\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(result.contains("Str s := it.name; return s"), "closure statements must be joined with '; ', got:\n$result")
+  verify(result.contains("findNotNull"), "chained call after closure must be preserved; got:\n$result")
+}
+
+**
+** Three statements in a closure body must all be separated by '; '.
+**
+Void testJoinClosureThreeStatementsUsesSemicolon()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    Str[] ids := items.map(|Item it| {\n" +
+  "      Obj? raw := it.get(\"id\", null)\n" +
+  "      if (raw == null) return null\n" +
+  "      return raw.toStr\n" +
+  "    }).findNotNull\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(result.contains("if (raw == null) return null; return raw.toStr"), "second and third statements must be joined with '; ', got:\n$result")
+  verify(result.contains("raw := it.get"), "first statement must be present; got:\n$result")
+}
+
+**
+** Regular method-call arguments split across lines must join with a space,
+** not a semicolon.
+**
+Void testJoinMethodCallArgsNotSemicolon()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    result := foo(paramA,\n" +
+  "      paramB)\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(result.contains("foo(paramA, paramB)"), "method-call args must be joined with ', ' not '; '; got:\n$result")
+  verify(!result.contains("paramA; paramB"), "method-call args must not use '; ' separator; got:\n$result")
+}
+
+**
+** A closure whose body is a single boolean expression split across lines
+** using '&&' must NOT have '&&;' inserted — it is a continuation of the
+** same expression, not separate statements.
+**
+Void testJoinClosureAndAndExpressionNoSemicolon()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    rec := items.find(|Item it->Bool| {\n" +
+  "      it.has(\"a\") &&\n" +
+  "      it.has(\"b\") &&\n" +
+  "      it.get(\"a\") == 1\n" +
+  "    })\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(!result.contains("&&;"), "&&; must not appear in joined output; got:\n$result")
+  verify(!result.contains("||;"), "||; must not appear in joined output; got:\n$result")
+  verify(result.contains("it.has(\"a\") && it.has(\"b\")"), "&&-joined lines must use space separator; got:\n$result")
+}
+
+**
+** Same as above but with '||'.
+**
+Void testJoinClosureOrOrExpressionNoSemicolon()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    Bool ok := items.any(|Item it->Bool| {\n" +
+  "      it.has(\"x\") ||\n" +
+  "      it.has(\"y\")\n" +
+  "    })\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(!result.contains("||;"), "||; must not appear in joined output; got:\n$result")
+  verify(result.contains("it.has(\"x\") || it.has(\"y\")"), "||−joined lines must use space separator; got:\n$result")
+}
+
+**
+** A method chain where the following line starts with '.' must be joined
+** WITHOUT a '; ' separator, even when inside an outer open paren.
+** e.g. "val := baseStr\n  .replace(a, b)" → "val := baseStr.replace(a, b)"
+**
+Void testJoinLeadingDotMethodChainNoSemicolon()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    result := items.getOrAdd(key, |Str id->Str| {\n" +
+  "      name := base\n" +
+  "        .replace(\"A\", \"B\")\n" +
+  "        .replace(\"C\", \"D\")\n" +
+  "      return name\n" +
+  "    })\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(!result.contains("; .replace"), "leading-dot continuation must not produce '; .replace'; got:\n$result")
+  verify(result.contains("base.replace(\"A\", \"B\").replace(\"C\", \"D\")"), "leading-dot chain must be joined without separator; got:\n$result")
+}
+
+**
+** Postfix ++ and -- end a statement; the last character '+' or '-' must
+** NOT be treated as a binary expression-continuation operator.
+** e.g. inside a for-loop body: "i++" followed by "Int x := ..." must get
+** "; " between them, not " ".
+**
+Void testJoinPostfixIncrementUsesSemicolon()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    items.each(|Item it| {\n" +
+  "      Int n := 0\n" +
+  "      for (Int i := 0; i < 3; i++) {\n" +
+  "        n++\n" +
+  "        Int val := n * 2\n" +
+  "        it.add(val)\n" +
+  "      }\n" +
+  "    })\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(!result.contains("n++ Int"), "postfix ++ must be followed by '; ' not ' '; got:\n$result")
+  verify(result.contains("n++; Int val"), "postfix ++ must be separated from next statement by '; '; got:\n$result")
+}
+
+**
+** After a closing brace that ends an if/else block, a ';' separator must
+** NOT be inserted — Fantom treats '}' as an implicit statement terminator
+** and '};' is a syntax error. The separator must be a plain space.
+**
+Void testJoinIfBlockClosingBraceNoSemicolon()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    items.each(|Item it| {\n" +
+  "      Bool found := false\n" +
+  "      if (!found) {\n" +
+  "        found = true\n" +
+  "      }\n" +
+  "      Str s := it.name\n" +
+  "      return s\n" +
+  "    })\n" +
+  "  }\n" +
+  "}\n"
+  result := format(src)
+  verify(!result.contains("};"), "'}; ' must not appear in joined closure body; got:\n$result")
+  verify(result.contains("if (!found) { found = true }"), "if block must be joined correctly; got:\n$result")
+}
+
+**
+** A dict literal containing commented-out entries (//...) must not  ** have subsequent static const declarations joined onto the same line.
+** This is a regression for the block-comment-inside-continuation bug:
+** `convertLineComment` converts `//foo` to `/* foo */`, and if that
+** comment contained `//` in its text, `endsAsContinuation` would stop
+** scanning early (false positive depth > 0), joining past `])`.
+**
+Void testJoinDoesNotMergeStaticConstAfterDictWithCommentedEntries()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  static const Dict a := Etc.makeDict([\n" +
+  "    \"x\": 1,\n" +
+  "    //\"y\": 2, // point val wont be changed\n" +
+  "    \"z\": 3,\n" +
+  "  ])\n" +
+  "  static const Dict b := Etc.makeDict([\"q\": 4])\n" +
+  "}\n"
+  result := format(src)
+  // The two static const declarations must remain on separate lines
+  lines := result.splitLines
+  aLine := lines.find |l| { l.trim.startsWith("static const Dict a") }
+  bLine := lines.find |l| { l.trim.startsWith("static const Dict b") }
+  verify(aLine != null, "static const a missing; got:\n$result")
+  verify(bLine != null, "static const b must be on its own line; got:\n$result")
+  verify(aLine !== bLine, "static const a and b must be on separate lines; got:\n$result")
+  verify(!aLine.contains("static const Dict b"), "static const b must not appear on the same line as a; got:\n$result")
+}
+
+**
+** After joining closure statements with '; ', a second format pass must
+** produce no further edits (idempotency).
+**
+Void testJoinClosureSemicolonIdempotent()
+{
+  src :=
+  "class Foo\n" +
+  "{\n" +
+  "  Void bar()\n" +
+  "  {\n" +
+  "    Str[] ids := items.map(|Item it| {\n" +
+  "      Str s := it.name\n" +
+  "      return s\n" +
+  "    })\n" +
+  "  }\n" +
+  "}\n"
+  pass1 := format(src)
+  edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
+  verifyEq(edits2.size, 0, "closure-join with '; ' must be idempotent; second pass produced edits")
+}
 }
