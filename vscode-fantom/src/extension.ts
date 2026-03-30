@@ -1149,32 +1149,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (bundledBuf.equals(targetBuf)) {
         log(`${bundledPodName} is identical to bundled version`);
       } else {
-        const choice = await vscode.window.showInformationMessage(
-          `Fantom: A language server pod (${bundledPodName}) already exists. It is recommended to update it to get the latest features and fixes.`,
-          'Update',
-          'Skip'
-        );
-        if (choice === 'Update') {
-          try {
-            fs.copyFileSync(bundledPod, targetPod);
-            log(`Updated ${bundledPodName} at ${targetPod}`);
-            vscode.window.showInformationMessage('Fantom: LSP pod updated successfully.');
-          } catch (e: any) {
-            log(`ERROR updating ${bundledPodName}: ${e.message}`);
-            vscode.window.showErrorMessage(
-              `Fantom: Failed to update LSP pod. Error: ${e.message}`
-            );
-            return;
-          }
-        } else {
-          log(`User chose to skip ${bundledPodName} update`);
+        try {
+          fs.copyFileSync(bundledPod, targetPod);
+          log(`Updated ${bundledPodName} at ${targetPod}`);
+        } catch (e: any) {
+          log(`ERROR updating ${bundledPodName}: ${e.message}`);
+          vscode.window.showErrorMessage(
+            `Fantom: Failed to update LSP pod at "${targetPod}". Error: ${e.message}`
+          );
+          return;
         }
       }
     } else {
       try {
         fs.copyFileSync(bundledPod, targetPod);
         log(`Deployed ${bundledPodName} to ${targetPod}`);
-        vscode.window.showInformationMessage(`Fantom: LSP pod installed to ${targetPod}`);
       } catch (e: any) {
         log(`ERROR copying ${bundledPodName}: ${e.message}`);
         vscode.window.showErrorMessage(
