@@ -287,8 +287,13 @@ class FormatterService
   ** All Fantom string literal types and single-line comments are tracked so
   ** that delimiters inside strings / comments do not produce false results.
   **
+  ** Fantom doc-comment lines (starting with '**') are never continuations.
+  **
   private Bool endsAsContinuation(Str line)
   {
+    // Doc-comment lines must never be joined to the line that follows them.
+    if (line.startsWith("**")) return false
+
     inStr    := false
     inTriple := false
     inChar   := false
