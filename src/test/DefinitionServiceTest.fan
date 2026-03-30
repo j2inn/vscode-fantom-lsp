@@ -754,4 +754,66 @@ class DefinitionServiceTest : Test
     // Should point to the class declaration at line 0
     verifyEq(start["line"], 0)
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Instance method call via dot should NOT resolve to same-named param
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Regression: _logger.debug("...") where the enclosing method has a Bool
+  ** debug parameter — go-to-definition on "debug" after the dot must navigate
+  ** to the debug() method declaration, not to the Bool debug parameter.
+  **
+  Void testInstanceMethodCallNotShadowedByParam()
+  {
+    idx := ProjectIndex()
+    uriLogger := "file:///test/Logger.fan"
+    uriCaller := "file:///test/Caller.fan"
+
+    // Logger.fan — defines a debug(Str) method
+    // Line 0: class Logger
+    // Line 1: {
+    // Line 2:   Void debug(Str msg) {}
+    // Line 3: }
+    sourceLogger :=
+      "class Logger\n" +
+      "{\n" +
+      "  Void debug(Str msg) {}\n" +
+      "}"
+
+    // Caller.fan — has a Bool debug parameter AND calls _logger.debug(...)
+    // Line 0: class Caller
+    // Line 1: {
+    // Line 2:   Logger _logger := Logger()
+    // Line 3:   Void run(Bool debug)
+    // Line 4:   {
+    // Line 5:     _logger.debug("hello")
+    // Line 6:   }
+    // Line 7: }
+    sourceCaller :=
+      "class Caller\n" +
+      "{\n" +
+      "  Logger _logger := Logger()\n" +
+      "  Void run(Bool debug)\n" +
+      "  {\n" +
+      "    _logger.debug(\"hello\")\n" +
+      "  }\n" +
+      "}"
+
+    idx.indexFile(uriLogger, sourceLogger)
+    idx.indexFile(uriCaller, sourceCaller)
+
+    // Cursor on "debug" in "_logger.debug(" at line 5.
+    // "    _logger." is 12 chars, so col 12 is start of "debug"
+    pos := LspPosition(5, 13)
+    result := svc.findDefinition(uriCaller, pos, sourceCaller, idx)
+
+    verifyNotNull(result)
+    // Must navigate to Logger.fan (the method), not the param in Caller.fan
+    verifyEq(result["uri"], uriLogger)
+    range := result["range"] as Str:Obj?
+    start := range["start"] as Str:Obj?
+    // debug() method is declared at line 2 of Logger.fan
+    verifyEq(start["line"], 2)
+  }
 }

@@ -80,6 +80,25 @@ class DefinitionService
               return createLocation(memberSym.fileUri, memberSym.line, memberSym.col, memberSym.name.size)
             }
           }
+          else
+          {
+            // Instance method/field access: e.g. _logger.debug, obj.method.
+            // The word cannot be a local variable or parameter — skip scope-aware
+            // lookup and prefer methods/fields from the project index.
+            LspProtocol.logInfo("Definition: '${beforeDot}.${word}' is instance member access")
+            memberCandidates := index.findSymbols(word).findAll |s|
+            {
+              s.kind == SymbolKind.method || s.kind == SymbolKind.field || s.kind == SymbolKind.enumVal
+            }
+            if (!memberCandidates.isEmpty)
+            {
+              memberSym := memberCandidates.first
+              LspProtocol.logInfo("Definition: found instance member '${memberSym.name}' at ${memberSym.fileUri}:${memberSym.line}")
+              return createLocation(memberSym.fileUri, memberSym.line, memberSym.col, memberSym.name.size)
+            }
+            // Not in project index — try external resolution (e.g. framework pods)
+            return resolveExternalSymbol(word, uri, source)
+          }
         }
       }
 
