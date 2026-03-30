@@ -889,4 +889,98 @@ class FormatterServiceTest : Test
     // the continuation — they come before 'depends = [')
     verify(result.contains("//icon24"), "comment-only line before depends must be preserved; got:\n$result")
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Doc-comment lines must never be joined to the following line
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A single doc-comment line ending with '.' must not be joined to the
+  ** method signature that follows it.
+  **
+  Void testDocCommentNotJoinedToMethodSignature()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  ** Removes every active alarm.\n" +
+      "  Void clearAll() {}\n" +
+      "}\n"
+    result := format(src)
+    lines  := result.splitLines
+    // The doc-comment and the method must remain on separate lines
+    docLine := lines.find |l| { l.trim.startsWith("** Removes") }
+    verify(docLine != null, "doc-comment line must be present; got:\n$result")
+    verify(!docLine.contains("Void"), "doc-comment must not contain 'Void'; got:\n$result")
+    methLine := lines.find |l| { l.trim.startsWith("Void clearAll") }
+    verify(methLine != null, "method signature must be on its own line; got:\n$result")
+  }
+
+  **
+  ** Multiple consecutive doc-comment lines ending with '.' must each stay
+  ** on their own line and must not be merged with the following signature.
+  **
+  Void testMultiDocCommentLinesNotJoinedToSignature()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  ** Removes every active alarm currently present in the alarm database.\n" +
+      "  ** A no-op when the database is unavailable or already empty.\n" +
+      "  Void clearAllActiveAlarms()\n" +
+      "  {\n" +
+      "    return\n" +
+      "  }\n" +
+      "}\n"
+    result := format(src)
+    lines  := result.splitLines
+    // Both doc-comment lines must be individually present
+    line1 := lines.find |l| { l.trim.startsWith("** Removes every") }
+    line2 := lines.find |l| { l.trim.startsWith("** A no-op") }
+    sig   := lines.find |l| { l.trim.startsWith("Void clearAllActiveAlarms") }
+    verify(line1 != null, "first doc-comment line missing; got:\n$result")
+    verify(line2 != null, "second doc-comment line missing; got:\n$result")
+    verify(sig   != null, "method signature missing; got:\n$result")
+    // No doc-comment line may bleed into the signature
+    verify(!line1.contains("Void"), "first doc-comment must not contain 'Void'; got:\n$result")
+    verify(!line2.contains("Void"), "second doc-comment must not contain 'Void'; got:\n$result")
+    // No code may appear on a doc-comment line
+    verify(!line1.contains("Alarm"),  "no code on first doc-comment line; got:\n$result")
+    verify(!line2.contains("AlarmD"), "no code on second doc-comment line; got:\n$result")
+  }
+
+  **
+  ** Doc-comment lines followed by a method with a try/catch body must be
+  ** reproduced faithfully (regression for the reported bug).
+  **
+  Void testDocCommentBeforeMethodWithTryCatch()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  ** Removes every active alarm currently present in the alarm database.\n" +
+      "  ** A no-op when the database is unavailable or already empty.\n" +
+      "  Void clearAllActiveAlarms()\n" +
+      "  {\n" +
+      "    try\n" +
+      "    {\n" +
+      "      return\n" +
+      "    }\n" +
+      "    catch (Err ex)\n" +
+      "    {\n" +
+      "      log.err(ex.toStr)\n" +
+      "    }\n" +
+      "  }\n" +
+      "}\n"
+    result := format(src)
+    // The two doc-comment lines must survive as separate lines
+    lines := result.splitLines
+    docLines := lines.findAll |l| { l.trim.startsWith("**") }
+    verifyEq(docLines.size, 2, "expected exactly 2 doc-comment lines; got:\n$result")
+    docLines.each |dl|
+    {
+      verify(!dl.contains("Void") && !dl.contains("try") && !dl.contains("return"),
+        "doc-comment line must not contain code; got line: $dl\n---\n$result")
+    }
+  }
 }
