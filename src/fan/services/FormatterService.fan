@@ -458,7 +458,10 @@ class FormatterService
     inTriple := false // inside """..."""
     inChar := false // inside '.'
     inDsl := false // inside `...`
-    inBlock := false /* inside /* ... */ (from converted // comments) */ escaped  := false depth    := 0 n        := buf.size
+    inBlock  := false   // inside /* ... */ (from converted // comments)
+    escaped  := false
+    depth    := 0
+    n        := buf.size
 
     for (i := 0; i < n; i++)
     {
@@ -466,7 +469,12 @@ class FormatterService
 
       if (escaped) { escaped = false; continue }
 
-      /* Block comment (produced by convertLineComment from joined // fragments) */ if (inBlock) { if (ch == '*' && i+1 < n && buf[i+1] == '/') { inBlock = false; i++ } continue }
+      // Block comment (produced by convertLineComment from joined // fragments)
+      if (inBlock)
+      {
+        if (ch == '*' && i+1 < n && buf[i+1] == '/') { inBlock = false; i++ }
+        continue
+      }
 
       if (inTriple)
       {
