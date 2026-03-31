@@ -158,6 +158,13 @@ export async function buildDebugAdapterJar(
       }
 
       // Step 2: collect sources
+      if (!fs.existsSync(srcDir)) {
+        vscode.window.showErrorMessage(
+          `Fantom: Java source directory not found: ${srcDir}. ` +
+          `The extension package may be missing bundled Java sources.`
+        );
+        return false;
+      }
       const javaFiles = collectJavaFiles(srcDir);
       if (javaFiles.length === 0) {
         vscode.window.showErrorMessage(`Fantom: No Java sources found in ${srcDir}.`);
