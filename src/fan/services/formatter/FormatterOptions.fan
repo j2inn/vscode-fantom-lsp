@@ -32,9 +32,9 @@ class FormatterOptions
   ** Maximum line length before the formatter wraps long lines.
   ** Wrapping splits at: commas inside parentheses, '&&', '||', or ternary '?'.
   ** Set to 0 to disable wrapping entirely.
-  ** Default: 0 (disabled).
+  ** Default: 100.
   **
-  Int maxLineLength := 0
+  Int maxLineLength := 100
 
   ** Merge overrides from a Str:Obj? map (e.g. from initializationOptions)
   Void mergeMap(Str:Obj? map)

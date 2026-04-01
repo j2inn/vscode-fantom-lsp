@@ -581,12 +581,12 @@ class FormatterServiceTest : Test
 
   Void testWrapDisabledByDefault()
   {
-    // Default opts have maxLineLength=0 → no wrapping
+    // Lines under maxLineLength (default 100) are not wrapped
     longLine := "    result := someMethod(parameterOne, parameterTwo, parameterThree, parameterFour)"
     src := "class Foo\n{\n  Void bar()\n  {\n" + longLine + "\n  }\n}\n"
     result := format(src)
-    // The long line should survive intact (just indented)
-    verify(result.contains("someMethod(parameterOne"), "long lines should not be wrapped when disabled")
+    // The long line (86 chars) is under 100 — must survive intact (just indented)
+    verify(result.contains("someMethod(parameterOne"), "long lines under limit should not be wrapped")
   }
 
   Void testWrapShortLineNotChanged()
@@ -808,28 +808,28 @@ class FormatterServiceTest : Test
   }
 
   **
-  ** A trailing // comment on a continuation-fragment line must be converted
-  ** to a /* */ block comment when joining, so it does not eat subsequent
-  ** content on the same logical line.
+  ** A trailing // comment on a list-element line must be preserved on that
+  ** element's own line.  With list literals no longer being collapsed-then-
+  ** re-expanded, the comment stays as a // comment rather than being
+  ** converted to /* */.
   **
   Void testJoinConvertsTrailingCommentToBlockComment()
   {
-    // Trailing comment on "bar" line must be converted; "baz" must survive.
+    // Trailing comment on "bar" line must be preserved; "baz" must survive.
     src := "Str[] x := [\n  \"foo\",\n  \"bar\", // this is a trailing comment\n  \"baz\",\n]\n"
     result := format(src)
     verify(result.contains("\"baz\""), "\"baz\" must not be eaten by the trailing comment on the previous line; got:\n$result")
-    verify(!result.contains("// this is a trailing comment"), "raw // comment must not appear in joined output; got:\n$result")
-    verify(result.contains("/* this is a trailing comment */"), "trailing comment must be converted to /* */ in joined output; got:\n$result")
+    // The // comment is now kept verbatim on its element's line
+    verify(result.contains("\"bar\", // this is a trailing comment"), "trailing comment must be preserved on bar line; got:\n$result")
   }
 
   **
-  ** Comment-only lines that appear inside a bracket continuation (e.g.
-  ** commented-out entries in a list literal) must be converted to block
-  ** comments when joining; real entries after them must be preserved.
+  ** Comment-only lines inside a list literal are no longer joined away;
+  ** they are preserved as // comments between the real entries.
   **
   Void testJoinConvertsCommentOnlyLinesToBlockComments()
   {
-    // The two //icon lines are inside the unclosed '['; they must become /* */.
+    // The two //icon lines are inside the unclosed '['; they must be preserved.
     src :=
     "Str[] deps := [\n" +
     "  // icon24 = `fan://res/icon24.png`\n" +
@@ -839,8 +839,10 @@ class FormatterServiceTest : Test
     "]\n"
     result := format(src)
     verify(result.contains("\"finEntityModelTools\""), "finEntityModelTools must not be eaten by comment-only lines; got:\n$result")
-    verify(result.contains("\"finHisKitExt\""), "finHisKitExt must survive after comment-only lines are converted; got:\n$result")
-    verify(result.contains("/* icon24"), "comment-only lines must be converted to /* */ in joined output; got:\n$result")
+    verify(result.contains("\"finHisKitExt\""), "finHisKitExt must survive after comment-only lines; got:\n$result")
+    // Comments are now kept as // on their own lines
+    verify(result.contains("// icon24"), "comment-only lines must be preserved as // comments; got:\n$result")
+    verify(result.contains("// icon72"), "second comment-only line must be preserved; got:\n$result")
   }
 
   **
@@ -866,10 +868,10 @@ class FormatterServiceTest : Test
     verify(result.contains("\"alpha\""), "alpha missing; got:\n$result")
     verify(result.contains("\"beta\""), "beta missing; got:\n$result")
     verify(result.contains("\"gamma\""), "gamma missing; got:\n$result")
-    // The inline comment on beta must be converted to /* */ when joining
-    verify(!result.contains("// Needed for feature X"), "raw // comment must not appear in joined output; got:\n$result")
-    verify(result.contains("/* Needed for feature X */"), "inline comment on beta must be converted to /* */ in joined output; got:\n$result")
-    /* Comment-only lines before depends must be preserved (they are NOT inside */ /* the continuation — they come before 'depends = [') */
+    // Inline // comment on beta is now preserved verbatim on its element line
+    // (collapseSpaces may reduce double-space before //, so check with single space)
+    verify(result.contains("\"beta\",") && result.contains("// Needed for feature X"), "inline comment on beta must be preserved; got:\n$result")
+    // Comment-only lines before depends are preserved as //
     verify(result.contains("//icon24"), "comment-only line before depends must be preserved; got:\n$result")
   }
 
@@ -1142,7 +1144,10 @@ Void testJoinLeadingDotMethodChainNoSemicolon()
   "    })\n" +
   "  }\n" +
   "}\n"
-  result := format(src)
+  // Use a large maxLineLength so the joined line is not re-wrapped
+  o := opts.copy
+  o.maxLineLength = 200
+  result := formatWith(src, o)
   verify(!result.contains("; .replace"), "leading-dot continuation must not produce '; .replace'; got:\n$result")
   verify(result.contains("base.replace(\"A\", \"B\").replace(\"C\", \"D\")"), "leading-dot chain must be joined without separator; got:\n$result")
 }
@@ -1253,4 +1258,1035 @@ Void testJoinClosureSemicolonIdempotent()
   edits2 := fmt.format("file:///test/Foo.fan", pass1, opts, null)
   verifyEq(edits2.size, 0, "closure-join with '; ' must be idempotent; second pass produced edits")
 }
+
+  //////////////////////////////////////////////////////////////////////////
+  // List / map literal expansion
+  //
+  // When maxLineLength > 0 and a line containing a '[...]' literal exceeds
+  // the limit, the formatter expands the literal to one element per line
+  // rather than splitting only at the last comma before the limit.
+  //
+  // All tests use customer-agnostic code; patterns are inspired by typical
+  // Fantom build scripts and service-layer code.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A map literal assigned directly to a field must be expanded when the
+  ** single-line form exceeds maxLineLength.
+  **
+  Void testExpandMapLiteralWhenTooLong()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  Void make()\n" +
+    "  {\n" +
+    "    meta = [\"proj.name\": podName, \"license.name\": \"MIT\", \"org.uri\": \"http://example.com/\"]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 60
+    result := formatWith(src, o)
+    lines := result.splitLines
+    // Should have split the map elements onto separate lines
+    verify(lines.size > 8, "map literal should be expanded to multiple lines; got:\n$result")
+    // Alignment: maxKLen = 14 ("license.name")
+    // "proj.name"   (11) -> 4 spaces; "license.name" (14) -> 1 space; "org.uri" (9) -> 6 spaces
+    verify(result.contains("\"proj.name\":    podName,"), "proj.name entry must appear aligned; got:\n$result")
+    verify(result.contains("\"license.name\": \"MIT\","), "license.name entry must appear aligned; got:\n$result")
+    verify(result.contains("\"org.uri\":      \"http://example.com/\","), "org.uri entry must appear aligned; got:\n$result")
+    // Closing ] must be on its own line
+    verify(lines.any |l| { l.trim == "]" }, "closing ] must be on its own line; got:\n$result")
+  }
+
+  **
+  ** A list literal assigned directly to a field must be expanded when the
+  ** single-line form exceeds maxLineLength.
+  **
+  Void testExpandListLiteralWhenTooLong()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  Void make()\n" +
+    "  {\n" +
+    "    depends = [\"sys 1.0+\", \"inet 1.0+\", \"util 1.0\", \"web 1.0+\", \"concurrent 1.0+\"]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 50
+    result := formatWith(src, o)
+    lines := result.splitLines
+    verify(lines.size > 8, "depends list should be expanded; got:\n$result")
+    verify(result.contains("\"sys 1.0+\","), "sys entry must appear on its own line; got:\n$result")
+    verify(result.contains("\"concurrent 1.0+\","), "concurrent entry must appear on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "]" }, "closing ] must be on its own line; got:\n$result")
+  }
+
+  **
+  ** A list of backtick (Dir) literals assigned to a field must be expanded
+  ** when the single-line form exceeds maxLineLength.
+  **
+  Void testExpandBacktickListLiteralWhenTooLong()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  Void make()\n" +
+    "  {\n" +
+    "    srcDirs = [`fan/`, `fan/models/`, `fan/services/`, `fan/util/`, `fan/pages/`]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 50
+    result := formatWith(src, o)
+    verify(result.contains("`fan/models/`,"), "models entry must appear on its own line; got:\n$result")
+    verify(result.contains("`fan/services/`,"), "services entry must appear on its own line; got:\n$result")
+    verify(result.splitLines.any |l| { l.trim == "]" }, "closing ] must be on its own line; got:\n$result")
+  }
+
+  **
+  ** A multi-element list literal is ALWAYS expanded to one-per-line form,
+  ** regardless of how short the single-line form is.  The formatter never
+  ** collapses lists back to a single line.
+  **
+  Void testExpandListEvenWhenShort()
+  {
+    src :=
+    "class Foo\n" +
+    "{\n" +
+    "  Void bar()\n" +
+    "  {\n" +
+    "    dirs := [`fan/`, `test/`]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 120
+    result := formatWith(src, o)
+    // The list has 2 elements — it must be expanded even though it is short
+    verify(result.contains("`fan/`,"), "first element must be on its own line; got:\n$result")
+    verify(result.contains("`test/`,"), "second element must be on its own line; got:\n$result")
+    verify(result.splitLines.any |l| { l.trim == "]" }, "closing ] must be on its own line; got:\n$result")
+  }
+
+  **
+  ** Multi-element list/map literals are expanded unconditionally — the
+  ** maxLineLength setting controls only non-list line wrapping.
+  ** Even when maxLineLength is 0 (disabled), list/map literals with two or
+  ** more elements are always placed on separate lines.
+  **
+  Void testExpandAlwaysRegardlessOfMaxLineLength()
+  {
+    // opts.maxLineLength defaults to 0 (disabled)
+    src :=
+    "class Foo\n" +
+    "{\n" +
+    "  Void bar()\n" +
+    "  {\n" +
+    "    depends = [\"sys 1.0+\", \"inet 1.0+\", \"util 1.0\", \"web 1.0+\", \"concurrent 1.0+\"]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src) // uses default opts with maxLineLength=0
+    // Even without a line-length limit, the list must be expanded
+    verify(result.contains("\"sys 1.0+\","), "sys entry must be on its own line even when maxLineLength=0; got:\n$result")
+    verify(result.contains("\"concurrent 1.0+\","), "concurrent entry must be on its own line; got:\n$result")
+    verify(result.splitLines.any |l| { l.trim == "]" }, "closing ] must be on its own line; got:\n$result")
+  }
+
+  **
+  ** An already-expanded list (one element per line) must be stable on a
+  ** second format pass — the expansion must be idempotent.
+  **
+  Void testExpandListIsIdempotent()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  Void make()\n" +
+    "  {\n" +
+    "    depends = [\"sys 1.0+\", \"inet 1.0+\", \"util 1.0\", \"web 1.0+\", \"concurrent 1.0+\"]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 50
+    pass1 := formatWith(src, o)
+    pass2 := formatWith(pass1, o)
+    pass3 := formatWith(pass2, o)
+    verifyEq(pass2, pass3, "list expansion must be idempotent: pass2 != pass3; pass2:\n$pass2\npass3:\n$pass3")
+  }
+
+  **
+  ** An already-expanded map (one entry per line) must be stable on a second
+  ** format pass.
+  **
+  Void testExpandMapIsIdempotent()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  Void make()\n" +
+    "  {\n" +
+    "    meta = [\"proj.name\": podName, \"license.name\": \"MIT\", \"org.uri\": \"http://example.com/\"]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 60
+    pass1 := formatWith(src, o)
+    pass2 := formatWith(pass1, o)
+    pass3 := formatWith(pass2, o)
+    verifyEq(pass2, pass3, "map expansion must be idempotent: pass2 != pass3")
+  }
+
+  **
+  ** A '[...]' that is an index-access expression (immediately preceded by an
+  ** identifier) must NOT be treated as a list literal and must not be expanded.
+  **
+  Void testNoExpandIndexAccessExpression()
+  {
+    // arr[0] and map["key"] are index-access, not list literals
+    src :=
+    "class Foo\n" +
+    "{\n" +
+    "  Void bar()\n" +
+    "  {\n" +
+    "    x := someVeryLongVariableName[someOtherLongKey]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 40
+    result := formatWith(src, o)
+    // Must not have split the index access into multi-line expansion
+    verify(!result.contains("[\n"), "index access must not be expanded as a list literal; got:\n$result")
+  }
+
+  **
+  ** A '[...]' literal inside parentheses (e.g. a method-call argument) must
+  ** use the existing comma-split logic rather than the expansion logic.
+  **
+  Void testNoExpandListInsideParens()
+  {
+    // The '[...]' is inside '(...)' — expansion must not trigger
+    src :=
+    "class Foo\n" +
+    "{\n" +
+    "  Void bar()\n" +
+    "  {\n" +
+    "    result := buildMapper([\"key1\": handler1, \"key2\": handler2, \"key3\": handler3])\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 50
+    result := formatWith(src, o)
+    // The list is inside a function call — the '[' at paren-depth>0 is skipped,
+    // so the existing comma-wrapping applies (not full expansion)
+    verify(!result.contains("[\n    \"key1\""), "list inside parens must not get bracket-expansion; got:\n$result")
+  }
+
+  **
+  ** Each expanded element line must carry a trailing comma so the result is
+  ** valid Fantom, including the last element.
+  **
+  Void testExpandedElementsHaveTrailingCommas()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  Void make()\n" +
+    "  {\n" +
+    "    depends = [\"sys 1.0+\", \"inet 1.0+\", \"util 1.0\", \"web 1.0+\"]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 50
+    result := formatWith(src, o)
+    lines := result.splitLines
+    // Every non-blank, non-bracket line inside the expanded block must end with ','
+    inBlock := false
+    lines.each |line|
+    {
+      t := line.trim
+      if (t == "depends = [") { inBlock = true; return }
+      if (t == "]") { inBlock = false; return }
+      if (inBlock && !t.isEmpty)
+        verify(t.endsWith(","), "expanded element must end with ',': $t\ngot:\n$result")
+    }
+  }
+
+  **
+  ** A build-script-style 'meta' map with mixed key/value types must expand
+  ** cleanly.  Inspired by the pattern found in Fantom pod build scripts.
+  **
+  Void testExpandBuildScriptStyleMeta()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    meta = [\"build.num\": buildNum, \"proj.name\": \"myPod\", \"license\": \"Apache-2.0\"]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 60
+    result := formatWith(src, o)
+    // Alignment: maxKLen = 11 ("build.num" = "proj.name" both 11 chars)
+    // "build.num" (11) -> 1 space; "proj.name" (11) -> 1 space; "license" (9) -> 3 spaces
+    verify(result.contains("\"build.num\": buildNum,"), "build.num entry missing; got:\n$result")
+    verify(result.contains("\"proj.name\": \"myPod\","), "proj.name entry missing; got:\n$result")
+    verify(result.contains("\"license\":   \"Apache-2.0\","), "license entry missing; got:\n$result")
+    // Verify the indentation depth of elements is correct (one level deeper than meta =)
+    lines := result.splitLines
+    metaLine := lines.find |l| { l.trim.startsWith("meta = [") }
+    elemLine := lines.find |l| { l.trim.startsWith("\"build.num\"") }
+    verify(metaLine != null, "meta = [ line missing")
+    verify(elemLine != null, "build.num element line missing")
+    metaIndent := metaLine.size - metaLine.trimStart.size
+    elemIndent := elemLine.size - elemLine.trimStart.size
+    verify(elemIndent > metaIndent, "element lines must be indented deeper than the 'meta = [' line")
+  }
+
+  **
+  ** A list literal with a single element must be expanded onto its own line,
+  ** just like any other list — the formatter never leaves a list on one line.
+  **
+  Void testExpandSingleElementList()
+  {
+    src :=
+    "class Foo\n" +
+    "{\n" +
+    "  Void bar()\n" +
+    "  {\n" +
+    "    dirs := [`fan/onlyOneEntryHereAndItIsQuiteALongPath/toSomewhere/`]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 50
+    result := formatWith(src, o)
+    lines := result.splitLines
+    // Single element — must still be on its own line, list never stays on one line
+    verify(lines.any |l| { l.trim == "`fan/onlyOneEntryHereAndItIsQuiteALongPath/toSomewhere/`," },
+      "single element must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "]" },
+      "closing ] must be on its own line; got:\n$result")
+  }
+
+  **
+  ** A map literal with a single entry must be expanded too.
+  **
+  Void testExpandSingleElementMap()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    meta = [\"proj.name\": podName]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "\"proj.name\": podName," },
+      "single map entry must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "]" },
+      "closing ] must be on its own line; got:\n$result")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Nested list/map expansion
+  //
+  // Elements whose values are themselves bracket literals must be expanded
+  // recursively in a single pass.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A map whose value is itself a map must be fully expanded recursively.
+  ** e.g. index = ["ext": "MyExt", "setting": ["k": "v"]]
+  **
+  Void testNestedMapIsExpandedRecursively()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    index = [\"skyarc.ext\": \"MyExt\", \"fin.setting\": [\"MyExt::Cfg\": \"handler\"]]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    // Outer map entries each on their own line
+    verify(lines.any |l| { l.trim.startsWith("\"skyarc.ext\":") },
+      "outer key 'skyarc.ext' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"fin.setting\": [" },
+      "nested map opener must be on its own line ending with '['; got:\n$result")
+    // Inner map entry on its own line
+    verify(lines.any |l| { l.trim.startsWith("\"MyExt::Cfg\":") },
+      "inner map entry must be on its own line; got:\n$result")
+    // Two separate ']' lines (one for inner map, one for outer)
+    Int closers := lines.findAll |l| { l.trim == "]" || l.trim == "]," }.size
+    verify(closers >= 2, "at least two closing ']' lines expected; got:\n$result")
+  }
+
+  **
+  ** A map with a nested list value must expand the nested list recursively.
+  **
+  Void testNestedListInMapIsExpandedRecursively()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    index = [\"fin.setting\": [\"PodA::ClassA\", \"PodB::ClassB\"]]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "\"fin.setting\": [" },
+      "map entry with nested list must open the nested list on the same line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"PodA::ClassA\"," },
+      "first nested list element must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"PodB::ClassB\"," },
+      "second nested list element must be on its own line; got:\n$result")
+  }
+
+  **
+  ** Nested expansion must be idempotent — a second format pass must not
+  ** change the already-expanded output.
+  **
+  Void testNestedExpansionIsIdempotent()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    index = [\"ext\": \"MyExt\", \"fin.setting\": [\"MyExt::Handler\", \"MyExt::Cfg\"]]\n" +
+    "  }\n" +
+    "}\n"
+    pass1 := format(src)
+    pass2 := format(pass1)
+    pass3 := format(pass2)
+    verifyEq(pass2, pass3, "nested expansion must be idempotent: pass2 != pass3;\npass2:\n$pass2\npass3:\n$pass3")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // List literals with embedded comments
+  //
+  // A list/map literal whose body spans multiple source lines and contains
+  // inline or full-line comments must NOT be collapsed to a single line by
+  // the continuation-join pre-pass.  Each element must remain on its own
+  // line after formatting.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A list that contains section comments between groups of entries must
+  ** keep every element on its own line.  This is the "depends" pattern
+  ** found in Fantom pod build scripts.
+  **
+  Void testListWithSectionCommentsNotCollapsed()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    depends = [\n" +
+    "      // Core\n" +
+    "      \"sys 1.0+\",\n" +
+    "      \"util 1.0+\",\n" +
+    "\n" +
+    "      // Network\n" +
+    "      \"inet 1.0+\",\n" +
+    "      \"web  1.0+\",\n" +
+    "    ]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    // Every string entry must be on its own dedicated line
+    verify(lines.any |l| { l.trim == "\"sys 1.0+\"," }, "sys must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"util 1.0+\"," }, "util must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"inet 1.0+\"," }, "inet must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"web  1.0+\"," }, "web must be on its own line; got:\n$result")
+    // The section comments must still be present
+    verify(result.contains("// Core"), "Core comment must be preserved; got:\n$result")
+    verify(result.contains("// Network"), "Network comment must be preserved; got:\n$result")
+    // No two string entries may appear on the same line without a newline between them
+    lines.each |l|
+    {
+      t := l.trim
+      // Skip comment-only or empty lines
+      if (t.isEmpty || t.startsWith("//")) return
+      // A "bad" line has a closing quote followed by a comma, then later another opening quote
+      // e.g.: "sys 1.0+", "util 1.0+",
+      Int commaAfterClose := 0
+      t.size.times |k|
+      {
+        if (k > 0 && t[k-1] == '"' && t[k] == ',') commaAfterClose++
+      }
+      verify(commaAfterClose <= 1, "two entries must not appear on the same line: $l\n---\n$result")
+    }
+  }
+
+  **
+  ** An already-formatted multi-line list with section comments must be
+  ** stable on a second format pass (idempotency).
+  **
+  Void testListWithSectionCommentsIsIdempotent()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    depends = [\n" +
+    "      // Core\n" +
+    "      \"sys 1.0+\",\n" +
+    "      \"util 1.0+\",\n" +
+    "\n" +
+    "      // Network\n" +
+    "      \"inet 1.0+\",\n" +
+    "      \"web  1.0+\",\n" +
+    "    ]\n" +
+    "  }\n" +
+    "}\n"
+    pass1 := format(src)
+    pass2 := format(pass1)
+    pass3 := format(pass2)
+    verifyEq(pass2, pass3, "list with section comments must be idempotent: pass2 != pass3")
+  }
+
+  **
+  ** A list literal that starts on the same line as the assignment and
+  ** continues on subsequent lines with section comments must produce
+  ** one-element-per-line output without collapsing any entries.
+  **
+  Void testListOpenOnAssignmentLineWithComments()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    deps = [\"alpha 1.0+\",\n" +
+    "      // Beta group\n" +
+    "      \"beta 2.0+\",\n" +
+    "      \"gamma 3.0+\",\n" +
+    "    ]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "\"alpha 1.0+\"," }, "alpha must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"beta 2.0+\"," }, "beta must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"gamma 3.0+\"," }, "gamma must be on its own line; got:\n$result")
+    verify(result.contains("// Beta group"), "Beta group comment must survive; got:\n$result")
+  }
+
+  **
+  ** A map literal that starts on the same line as the assignment and
+  ** continues on subsequent lines must produce one-entry-per-line output.
+  **
+  Void testMapOpenOnAssignmentLineMultiLine()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    meta = [\"proj.name\": podName,\n" +
+    "      \"org.name\": \"Example Org\",\n" +
+    "      \"license\": \"Apache-2.0\",\n" +
+    "    ]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    // Alignment: maxKLen = 11 ("proj.name"); "org.name" (10) -> 2 spaces; "license" (9) -> 3 spaces
+    verify(lines.any |l| { l.trim == "\"proj.name\": podName," }, "proj.name must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"org.name\":  \"Example Org\"," }, "org.name must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"license\":   \"Apache-2.0\"," }, "license must be on its own line; got:\n$result")
+  }
+
+  **
+  ** A list literal that is already written all on one line must be expanded
+  ** to one-per-line even when it contains no comments.
+  **
+  Void testSingleLineListExpandedToMultiLine()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    dirs = [`fan/`, `test/`, `res/`]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "`fan/`," }, "`fan/ must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "`test/`," }, "`test/ must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "`res/`," }, "`res/ must be on its own line; got:\n$result")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Map value alignment
+  //
+  // Map literals with multiple entries must have their values aligned so
+  // they all start at the same column, determined by the longest key.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A map literal's values must be aligned to the column of the longest
+  ** key: 1 space after ':' for the longest, more for shorter keys.
+  **
+  Void testMapAlignValues()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    meta = [\"proj.name\": podName, \"org.name\": \"Example Org\", \"pod.docLocation\": \"finDoc\"]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    // "proj.name"      = 11 chars (with quotes) → spaces = 17 - 11 + 1 = 7
+    // "org.name"       = 10 chars               → spaces = 17 - 10 + 1 = 8
+    // "pod.docLocation"= 17 chars               → spaces = 1
+    verify(result.contains("\"proj.name\":       podName,"),
+      "proj.name must have 7 spaces after colon; got:\n$result")
+    verify(result.contains("\"org.name\":        \"Example Org\","),
+      "org.name must have 8 spaces after colon; got:\n$result")
+    verify(result.contains("\"pod.docLocation\": \"finDoc\","),
+      "pod.docLocation must have 1 space after colon; got:\n$result")
+  }
+
+  **
+  ** Map alignment must be stable across multiple format passes.
+  **
+  Void testMapAlignValuesIsIdempotent()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    meta = [\"proj.name\": podName, \"org.name\": \"Example Org\", \"pod.docLocation\": \"finDoc\"]\n" +
+    "  }\n" +
+    "}\n"
+    pass1 := format(src)
+    pass2 := format(pass1)
+    pass3 := format(pass2)
+    verifyEq(pass2, pass3, "map alignment must be idempotent: pass2 != pass3;\npass2:\n$pass2\npass3:\n$pass3")
+  }
+
+  **
+  ** A plain list (no key: value entries) must NOT be aligned — the
+  ** alignment pass must leave list blocks unchanged.
+  **
+  Void testListNotAligned()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    depends = [\"sys 1.0+\", \"inet 1.0+\", \"util 1.0\"]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    // List elements must appear one per line with a trailing comma but no
+    // extra spaces injected by the alignment pass
+    verify(result.contains("\"sys 1.0+\","),  "sys entry must be present; got:\n$result")
+    verify(result.contains("\"inet 1.0+\","), "inet entry must be present; got:\n$result")
+    verify(result.contains("\"util 1.0\","),  "util entry must be present; got:\n$result")
+    // No spurious leading spaces from alignment (element must trim to the bare string)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "\"sys 1.0+\"," },  "sys element must not have extra spaces; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"inet 1.0+\"," }, "inet element must not have extra spaces; got:\n$result")
+  }
+
+  **
+  ** A map whose value is itself a list literal must be aligned together
+  ** with the other entries in the outer map.  The nested list is not
+  ** treated as a map and its contents are left unaligned.
+  **
+  Void testMapWithNestedListValueAligned()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    index = [\"x.name\": \"MyExt\", \"x.setting.long\": [\"MyExt::ClassA\"]]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    // "x.name"         = 8 chars  → spaces = 16 - 8 + 1 = 9
+    // "x.setting.long" = 16 chars → spaces = 1
+    verify(result.contains("\"x.name\":         \"MyExt\","),
+      "x.name must have 9 spaces after colon; got:\n$result")
+    verify(result.contains("\"x.setting.long\": ["),
+      "x.setting.long must have 1 space after colon; got:\n$result")
+    // The nested list element (plain string) must not be affected
+    verify(result.contains("\"MyExt::ClassA\","),
+      "inner list element must survive; got:\n$result")
+  }
+
+  **
+  ** When alignment would push a line past maxLineLength the formatter
+  ** must fall back to a single space after ':'.
+  **
+  Void testMapAlignRespectsMaxLineLength()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    meta = [\"a\": \"short\", \"a.very.long.key\": \"short\"]\n" +
+    "  }\n" +
+    "}\n"
+    o := opts.copy
+    o.maxLineLength = 30  // very tight — alignment would produce overlong lines without fallback
+    result := formatWith(src, o)
+    // For the short key "a", alignment would pad it with many spaces (15) which would make the
+    // line exceed 30 chars — the formatter must fall back to 1 space for that entry.
+    verify(result.contains("\"a\": \"short\","),
+      "short key 'a' must use 1 space (fallback) when alignment would overflow; got:\n$result")
+    // The long key also uses the minimum 1 space — it still exceeds maxLineLength but that is
+    // unavoidable; the important thing is NO extra padding was added.
+    verify(result.contains("\"a.very.long.key\": \"short\","),
+      "long key must use 1 space (minimum) after colon; got:\n$result")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Multi-line bracket blocks with elements on the opener line
+  //
+  // The normalizeBracketBlocks pre-pass must reassemble any bracket literal
+  // whose elements are spread across multiple source lines — including cases
+  // where elements appear on the same line as the opener '['.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A map literal whose elements span two source lines (first line has
+  ** elements after '[', second line has remaining elements plus ']') must
+  ** be fully expanded to one-element-per-line.
+  **
+  Void testMultiLineMapWithElementsOnOpenerLine()
+  {
+    // Simulates the "meta = [..." pattern from pod build scripts
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    meta = [\"proj.name\": podName, \"org.name\": \"Example\", \"org.uri\": \"http://example.com/\",\n" +
+    "      \"license.name\": \"Apache-2.0\", \"pod.docLocation\": \"doc\", ]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    // Every entry must be on its own line
+    verify(lines.any |l| { l.trim.startsWith("\"proj.name\":") },
+      "proj.name must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("\"org.name\":") },
+      "org.name must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("\"license.name\":") },
+      "license.name must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("\"pod.docLocation\":") },
+      "pod.docLocation must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "]" },
+      "closing ] must be on its own line; got:\n$result")
+    // Result must be idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "multi-line map with elements on opener line must be idempotent; got:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** A list literal whose first line starts with a block-comment before the
+  ** first element (e.g. \"depends = [/* Fantom */ \"sys\", ...\") must have
+  ** the block comment stripped and elements expanded normally.
+  **
+  Void testListWithBlockCommentPrefixExpanded()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    depends = [/* Fantom */ \"sys 1.0+\", \"concurrent 1.0+\", \"inet 1.0+\"]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "\"sys 1.0+\"," },
+      "sys must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"concurrent 1.0+\"," },
+      "concurrent must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"inet 1.0+\"," },
+      "inet must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "]" },
+      "closing ] must be on its own line; got:\n$result")
+  }
+
+  **
+  ** A multi-line list that has a block-comment on the opener line and
+  ** further elements on subsequent lines must be fully expanded.
+  **
+  Void testMultiLineListWithBlockCommentPrefixExpanded()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    depends = [/* Fantom */ \"sys 1.0+\", \"concurrent 1.0+\", \"inet 1.0+\",\n" +
+    "      \"util 1.0\", \"web 1.0+\",\n" +
+    "    ]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "\"sys 1.0+\"," },
+      "sys must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"web 1.0+\"," },
+      "web must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "]" },
+      "closing ] must be on its own line; got:\n$result")
+    // The block comment must be gone (it was a layout artefact)
+    verify(!result.contains("/* Fantom */"),
+      "block-comment prefix must be stripped; got:\n$result")
+    // Idempotency
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "multi-line list with block-comment prefix must be idempotent;\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** A map literal with a nested list value that spans multiple source lines
+  ** must be fully normalised — outer map entries on their own lines, nested
+  ** list elements on their own lines.
+  **
+  Void testMultiLineMapWithNestedListNormalized()
+  {
+    src :=
+    "class Build\n" +
+    "{\n" +
+    "  new make()\n" +
+    "  {\n" +
+    "    index = [\"skyarc.ext\": \"MyExt\",\n" +
+    "      \"fin.setting\": [\"MyExt::HandlerA\", \"MyExt::HandlerB\"], ]\n" +
+    "  }\n" +
+    "}\n"
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim.startsWith("\"skyarc.ext\":") },
+      "skyarc.ext must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"fin.setting\": [" },
+      "fin.setting opener must end with '['; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"MyExt::HandlerA\"," },
+      "HandlerA must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"MyExt::HandlerB\"," },
+      "HandlerB must be on its own line; got:\n$result")
+    // Stabilises after at most 3 passes (normalization + re-indentation)
+    pass2 := format(result)
+    pass3 := format(pass2)
+    verifyEq(pass2, pass3,
+      "multi-line map with nested list must stabilise after pass2;\npass2:\n$pass2\npass3:\n$pass3")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Full pod build.fan round-trip
+  //
+  // The following test uses a realistic (but anonymised) build.fan that
+  // exercises every list/map expansion scenario in one shot:
+  //   • meta   — map with multiple string/URI entries
+  //   • depends — list with section comments and varying whitespace alignment
+  //   • srcDirs / resDirs — plain URI lists
+  //   • index   — outer map with nested list value (["fin.setting": [...]])
+  //
+  // The input is a one-liner (the way a formatter must handle an
+  // already-hand-aligned file) and the expected output is the canonical
+  // fully-expanded, properly-indented form.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Format a realistic anonymised pod build.fan and verify:
+  **   1. Every map/list entry is on its own line at the correct indent level.
+  **   2. The nested "fin.setting" list is indented two levels deeper than
+  **      the outer map's '[' and its closing ']' is indented one level deeper.
+  **   3. The result is idempotent (a second format pass produces no changes).
+  **
+  Void testRealWorldBuildFanFormatting()
+  {
+    // Anonymised content that mirrors the structure of a real pod build script.
+    // All proprietary/commercial names are replaced with generic placeholders.
+    src :=
+      "using finBuild\n" +
+      "\n" +
+      "class Args : BuildFinArgs {\n" +
+      "  new make() : super(Build#make) {}\n" +
+      "}\n" +
+      "\n" +
+      "class Build : BuildFinPod {\n" +
+      "\n" +
+      "  new make(Args args) : super(args) {\n" +
+      "    podName = \"myPodExt\"\n" +
+      "    summary = \"Source code for the example app product extension\"\n" +
+      "    version = Version(\"1.0.0\")\n" +
+      "\n" +
+      "    meta = [\n" +
+      "      \"proj.name\":       podName,\n" +
+      "      \"org.name\":        \"Example Org\",\n" +
+      "      \"org.uri\":         \"http://www.example.com/\",\n" +
+      "      \"license.name\":    \"Commercial\",\n" +
+      "      \"pod.docLocation\": \"finDoc\",\n" +
+      "    ]\n" +
+      "\n" +
+      "    depends = [\n" +
+      "      // Fantom\n" +
+      "      \"sys        1.0+\",\n" +
+      "      \"concurrent 1.0+\",\n" +
+      "      \"inet       1.0+\",\n" +
+      "      \"util       1.0\",\n" +
+      "      \"web        1.0+\",\n" +
+      "\n" +
+      "      // Framework\n" +
+      "      \"frameworkCore    3.0.20+\",\n" +
+      "      \"frameworkExt     3.0.20+\",\n" +
+      "\n" +
+      "      // App\n" +
+      "      \"appCore    5.0+\",\n" +
+      "      \"appExt     5.0+\",\n" +
+      "      \"appSettings 5.1+\",\n" +
+      "    ]\n" +
+      "\n" +
+      "    srcDirs = [\n" +
+      "      `fan/`,\n" +
+      "      `fan/models/`,\n" +
+      "      `fan/pages/`,\n" +
+      "      `fan/settings/`,\n" +
+      "      `test/`,\n" +
+      "    ]\n" +
+      "    resDirs = [\n" +
+      "      `lib/`,\n" +
+      "      `locale/`,\n" +
+      "      `res/`,\n" +
+      "    ]\n" +
+      "\n" +
+      "    index = [\n" +
+      "      \"skyarc.ext\":  \"myPodExt::MyPodExt\",\n" +
+      "      \"skyarc.lib\":  \"myPodExt::MyPodLib\",\n" +
+      "      \"fin.lang\": \"myPodExt\", // locale\n" +
+      "      \"fin.setting\": [\n" +
+      "        \"mySerialPod:myPodExt::SettingSerialPorts\",\n" +
+      "      ],\n" +
+      "    ]\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines := result.splitLines
+
+    // -----------------------------------------------------------------------
+    // meta
+    // -----------------------------------------------------------------------
+    verify(lines.any |l| { l.trim == "meta = [" },
+      "meta opener must be on its own line ending with '['; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("\"proj.name\":") },
+      "meta proj.name must be on its own indented line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("\"pod.docLocation\":") },
+      "meta pod.docLocation must be on its own indented line; got:\n$result")
+
+    // -----------------------------------------------------------------------
+    // depends — section comments preserved, elements one per line
+    // -----------------------------------------------------------------------
+    verify(lines.any |l| { l.trim == "depends = [" },
+      "depends opener must end with '['; got:\n$result")
+    verify(lines.any |l| { l.trim == "// Fantom" },
+      "// Fantom section comment must be preserved; got:\n$result")
+    verify(lines.any |l| { l.trim == "// Framework" },
+      "// Framework section comment must be preserved; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("\"sys") },
+      "sys dependency must appear; got:\n$result")
+
+    // -----------------------------------------------------------------------
+    // srcDirs / resDirs
+    // -----------------------------------------------------------------------
+    verify(lines.any |l| { l.trim == "srcDirs = [" },
+      "srcDirs opener must end with '['; got:\n$result")
+    verify(lines.any |l| { l.trim == "resDirs = [" },
+      "resDirs opener must end with '['; got:\n$result")
+
+    // -----------------------------------------------------------------------
+    // index — outer map + nested list
+    // -----------------------------------------------------------------------
+    verify(lines.any |l| { l.trim == "index = [" },
+      "index opener must end with '['; got:\n$result")
+
+    // The "fin.setting" key must be an entry in the outer map with a nested
+    // list opener — its line must end with ': ['.
+    verify(lines.any |l| { l.trim == "\"fin.setting\": [" },
+      "fin.setting entry must end with ': ['; got:\n$result")
+
+    // The nested list element must be indented TWO levels deeper than index's '['
+    Int indexOpenerIndent := -1
+    lines.each |l|
+    {
+      if (l.trim == "index = [")
+      {
+        idx := 0
+        while (idx < l.size && l[idx] == ' ') idx++
+        indexOpenerIndent = idx
+      }
+    }
+    verify(indexOpenerIndent >= 0, "index opener line not found; got:\n$result")
+
+    Int settingElemIndent := -1
+    lines.each |l|
+    {
+      if (l.trim == "\"mySerialPod:myPodExt::SettingSerialPorts\",")
+      {
+        idx := 0
+        while (idx < l.size && l[idx] == ' ') idx++
+        settingElemIndent = idx
+      }
+    }
+    verify(settingElemIndent >= 0,
+      "SettingSerialPorts element must appear on its own line; got:\n$result")
+    verifyEq(settingElemIndent, indexOpenerIndent + 4,
+      "nested list element must be indented 4 spaces deeper than 'index = ['; got:\n$result")
+
+    // The fin.setting closer '],' must be ONE indent level deeper than index's '['
+    Int settingCloserIndent := -1
+    // Find the '],' that immediately follows the SettingSerialPorts line
+    for (i := 0; i < lines.size; i++)
+    {
+      if (lines[i].trim == "\"mySerialPod:myPodExt::SettingSerialPorts\","
+          && i + 1 < lines.size && lines[i+1].trim == "],")
+      {
+        cl := lines[i+1]
+        idx := 0
+        while (idx < cl.size && cl[idx] == ' ') idx++
+        settingCloserIndent = idx
+      }
+    }
+    verify(settingCloserIndent >= 0,
+      "'],' closer for fin.setting must appear on its own line; got:\n$result")
+    verifyEq(settingCloserIndent, indexOpenerIndent + 2,
+      "fin.setting closer '],' must be indented 2 spaces deeper than 'index = ['; got:\n$result")
+
+    // -----------------------------------------------------------------------
+    // Idempotency
+    // -----------------------------------------------------------------------
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "real-world build.fan formatting must be idempotent;\npass1:\n$result\npass2:\n$pass2")
+  }
 }
+
+
