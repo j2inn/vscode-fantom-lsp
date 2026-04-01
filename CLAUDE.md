@@ -2,7 +2,7 @@
 
 ## Environment
 
-- Fantom runtime: `/home/agiustij2/Public/fantom-1.0.82/bin/fan` (version 1.0.82)
+- Fantom runtime: `/home/agiustij2/Public/fantom-1.0.83/bin/fan` (version 1.0.83)
 - `FAN_HOME` for build/test: set to a local Fantom/FIN installation that has all required pods
 
 ## Build & Test Commands
@@ -85,13 +85,13 @@ then implement them in both platform files.
 
 ### 2. Common pitfalls
 
-| Topic | Linux | Windows |
-|-------|-------|---------|
-| Java executable | `java` | `java.exe` |
-| Classpath separator | `:` | `;` |
-| Path separator | `/` | `\` (use `path.join`) |
-| Shell flag for `spawn` | `false` | `true` for `.bat` scripts |
-| Symlinks | `fs.symlinkSync` | May need admin rights; fall back to copy |
+| Topic                  | Linux            | Windows                                  |
+| ---------------------- | ---------------- | ---------------------------------------- |
+| Java executable        | `java`           | `java.exe`                               |
+| Classpath separator    | `:`              | `;`                                      |
+| Path separator         | `/`              | `\` (use `path.join`)                    |
+| Shell flag for `spawn` | `false`          | `true` for `.bat` scripts                |
+| Symlinks               | `fs.symlinkSync` | May need admin rights; fall back to copy |
 
 ### 3. Path handling
 
