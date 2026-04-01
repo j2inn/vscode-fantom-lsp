@@ -36,6 +36,14 @@ class FormatterOptions
   **
   Int maxLineLength := 100
 
+  **
+  ** When true, '//' and '/* */' comment blocks that appear immediately before
+  ** a Fantom method, field, or class declaration are converted to Fantom-style
+  ** doc comments (lines starting with '**').
+  ** Default: false.
+  **
+  Bool convertFantomDocComments := false
+
   ** Merge overrides from a Str:Obj? map (e.g. from initializationOptions)
   Void mergeMap(Str:Obj? map)
   {
@@ -55,6 +63,8 @@ class FormatterOptions
     if (v is Bool) collapseSpaces = (Bool)v
     v = map["maxLineLength"]
     if (v is Int) maxLineLength = (Int)v
+    v = map["convertFantomDocComments"]
+    if (v is Bool) convertFantomDocComments = (Bool)v
   }
 
   ** Deep copy
@@ -67,8 +77,9 @@ class FormatterOptions
     dst.trimTrailingWhitespace = trimTrailingWhitespace
     dst.maxBlankLines          = maxBlankLines
     dst.respectEditorConfig    = respectEditorConfig
-    dst.collapseSpaces         = collapseSpaces
-    dst.maxLineLength          = maxLineLength
+    dst.collapseSpaces                = collapseSpaces
+    dst.maxLineLength                 = maxLineLength
+    dst.convertFantomDocComments      = convertFantomDocComments
     return dst
   }
 }

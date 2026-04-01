@@ -581,12 +581,19 @@ class FormatterServiceTest : Test
 
   Void testWrapDisabledByDefault()
   {
-    // Lines under maxLineLength (default 100) are not wrapped
+    // Multi-arg method calls are always expanded regardless of line length.
+    // A 4-arg call within the 100-char limit is still expanded one-arg-per-line.
     longLine := "    result := someMethod(parameterOne, parameterTwo, parameterThree, parameterFour)"
     src := "class Foo\n{\n  Void bar()\n  {\n" + longLine + "\n  }\n}\n"
     result := format(src)
-    // The long line (86 chars) is under 100 — must survive intact (just indented)
-    verify(result.contains("someMethod(parameterOne"), "long lines under limit should not be wrapped")
+    lines := result.splitLines
+    // The call must be expanded even though it fits within 100 chars
+    verify(lines.any |l| { l.trim == "result := someMethod(" },
+      "4-arg call must be expanded: opener on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "parameterOne," },
+      "first arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "parameterFour)" },
+      "last arg must be on its own line; got:\n$result")
   }
 
   Void testWrapShortLineNotChanged()
@@ -749,12 +756,18 @@ class FormatterServiceTest : Test
   **
   Void testJoinUnclosedParenContinuation()
   {
-    // "foo(a,\n    b)" fits on one line within 60 chars
+    // "foo(a,\n    b)" is joined by the continuation-join pre-pass, then
+    // re-expanded one-arg-per-line by the unconditional method call expander.
     src := "class Foo\n{\n  Void bar()\n  {\n    result := foo(paramA,\n        paramB)\n  }\n}\n"
     result := formatWrap(src, 60)
     lines := result.splitLines
-    // Should be joined back to a single call expression
-    verify(result.contains("foo(paramA, paramB)"), "unclosed-paren split must be joined when it fits; got:\n$result")
+    // The joined call must be expanded one-arg-per-line
+    verify(lines.any |l| { l.trim == "result := foo(" },
+      "call opener must be on its own line after join+expand; got:\n$result")
+    verify(lines.any |l| { l.trim == "paramA," },
+      "first arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "paramB)" },
+      "last arg must close with ); got:\n$result")
   }
 
   **
@@ -1074,7 +1087,11 @@ Void testJoinMethodCallArgsNotSemicolon()
   "  }\n" +
   "}\n"
   result := format(src)
-  verify(result.contains("foo(paramA, paramB)"), "method-call args must be joined with ', ' not '; '; got:\n$result")
+  // After join and re-expansion: each arg on its own line, no semicolons
+  verify(result.splitLines.any |l| { l.trim == "paramA," },
+    "first arg must be on its own line (not joined with '; '); got:\n$result")
+  verify(result.splitLines.any |l| { l.trim == "paramB)" },
+    "second arg must be on its own line; got:\n$result")
   verify(!result.contains("paramA; paramB"), "method-call args must not use '; ' separator; got:\n$result")
 }
 
@@ -2100,8 +2117,7 @@ Void testJoinClosureSemicolonIdempotent()
   }
 
   //////////////////////////////////////////////////////////////////////////
-  // Full pod build.fan round-trip
-  //
+  // Full pod build.fan round-trip  //
   // The following test uses a realistic (but anonymised) build.fan that
   // exercises every list/map expansion scenario in one shot:
   //   • meta   — map with multiple string/URI entries
@@ -2286,6 +2302,749 @@ Void testJoinClosureSemicolonIdempotent()
     pass2 := format(result)
     verifyEq(result, pass2,
       "real-world build.fan formatting must be idempotent;\npass1:\n$result\npass2:\n$pass2")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Block comment (/* ... */) preservation
+  //
+  // Lines inside a multi-line /* ... */ block comment must be emitted
+  // verbatim — internal formatting, spacing, and bracket-like patterns
+  // must not be modified.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A multi-line /* */ block comment must be passed through verbatim:
+  **   • Space runs inside comment lines are NOT collapsed.
+  **   • Bracket-like patterns (e.g. table rows with [1, 17, 33]) are NOT
+  **     bracket-expanded or normalised.
+  **   • Comment lines ending with '.' are NOT joined to the next line.
+  **
+  Void testBlockCommentPreservedVerbatim()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  /**\n" +
+      "   Converts a value to a list.\n" +
+      "\n" +
+      "   @param value  The value to convert.  Must be positive.\n" +
+      "   @param nBits  Number of bits.  Defaults to 16.\n" +
+      "\n" +
+      "   Example table (rows = instance, cols = bit):\n" +
+      "\n" +
+      "       instance    0    1    2    3\n" +
+      "              1   [1,  17,  33,  49]\n" +
+      "              2   [2,  18,  34,  50]\n" +
+      "   */\n" +
+      "  Int[] convert(Int value) { return [,] }\n" +
+      "}\n"
+
+    result := format(src)
+
+    // The @param lines must NOT be joined together even though they end with '.'
+    verify(result.contains("@param value  The value to convert.  Must be positive."),
+      "@param value line must be preserved verbatim; got:\n$result")
+    verify(result.contains("@param nBits  Number of bits.  Defaults to 16."),
+      "@param nBits line must be preserved verbatim; got:\n$result")
+
+    // Table rows: spaces must NOT be collapsed
+    verify(result.contains("[1,  17,  33,  49]"),
+      "table row must keep its aligned spaces; got:\n$result")
+    verify(result.contains("[2,  18,  34,  50]"),
+      "second table row must keep its aligned spaces; got:\n$result")
+
+    // The code after the comment must still be formatted normally
+    verify(result.contains("Int[] convert(Int value)"),
+      "code after block comment must appear; got:\n$result")
+
+    // Idempotency
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "block comment preservation must be idempotent; got:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** A single-line // comment with internal commas and parentheses must
+  ** NOT be split at any comma or operator — it is emitted as-is (or
+  ** word-wrapped only when it exceeds maxLineLength).
+  **
+  Void testSingleLineCommentWithCommasNotSplit()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    // Cantor pairing function: f(a,b) = n*(a) + b, guarantees (1,2) != (2,1).\n" +
+      "    return pairing(1, 2)\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    // The whole comment must appear on exactly one line, unchanged
+    verify(result.contains("// Cantor pairing function: f(a,b) = n*(a) + b, guarantees (1,2) != (2,1)."),
+      "comment with commas must not be split; got:\n$result")
+  }
+
+  **
+  ** When maxLineLength is set, a long // comment must be word-wrapped
+  ** at a space boundary — NOT split at a comma or operator.
+  **
+  Void testLongCommentWordWraps()
+  {
+    o := opts.copy
+    o.maxLineLength = 60
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    // This is a very long comment that exceeds sixty chars and should wrap at a space.\n" +
+      "    return 1\n" +
+      "  }\n" +
+      "}\n"
+
+    result := formatWith(src, o)
+    lines := result.splitLines
+    // Every output line must be at most 60 chars (or the single-word case)
+    lines.each |l|
+    {
+      if (l.trim.startsWith("//"))
+        verify(l.size <= 60 || !l.contains(" "),
+          "comment line must be wrapped to <=60 chars; got: '$l'")
+    }
+    // All comment lines must still start with //
+    Int commentCount := lines.findAll |l| { l.trim.startsWith("//") }.size
+    verify(commentCount >= 2, "wrapped comment must produce at least 2 // lines; got:\n$result")
+  }
+
+  **
+  ** A ** Fantom doc comment line must NOT have bracket literals inside it
+  ** expanded as if they were code.
+  **
+  Void testFantomDocCommentBracketsNotExpanded()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  ** Returns a list [open, close] containing the bracket pair.\n" +
+      "  Str[] brackets() { return [\"(\", \")\"] }\n" +
+      "}\n"
+
+    result := format(src)
+    // The ** line must be preserved as-is — the [open, close] must NOT be expanded
+    verify(result.contains("** Returns a list [open, close] containing the bracket pair."),
+      "** doc comment with brackets must not be expanded; got:\n$result")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // convertFantomDocComments option
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** When convertFantomDocComments is true, a '//' comment block immediately
+  ** above a method declaration is converted to '**' Fantom doc style.
+  **
+  Void testConvertLineCommentToFantomDoc()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  // Returns the sum of a and b.\n" +
+      "  // Both parameters must be non-negative.\n" +
+      "  Int add(Int a, Int b) { return a + b }\n" +
+      "}\n"
+
+    o := opts.copy
+    o.convertFantomDocComments = true
+    result := formatWith(src, o)
+
+    verify(result.contains("** Returns the sum of a and b."),
+      "// comment must be converted to **; got:\n$result")
+    verify(result.contains("** Both parameters must be non-negative."),
+      "second // comment line must be converted; got:\n$result")
+    verify(!result.contains("// Returns"),
+      "original // must be gone after conversion; got:\n$result")
+  }
+
+  **
+  ** When convertFantomDocComments is false (default), '//' comments above
+  ** methods must NOT be touched.
+  **
+  Void testConvertDocCommentsDisabledByDefault()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  // Returns the sum.\n" +
+      "  Int add(Int a, Int b) { return a + b }\n" +
+      "}\n"
+
+    result := format(src)  // default opts — convertFantomDocComments = false
+    verify(result.contains("// Returns the sum."),
+      "// comment must be left alone when option is disabled; got:\n$result")
+  }
+
+  **
+  ** A '//' comment that is NOT immediately followed by a declaration
+  ** (e.g. it's a section separator or inline comment) must NOT be converted.
+  **
+  Void testConvertDocCommentsOnlyBeforeDeclarations()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  // This is a section header\n" +
+      "\n" +
+      "  Int add(Int a, Int b) { return a + b }\n" +
+      "}\n"
+
+    o := opts.copy
+    o.convertFantomDocComments = true
+    result := formatWith(src, o)
+
+    // There's a blank line between the comment and the method — don't convert
+    verify(result.contains("// This is a section header"),
+      "comment with blank line before method must NOT be converted; got:\n$result")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Method call / declaration argument expansion
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A method call with 2+ arguments whose total length exceeds maxLineLength
+  ** must be expanded to one argument per line.
+  **
+  Void testMethodCallArgsExpandedWhenTooLong()
+  {
+    o := opts.copy
+    o.maxLineLength = 60
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    return makeFromDbInternal(cx, siteRef, modelIdName, entityModelIdVal)\n" +
+      "  }\n" +
+      "}\n"
+
+    result := formatWith(src, o)
+    lines := result.splitLines
+
+    // The opening line must end with '('
+    verify(lines.any |l| { l.trim == "return makeFromDbInternal(" },
+      "method call opener must be on its own line; got:\n$result")
+    // Each argument must be on its own line
+    verify(lines.any |l| { l.trim == "cx," },
+      "first arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "siteRef," },
+      "second arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "modelIdName," },
+      "third arg must be on its own line; got:\n$result")
+    // Last arg has closing ')' appended
+    verify(lines.any |l| { l.trim == "entityModelIdVal)" },
+      "last arg must have ) appended; got:\n$result")
+  }
+
+  **
+  ** Method call expansion must be idempotent.
+  **
+  Void testMethodCallExpansionIdempotent()
+  {
+    o := opts.copy
+    o.maxLineLength = 60
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    return makeFromDbInternal(cx, siteRef, modelIdName, entityModelIdVal)\n" +
+      "  }\n" +
+      "}\n"
+
+    pass1 := formatWith(src, o)
+    pass2 := formatWith(pass1, o)
+    verifyEq(pass1, pass2, "method call expansion must be idempotent;\npass1:\n$pass1\npass2:\n$pass2")
+  }
+
+  **
+  ** A method call with 2+ arguments is always expanded to one-arg-per-line,
+  ** even when the arguments are short.
+  **
+  Void testShortMethodCallNotExpanded()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar() { return add(x, y) }\n" +
+      "}\n"
+
+    result := format(src)
+    // The 2-arg call must be expanded unconditionally
+    verify(result.splitLines.any |l| { l.trim == "x," },
+      "short 2-arg call must be expanded: x must be on its own line; got:\n$result")
+    // Last arg carries any suffix from the original line (e.g. ' }' here)
+    verify(result.splitLines.any |l| { l.trim.startsWith("y)") },
+      "short 2-arg call must be expanded: y must be on its own line; got:\n$result")
+  }
+
+  **
+  ** Method call expansion is always triggered for 2+ args, regardless of
+  ** line length.  This is the same unconditional policy as list/map expansion.
+  **
+  Void testMethodCallAlwaysExpandedRegardlessOfLength()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    foo(a, b)\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines := result.splitLines
+    verify(lines.any |l| { l.trim == "foo(" },
+      "2-arg call must be expanded: opener on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "a," },
+      "first arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "b)" },
+      "last arg must close with ); got:\n$result")
+    // Idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "always-expand must be idempotent; pass1:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** A method call with exactly 1 argument must NOT be expanded.
+  **
+  Void testSingleArgMethodCallNotExpanded()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    doSomething(value)\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    verify(result.contains("doSomething(value)"),
+      "single-arg call must stay on one line; got:\n$result")
+    // Idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "single-arg call must be idempotent; pass1:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** Method call expansion must apply regardless of the call's syntactic
+  ** position: as the RHS of an assignment, as a return value, and as a
+  ** standalone statement.
+  **
+  Void testMethodCallInEveryPosition()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    x := compute(alpha, beta)\n" +
+      "    return build(one, two)\n" +
+      "    emit(src, dst)\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines := result.splitLines
+    // Assignment RHS
+    verify(lines.any |l| { l.trim == "alpha," },
+      "assignment-RHS arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "beta)" },
+      "last assignment-RHS arg must close with ); got:\n$result")
+    // Return value
+    verify(lines.any |l| { l.trim == "one," },
+      "return-value arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "two)" },
+      "last return-value arg must close with ); got:\n$result")
+    // Standalone statement
+    verify(lines.any |l| { l.trim == "src," },
+      "standalone-call arg must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "dst)" },
+      "last standalone-call arg must close with ); got:\n$result")
+    // Idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2, "method-call-in-every-position must be idempotent")
+  }
+
+  **
+  ** A method DECLARATION with 2+ parameters must also be expanded to
+  ** one-parameter-per-line, even when it is short.
+  **
+  Void testMethodDeclarationAlwaysExpanded()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(Int x, Int y) {}\n" +
+      "}\n"
+
+    result := format(src)
+    lines := result.splitLines
+    // Declaration opener ends with '('
+    verify(lines.any |l| { l.trim == "Void bar(" },
+      "declaration opener must end with '('; got:\n$result")
+    // First param on its own line
+    verify(lines.any |l| { l.trim == "Int x," },
+      "first param must be on its own line; got:\n$result")
+    // Last param has ')' with optional suffix
+    verify(lines.any |l| { l.trim.startsWith("Int y)") },
+      "last param must be on its own line and start with 'Int y)'; got:\n$result")
+    // Idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "method declaration expansion must be idempotent; pass1:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** Control-flow keywords (if, while, for, switch) must NOT be treated
+  ** as method calls and must never be expanded.
+  **
+  Void testControlFlowNotExpandedAsMethodCall()
+  {
+    o := opts.copy
+    o.maxLineLength = 40
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(Int x, Int y, Int z)\n" +
+      "  {\n" +
+      "    if (x > 0 && y > 0 && z > 0) doSomething()\n" +
+      "  }\n" +
+      "}\n"
+
+    result := formatWith(src, o)
+    // The 'if' condition must not be expanded as a method call
+    verify(!result.splitLines.any |l| { l.trim == "x > 0 &&" || l.trim == "x > 0 && y > 0 &&" },
+      "if condition must not be expanded as method args; got:\n$result")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // [list/map] literal inside method call
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A map literal '[key: val, ...]' passed directly as an argument inside
+  ** a method call must be expanded to one-entry-per-line, exactly like a
+  ** top-level bracket literal.
+  **
+  Void testMapLiteralInsideMethodCallExpanded()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Dict toDict() {\n" +
+      "    return Etc.makeDict([hasErrorsKey: this.hasErrors, demandControlRatioKey: this.demandRatio, notesKey: this.notes])\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines := result.splitLines
+
+    // Each map entry must be on its own indented line.
+    // (The map-aligner may pad the values, so check the key prefix only.)
+    verify(lines.any |l| { l.trim.startsWith("hasErrorsKey:") && l.trim.endsWith("this.hasErrors,") },
+      "first map entry must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("demandControlRatioKey:") && l.trim.endsWith("this.demandRatio,") },
+      "second map entry must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("notesKey:") && l.trim.endsWith("this.notes,") },
+      "third map entry must be on its own line; got:\n$result")
+    // Closing must be '])'
+    verify(lines.any |l| { l.trim == "])" },
+      "closing must be ]) on its own line; got:\n$result")
+  }
+
+  **
+  ** Map literal inside method call expansion must be idempotent.
+  **
+  Void testMapLiteralInsideMethodCallIdempotent()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Dict toDict() {\n" +
+      "    return Etc.makeDict([hasErrorsKey: this.hasErrors, demandControlRatioKey: this.demandRatio, notesKey: this.notes])\n" +
+      "  }\n" +
+      "}\n"
+
+    pass1 := format(src)
+    pass2 := format(pass1)
+    verifyEq(pass1, pass2, "map-in-method-call expansion must be idempotent;\npass1:\n$pass1\npass2:\n$pass2")
+  }
+
+  **
+  ** A list literal '[elem1, elem2, ...]' passed as an argument inside a
+  ** method call must also be expanded to one-element-per-line.
+  **
+  Void testListLiteralInsideMethodCallExpanded()
+  {
+    src :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar() { process(items, [\"alpha\", \"beta\", \"gamma\", \"delta\"]) }\n" +
+      "}\n"
+
+    result := format(src)
+    lines := result.splitLines
+
+    verify(lines.any |l| { l.trim == "\"alpha\"," },
+      "first list element must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "\"delta\"," },
+      "last list element must be on its own line; got:\n$result")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Real-world: ModelEntityFactory-style formatting
+  //
+  // Verifies that a class with long method declarations and long method
+  // calls is formatted so that each parameter/argument lands on its own
+  // line, matching the canonical style from real-world code.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** A method DECLARATION whose opening line exceeds maxLineLength must be
+  ** expanded: the '(' ends the first line, each parameter goes on its own
+  ** line with a trailing comma, and the last parameter line ends with ') {'
+  ** (or ')' for a method without a body opener on the same line).
+  **
+  Void testLongMethodDeclarationExpandedOneParamPerLine()
+  {
+    // ModelEntityFactory.makeEntity signature style — 8 typed params, several
+    // with default values.  Total length is well over 100 characters.
+    src :=
+      "class EntityFactory\n" +
+      "{\n" +
+      "  public static EntityBase? makeEntity(Context cx, Str type, Str? model := null, Str? name := null, Ref? siteId := null, Ref? parentId := null, Dict args := Etc.emptyDict, Bool keepTransient := false) {\n" +
+      "    return null\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines  := result.splitLines
+
+    // The opening line must end with '('
+    verify(lines.any |l| { l.trim == "public static EntityBase? makeEntity(" },
+      "method decl opener must end the first line with '('; got:\n$result")
+
+    // Each parameter must be on its own indented line with trailing ','
+    verify(lines.any |l| { l.trim == "Context cx," },
+      "first param 'Context cx' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "Str type," },
+      "second param 'Str type' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "Str? model := null," },
+      "'Str? model := null' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "Str? name := null," },
+      "'Str? name := null' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "Ref? siteId := null," },
+      "'Ref? siteId := null' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "Ref? parentId := null," },
+      "'Ref? parentId := null' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "Dict args := Etc.emptyDict," },
+      "'Dict args := Etc.emptyDict' must be on its own line; got:\n$result")
+
+    // Last param closes with ') {' (body brace on same line)
+    verify(lines.any |l| { l.trim == "Bool keepTransient := false) {" },
+      "last param must close with ') {'; got:\n$result")
+
+    // Idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "method declaration expansion must be idempotent;\npass1:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** A method CALL whose line exceeds maxLineLength must be expanded:
+  ** the call up to '(' ends the first line, each argument is on its own
+  ** line with a trailing comma, and the last argument line ends with ')'.
+  **
+  Void testLongMethodCallExpandedOneArgPerLine()
+  {
+    // makeFromTrioAndEntityValsAndAdd call style — 5 arguments whose total line
+    // length (with indentation) exceeds 100 characters.
+    src :=
+      "class EntityFactory\n" +
+      "{\n" +
+      "  public static EntityBase? makeAdd(Context cx) {\n" +
+      "    entity := EntityBase.makeFromTrioAndEntityValsAndAdd(entityInfo, parentId, entityName, entityArgs, keepTransient)\n" +
+      "    entity?.commit(cx)\n" +
+      "    return entity\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines  := result.splitLines
+
+    // The call opener must end with '('
+    verify(lines.any |l| { l.trim == "entity := EntityBase.makeFromTrioAndEntityValsAndAdd(" },
+      "method call opener must end with '('; got:\n$result")
+
+    // Each argument must be on its own indented line
+    verify(lines.any |l| { l.trim == "entityInfo," },
+      "arg 'entityInfo' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "parentId," },
+      "arg 'parentId' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "entityName," },
+      "arg 'entityName' must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "entityArgs," },
+      "arg 'entityArgs' must be on its own line; got:\n$result")
+
+    // Last argument closes the call
+    verify(lines.any |l| { l.trim == "keepTransient)" },
+      "last arg must close with ')'; got:\n$result")
+
+    // Idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "method call expansion must be idempotent;\npass1:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** The ModelEntityFactory pattern end-to-end: a class with both long method
+  ** declarations and long inner method calls is formatted correctly in a
+  ** single pass and is idempotent.
+  **
+  Void testRealWorldModelEntityFactoryStyle()
+  {
+    // Complete class excerpt mirroring ModelEntityFactory, with long declarations
+    // and long call-sites, as found in typical real-world Fantom code.
+    src :=
+      "class EntityFactory\n" +
+      "{\n" +
+      "  public static EntityBase? makeEntity(Context cx, Str type, Str? model := null, Str? name := null, Ref? siteId := null, Ref? parentId := null, Dict args := Etc.emptyDict, Bool keepTransient := false) {\n" +
+      "    entity := EntityBase.makeFromTrioAndEntityValsAndAdd(entityInfo, parentId, name, args, keepTransient)\n" +
+      "    return entity\n" +
+      "  }\n" +
+      "\n" +
+      "  public static EntityBase? makeAdd(Context cx, Str type, Str? model := null, Str? name := null, Ref? siteId := null, Ref? parentId := null, Dict args := Etc.emptyDict, Bool keepTransient := false) {\n" +
+      "    entity := makeEntity(cx, type, model, name, siteId, parentId, args, keepTransient)\n" +
+      "    entity?.commit(cx)\n" +
+      "    return entity\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines  := result.splitLines
+
+    // Both method declarations must be expanded
+    Int declOpeners := lines.findAll |l| { l.trim == "public static EntityBase? makeEntity(" || l.trim == "public static EntityBase? makeAdd(" }.size
+    verify(declOpeners == 2,
+      "both long method declarations must have their '(' on the opener line; got:\n$result")
+
+    // Both inner calls must be expanded
+    verify(lines.any |l| { l.trim == "entity := EntityBase.makeFromTrioAndEntityValsAndAdd(" },
+      "inner makeFromTrioAndEntityValsAndAdd call must be expanded; got:\n$result")
+
+    // The makeEntity call in makeAdd is also expanded (8 args)
+    verify(lines.any |l| { l.trim == "entity := makeEntity(" },
+      "makeEntity call in makeAdd must also be expanded; got:\n$result")
+
+    // No single line may exceed maxLineLength (= 100 by default)
+    lines.each |l|
+    {
+      verify(l.size <= 100,
+        "no line must exceed 100 chars after formatting; offending line: '$l'")
+    }
+
+    // Idempotent
+    pass2 := format(result)
+    verifyEq(result, pass2,
+      "ModelEntityFactory style must be idempotent;\npass1:\n$result\npass2:\n$pass2")
+  }
+
+  //////////////////////////////////////////////////////////////////////////
+  // Etc.makeDict([map]) inside method call — DemandControlResult.toDict style
+  //
+  // A map literal '[key: val, ...]' passed directly into a method call must
+  // always be expanded to one-entry-per-line, regardless of whether the
+  // source input is compact (single line) or already in multi-line form.
+  //////////////////////////////////////////////////////////////////////////
+
+  **
+  ** COMPACT single-line form: the map is all on one line.
+  ** The formatter must expand it so every entry is on its own line.
+  **
+  Void testMakeDictMapCompactExpandedToMultiLine()
+  {
+    src :=
+      "class DemandControlResult\n" +
+      "{\n" +
+      "  Dict toDict()\n" +
+      "  {\n" +
+      "    return Etc.makeDict([hasErrorsKey: this.hasErrors, demandControlRatioKey: this.demandControlRatio, notesKey: this.notes])\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines  := result.splitLines
+
+    verify(lines.any |l| { l.trim.startsWith("hasErrorsKey:")            && l.trim.endsWith("this.hasErrors,") },
+      "hasErrorsKey entry must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("demandControlRatioKey:")   && l.trim.endsWith("this.demandControlRatio,") },
+      "demandControlRatioKey entry must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("notesKey:")                && l.trim.endsWith("this.notes,") },
+      "notesKey entry must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim == "])" },
+      "closing ]) must be on its own line; got:\n$result")
+
+    pass2 := format(result)
+    verifyEq(result, pass2, "must be idempotent; got:\n$result\npass2:\n$pass2")
+  }
+
+  **
+  ** ALREADY MULTI-LINE form: exactly as the source file has it (the map is
+  ** already split across lines but without a trailing comma on the last entry).
+  ** The formatter must normalize it to canonical form (trailing comma, consistent
+  ** indent) and must NOT collapse it back to a single line.
+  **
+  Void testMakeDictMapAlreadyMultiLinePreservedAndNormalized()
+  {
+    // Intentionally: no trailing comma on last entry, mixed indentation
+    src :=
+      "class DemandControlResult\n" +
+      "{\n" +
+      "  Dict toDict()\n" +
+      "  {\n" +
+      "    return Etc.makeDict([\n" +
+      "      hasErrorsKey: this.hasErrors,\n" +
+      "      demandControlRatioKey: this.demandControlRatio,\n" +
+      "      notesKey: this.notes\n" +
+      "    ])\n" +
+      "  }\n" +
+      "}\n"
+
+    result := format(src)
+    lines  := result.splitLines
+
+    // Must still be multi-line — entries not collapsed to one line
+    verify(lines.any |l| { l.trim.startsWith("hasErrorsKey:") },
+      "hasErrorsKey must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("demandControlRatioKey:") },
+      "demandControlRatioKey must be on its own line; got:\n$result")
+    verify(lines.any |l| { l.trim.startsWith("notesKey:") },
+      "notesKey must be on its own line; got:\n$result")
+    // Closing ]) on its own line
+    verify(lines.any |l| { l.trim == "])" },
+      "closing ]) must be on its own line; got:\n$result")
+    // Last entry must have a trailing comma (normalization)
+    verify(lines.any |l| { l.trim.startsWith("notesKey:") && l.trim.endsWith(",") },
+      "last entry must have a trailing comma; got:\n$result")
+
+    pass2 := format(result)
+    verifyEq(result, pass2, "must be idempotent; got:\n$result\npass2:\n$pass2")
   }
 }
 

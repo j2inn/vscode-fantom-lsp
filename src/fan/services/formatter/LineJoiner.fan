@@ -26,13 +26,37 @@ internal class LineJoiner
   {
     Str[] result := [,]
     i := 0
+    inBlockComment := false  // true while inside a /* ... */ spanning multiple lines
     while (i < lines.size)
     {
       raw := utils.stripCr(lines[i])
+      trimmedRaw := raw.trim
+
+      // -----------------------------------------------------------------------
+      // Multi-line block comment tracking.
+      // Lines inside /* ... */ must be emitted verbatim — they must not be
+      // joined to each other (e.g. "line ending with period.\nnext line") and
+      // their content must not be interpreted as code.
+      // -----------------------------------------------------------------------
+      if (!inBlockComment && isBlockCommentOpener(trimmedRaw))
+      {
+        inBlockComment = true
+        result.add(raw)
+        i++
+        continue
+      }
+      if (inBlockComment)
+      {
+        if (trimmedRaw.contains("*/")) inBlockComment = false
+        result.add(raw)
+        i++
+        continue
+      }
+
       // Convert any trailing // comment to /* */ before testing for continuation
       // so that "foo( // remark" is seen as "foo( /* remark */" — open paren
       // still detected as continuation, comment text preserved but harmless.
-      buf := convertLineComment(raw.trim)
+      buf := convertLineComment(trimmedRaw)
       joined := false
 
       // Accumulate continuation lines.
@@ -65,24 +89,24 @@ internal class LineJoiner
         sep = ""
         // Closing delimiter starts the next fragment: always space.
         else if (nextCh == '}' || nextCh == ')' || nextCh == ']')
-      sep = " "
-      // Opening/punctuation last char: space (not semicolon).
-      else if (lastCh == '{' || lastCh == ',' || lastCh == ';')
+        sep = " "
+        // Opening/punctuation last char: space (not semicolon).
+        else if (lastCh == '{' || lastCh == ',' || lastCh == ';')
         sep = " "
         // Closed block statement: '}' already terminates the statement in
         // Fantom; adding '; ' after it is a syntax error.
         else if (lastCh == '}')
-      sep = " "
-      // Postfix ++ / -- end a statement — must not be treated as operators.
-      else if (lastTwo == "++" || lastTwo == "--")
-      sep = braceDepthAt(buf) > 0 ? "; " : " "
-      // Expression-continuation operators — next fragment is part of the
-      // same expression, not a new statement; never insert a semicolon.
-      else if (lastCh == '&' || lastCh == '|' || lastCh == '+' || lastCh == '-' || lastCh == '*' || lastCh == '/' || lastCh == '%')
-      sep = " "
-      // Inside an open brace context (closure body): separate statements.
-      else if (braceDepthAt(buf) > 0)
-      sep = "; "
+        sep = " "
+        // Postfix ++ / -- end a statement — must not be treated as operators.
+        else if (lastTwo == "++" || lastTwo == "--")
+        sep = braceDepthAt(buf) > 0 ? "; " : " "
+        // Expression-continuation operators — next fragment is part of the
+        // same expression, not a new statement; never insert a semicolon.
+        else if (lastCh == '&' || lastCh == '|' || lastCh == '+' || lastCh == '-' || lastCh == '*' || lastCh == '/' || lastCh == '%')
+        sep = " "
+        // Inside an open brace context (closure body): separate statements.
+        else if (braceDepthAt(buf) > 0)
+        sep = "; "
       buf = buf + sep + nextConverted
       joined = true
     }
@@ -418,5 +442,23 @@ internal class LineJoiner
     }
 
     return line
+  }
+
+  **
+  ** Return true when 'trimmed' is the opening line of a multi-line block
+  ** comment (/* ... */) that does not close on the same line.
+  **
+  ** Single-line block comments like "/* inline */" are NOT openers.
+  ** Only the FIRST line of a spanning block opens the state.
+  **
+  private Bool isBlockCommentOpener(Str trimmed)
+  {
+    openIdx := trimmed.index("/*")
+    if (openIdx == null) return false
+    closeIdx := trimmed.index("*/")
+    // If there's no closing */ on the same line after the opener, it spans
+    if (closeIdx == null) return true
+    // If the closer appears BEFORE or AT the opener, something's off; treat as non-spanning
+    return closeIdx < openIdx
   }
 }

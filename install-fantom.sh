@@ -8,8 +8,8 @@ DOWNLOAD_BASE="https://github.com/fantom-lang/fantom/releases/download"
 echo "Fetching latest Fantom version..."
 LATEST=$(curl -sf "$RELEASES_API" | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
 if [ -z "$LATEST" ]; then
-  echo "Warning: could not fetch latest version, defaulting to 1.0.82"
-  LATEST="1.0.82"
+  echo "Warning: could not fetch latest version, defaulting to 1.0.83"
+  LATEST="1.0.83"
 fi
 
 # Ask for version

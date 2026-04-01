@@ -44,10 +44,32 @@ internal class BracketNormalizer
   {
     Str[] result := [,]
     i := 0
+    inBlockComment := false  // true while inside a /* ... */ spanning multiple lines
     while (i < lines.size)
     {
       raw := utils.stripCr(lines[i])
       trimmed := raw.trim
+
+      // -----------------------------------------------------------------------
+      // Multi-line block comment tracking.
+      // Lines inside /* ... */ must be passed through verbatim — bracket
+      // literals inside block comments (e.g. table rows "[1, 17, 33]") must
+      // not trigger bracket normalization.
+      // -----------------------------------------------------------------------
+      if (!inBlockComment && isBlockCommentOpener(trimmed))
+      {
+        inBlockComment = true
+        result.add(raw)
+        i++
+        continue
+      }
+      if (inBlockComment)
+      {
+        if (trimmed.contains("*/")) inBlockComment = false
+        result.add(raw)
+        i++
+        continue
+      }
 
       // Find a qualifying '[' on this line that has no matching ']' on the
       // same line — that signals the start of a multi-line bracket block.
@@ -198,7 +220,9 @@ internal class BracketNormalizer
   **
   internal Str[]? tryExpand(Str fullLine, FormatterOptions opts, Int indentLevel)
   {
-    bracketPos := findListBracket(fullLine)
+    // allowInsideParen=true: also expand [list/map] that appear as arguments
+    // inside a method call, e.g. makeDict([key: val, ...])
+    bracketPos := findListBracket(fullLine, true)
     if (bracketPos < 0) return null
 
     closePos := findMatchingBracket(fullLine, bracketPos)
@@ -553,11 +577,11 @@ internal class BracketNormalizer
   **
   ** A '[' qualifies when it is:
   **   - outside string literals and single-line comments
-  **   - not inside parentheses (parenDepth == 0)
+  **   - not inside parentheses unless 'allowInsideParen' is true
   **   - not immediately preceded by an identifier character, '_', ')', or ']'
   **     (which would indicate an index-access or type-annotation context)
   **
-  private Int findListBracket(Str line)
+  private Int findListBracket(Str line, Bool allowInsideParen := false)
   {
     inStr := false
     inTriple := false
@@ -620,7 +644,7 @@ internal class BracketNormalizer
       if (ch == '(') { parenDepth++; continue }
       if (ch == ')') { parenDepth = (parenDepth - 1).max(0); continue }
 
-      if (ch == '[' && parenDepth == 0)
+      if (ch == '[' && (parenDepth == 0 || allowInsideParen))
       {
         prevCh := i > 0 ? line[i-1] : ' '
         if (!prevCh.isAlphaNum && prevCh != '_' && prevCh != ')' && prevCh != ']')
@@ -628,6 +652,214 @@ internal class BracketNormalizer
       }
     }
     return -1
+  }
+
+  **
+  ** Find the ')' that closes the '(' at 'openPos'. Returns the index of
+  ** the matching ')', or -1 when no match is found (unclosed paren).
+  ** String literals, block comments, and single-line comments are tracked.
+  **
+  private Int findMatchingParen(Str line, Int openPos)
+  {
+    inStr    := false
+    inTriple := false
+    inChar   := false
+    inDsl    := false
+    inBlock  := false
+    escaped  := false
+    depth    := 0
+    n        := line.size
+
+    for (i := openPos; i < n; i++)
+    {
+      ch := line[i]
+      if (escaped) { escaped = false; continue }
+
+      if (inBlock)
+      {
+        if (ch == '*' && i+1 < n && line[i+1] == '/') { inBlock = false; i++ }
+        continue
+      }
+      if (inTriple)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+        { inTriple = false; i += 2 }
+        continue
+      }
+      if (inStr)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"') inStr = false
+        continue
+      }
+      if (inChar)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '\'') inChar = false
+        continue
+      }
+      if (inDsl) { if (ch == '`') inDsl = false; continue }
+
+      if (ch == '/' && i+1 < n && line[i+1] == '*') { inBlock = true; i++; continue }
+      if (ch == '/' && i+1 < n && line[i+1] == '/') break
+
+      if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+      { inTriple = true; i += 2; continue }
+      if (ch == '"') { inStr  = true; continue }
+      if (ch == '\'') { inChar = true; continue }
+      if (ch == '`')  { inDsl  = true; continue }
+
+      if (ch == '(') depth++
+      else if (ch == ')')
+      {
+        depth--
+        if (depth == 0) return i
+      }
+    }
+    return -1
+  }
+
+  **
+  ** Find the position of the first '(' in 'line' at or after 'startPos'
+  ** that looks like a method call (preceded by an identifier character or
+  ** '_') and whose preceding identifier is not a control-flow keyword.
+  **
+  ** Returns the index of '(', or -1 when none qualifies.
+  **
+  private Int findMethodCallParen(Str line, Int startPos := 0)
+  {
+    inStr    := false
+    inTriple := false
+    inChar   := false
+    inDsl    := false
+    inBlock  := false
+    escaped  := false
+    n        := line.size
+
+    for (i := startPos; i < n; i++)
+    {
+      ch := line[i]
+      if (escaped) { escaped = false; continue }
+
+      if (inBlock)
+      {
+        if (ch == '*' && i+1 < n && line[i+1] == '/') { inBlock = false; i++ }
+        continue
+      }
+      if (inTriple)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+        { inTriple = false; i += 2 }
+        continue
+      }
+      if (inStr)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '"') inStr = false
+        continue
+      }
+      if (inChar)
+      {
+        if (ch == '\\') { escaped = true; continue }
+        if (ch == '\'') inChar = false
+        continue
+      }
+      if (inDsl) { if (ch == '`') inDsl = false; continue }
+
+      if (ch == '/' && i+1 < n && line[i+1] == '*') { inBlock = true; i++; continue }
+      if (ch == '/' && i+1 < n && line[i+1] == '/') break
+
+      if (ch == '"' && i+2 < n && line[i+1] == '"' && line[i+2] == '"')
+      { inTriple = true; i += 2; continue }
+      if (ch == '"') { inStr  = true; continue }
+      if (ch == '\'') { inChar = true; continue }
+      if (ch == '`')  { inDsl  = true; continue }
+
+      if (ch == '(')
+      {
+        // Must be preceded by an identifier character (method name)
+        prevCh := i > 0 ? line[i-1] : ' '
+        if (prevCh.isAlphaNum || prevCh == '_')
+        {
+          // Extract the word immediately before '('
+          wordEnd := i - 1
+          wordStart := wordEnd
+          while (wordStart > 0 && (line[wordStart-1].isAlphaNum || line[wordStart-1] == '_'))
+            wordStart--
+          word := line[wordStart..wordEnd]
+          // Skip control-flow keywords
+          if (!isControlFlowKeyword(word)) return i
+        }
+      }
+    }
+    return -1
+  }
+
+  ** Return true for Fantom control-flow keywords that take a '(' argument.
+  private Bool isControlFlowKeyword(Str word)
+  {
+    return word == "if" || word == "while" || word == "for" ||
+           word == "foreach" || word == "switch" || word == "catch" ||
+           word == "do" || word == "try"
+  }
+
+  **
+  ** Expand a method call's arguments to one-per-line form when there are
+  ** at least 2 arguments.  The expansion is unconditional: it applies
+  ** regardless of line length.
+  **
+  ** Format produced:
+  **   prefix(
+  **     arg1,
+  **     arg2,
+  **     lastArg)suffix
+  **
+  ** Returns the expanded lines, or null when:
+  **   - no qualifying '(' is found
+  **   - the matching ')' is not on the same line
+  **   - fewer than 2 arguments
+  **
+  internal Str[]? tryExpandMethodCall(Str fullLine, FormatterOptions opts, Int indentLevel)
+  {
+    searchFrom := 0
+    while (true)
+    {
+      parenPos := findMethodCallParen(fullLine, searchFrom)
+      if (parenPos < 0) return null
+
+      closePos := findMatchingParen(fullLine, parenPos)
+      // Unclosed paren on this line — stop searching
+      if (closePos < 0) return null
+
+      inner := parenPos + 1 < closePos ? fullLine[parenPos+1..<closePos] : ""
+      args  := splitAtDepthZero(inner).findAll |e| { !e.trim.isEmpty }
+      if (args.size < 2)
+      {
+        // This call has 0 or 1 arg — skip it and try the next one
+        searchFrom = closePos + 1
+        continue
+      }
+
+      prefix      := fullLine[0..parenPos]   // everything up to and including '('
+      suffix      := closePos + 1 < fullLine.size ? fullLine[closePos+1..-1] : ""
+      childIndent := utils.makeIndent(opts, indentLevel + 1)
+
+      Str[] result := [prefix]
+      for (idx := 0; idx < args.size; idx++)
+      {
+        e      := args[idx].trim
+        isLast := (idx == args.size - 1)
+        if (e.endsWith(",")) e = e[0..<e.size-1].trim
+        if (isLast)
+          result.add(childIndent + e + ")" + suffix)
+        else
+          result.add(childIndent + e + ",")
+      }
+      return result
+    }
+    return null  // unreachable — while(true) always returns or continues
   }
 
   **
@@ -803,5 +1035,18 @@ internal class BracketNormalizer
     }
     result.add(buf.toStr)
     return result
+  }
+
+  **
+  ** Return true when 'trimmed' is the opening line of a multi-line block
+  ** comment (/* ... */) that does not close on the same line.
+  **
+  private Bool isBlockCommentOpener(Str trimmed)
+  {
+    openIdx := trimmed.index("/*")
+    if (openIdx == null) return false
+    closeIdx := trimmed.index("*/")
+    if (closeIdx == null) return true
+    return closeIdx < openIdx
   }
 }

@@ -16,6 +16,8 @@
 **   LineWrapper          — wrap long lines at the best split point
 **   BracketNormalizer    — normalise and expand list/map bracket literals
 **   MapAligner           — align map-entry values to the same column
+**   CommentFormatter     — block-comment detection, comment word-wrap,
+**                          and doc-comment conversion
 **
 class FormatterService
 {
@@ -26,6 +28,7 @@ class FormatterService
   private LineWrapper        lineWrapper      := LineWrapper()
   private BracketNormalizer  bracketNorm      := BracketNormalizer()
   private MapAligner         mapAligner       := MapAligner()
+  private CommentFormatter   commentFormatter := CommentFormatter()
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -104,6 +107,7 @@ class FormatterService
     Str[] out := [,]
     indent := startIndent
     blankRun := 0
+    inBlockComment := false  // true while inside a /* ... */ spanning multiple lines
 
     // Pre-pre-pass: normalize multi-line bracket literal blocks.
     // Any list or map literal that spans multiple source lines (including ones
@@ -135,6 +139,45 @@ class FormatterService
       }
       blankRun = 0
 
+      // -----------------------------------------------------------------------
+      // Multi-line block comment (/* ... */) — emit lines verbatim.
+      // These span multiple source lines; their interior may contain tables,
+      // diagrams, or carefully formatted text that must not be re-indented,
+      // space-collapsed, or bracket-expanded.
+      // -----------------------------------------------------------------------
+      if (!inBlockComment && commentFormatter.isBlockCommentOpener(trimmed))
+      {
+        inBlockComment = true
+        out.add(line)
+        return
+      }
+      if (inBlockComment)
+      {
+        if (trimmed.contains("*/")) inBlockComment = false
+        out.add(line)
+        return
+      }
+
+      // -----------------------------------------------------------------------
+      // Single-line comment (//) and Fantom doc comment (**) lines.
+      // These are re-indented to the current brace-based indent level, but:
+      //   • spaces inside the comment text are NOT collapsed
+      //   • bracket literals inside the text are NOT expanded
+      //   • NCSS wrapping rules (comma/operator splits) are NOT applied
+      //   • when maxLineLength > 0 and the line is too long, a simple
+      //     word-wrap (break at the last space before the limit) is used
+      // -----------------------------------------------------------------------
+      isCommentLine := trimmed.startsWith("//") || trimmed.startsWith("**")
+      if (isCommentLine)
+      {
+        fullLine := utils.makeIndent(opts, indent) + trimmed
+        if (opts.maxLineLength > 0 && fullLine.size > opts.maxLineLength)
+          commentFormatter.wrapCommentLine(fullLine, opts.maxLineLength, opts, indent).each |l| { out.add(l) }
+        else
+          out.add(fullLine)
+        return
+      }
+
       // Count braces (outside strings/comments) for indent tracking
       bc := braceCounts(trimmed)
       opens := bc[0]
@@ -163,10 +206,18 @@ class FormatterService
       expandedLines := bracketNorm.tryExpand(fullLine, opts, indent)
       if (expandedLines != null)
         expandedLines.each |l| { out.add(l) }
-      else if (opts.maxLineLength > 0 && fullLine.size > opts.maxLineLength)
-        lineWrapper.wrap(fullLine, opts.maxLineLength, opts, indent).each |l| { out.add(l) }
       else
-        out.add(fullLine)
+      {
+        // Try expanding method call/declaration arguments one-per-line
+        // unconditionally (same policy as list/map literal expansion).
+        methodExpanded := bracketNorm.tryExpandMethodCall(fullLine, opts, indent)
+        if (methodExpanded != null)
+          methodExpanded.each |l| { out.add(l) }
+        else if (opts.maxLineLength > 0 && fullLine.size > opts.maxLineLength)
+          lineWrapper.wrap(fullLine, opts.maxLineLength, opts, indent).each |l| { out.add(l) }
+        else
+          out.add(fullLine)
+      }
 
       indent = (indent + opens - closes + leadingClose).max(0)
     }
@@ -174,6 +225,11 @@ class FormatterService
     // Post-pass: align map literal values so all values in a block start
     // at the same column (determined by the longest key in that block).
     out = mapAligner.align(out, opts)
+
+    // Post-pass: convert // and /* */ doc-comment blocks above declarations
+    // to Fantom-style ** doc comments (when the option is enabled).
+    if (opts.convertFantomDocComments)
+      out = commentFormatter.convertDocComments(out, opts)
 
     return out.join(le)
   }
