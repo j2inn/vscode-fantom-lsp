@@ -77,12 +77,13 @@ class DiagnosticConstInitValidator
   private Str? parseClassName(Str trimmed)
   {
     keywords := ["class ", "mixin "]
-    keywords.each |kw|
+    for (ki := 0; ki < keywords.size; ki++)
     {
+      kw := keywords[ki]
       idx := trimmed.index(kw)
-      if (idx == null) return
+      if (idx == null) continue
       // 'class'/'mixin' must not be part of a longer identifier
-      if (idx > 0 && LspUtil.isIdentifierChar(trimmed[idx - 1])) return
+      if (idx > 0 && LspUtil.isIdentifierChar(trimmed[idx - 1])) continue
 
       rest := trimmed[idx + kw.size ..-1].trim
       end := 0
