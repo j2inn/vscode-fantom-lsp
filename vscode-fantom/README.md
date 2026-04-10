@@ -150,8 +150,7 @@ Additional settings available through the VSCode UI or `settings.json`:
 | `fantom.format.maxBlankLines`          | `number`  | `1`     | Maximum consecutive blank lines to preserve. `0` keeps all blank lines.                                                                    |
 | `fantom.format.respectEditorConfig`    | `boolean` | `true`  | Let `.editorconfig` files override the settings above.                                                                                     |
 | `fantom.format.collapseSpaces`         | `boolean` | `true`  | Collapse runs of two or more spaces into one in code regions (outside strings and comments).                                               |
-| `fantom.format.maxLineLength`          | `number`  | `100`   | Wrap lines that exceed this length. `0` disables wrapping.                                                                                 |
-| `fantom.format.convertFantomDocComments` | `boolean` | `false` | Convert `//` and `/* */` comment blocks above declarations to Fantom-style `**` doc comments.                                              |
+| `fantom.format.maxLineLength`          | `number`  | `0`     | Wrap lines that exceed this length. `0` disables wrapping.                                                                                 |
 
 ---
 
@@ -229,26 +228,6 @@ The extension includes a full source formatter for Fantom files, implemented ins
 
 ### What the formatter does
 
-The formatter runs five passes in order:
-
-```mermaid
-flowchart TD
-    A[Source text] --> B["Pass 1 — BracketNormalizer\nRebuild multi-line list/map literals\ninto canonical one-element-per-line form"]
-    B --> C["Pass 2 — LineJoiner\nJoin lines split mid-expression\n(trailing dot · unclosed paren)"]
-    C --> D["Pass 3 — Main loop (FormatterService)\nRe-indent · collapse spaces\nExpand bracket literals & method calls\nWrap long lines · handle comments"]
-    D --> E["Pass 4 — MapAligner\nAlign map-entry values\nto the same column"]
-    E --> F["Pass 5 — CommentFormatter\nConvert // and /* */ blocks\nto Fantom ** doc comments (optional)"]
-    F --> G[Formatted text]
-```
-
-| Pass | Class | What it does |
-| ---- | ----- | ------------ |
-| 1 | `BracketNormalizer` | Rebuilds multi-line list/map literals into canonical one-element-per-line form before any other pass runs |
-| 2 | `LineJoiner` | Joins lines split mid-expression (trailing `.`, unclosed `(`) into single logical lines so the main loop can re-split them optimally |
-| 3 | `FormatterService` (main loop) | Re-indents every line, collapses runs of spaces, expands bracket literals and method calls one-per-line, wraps long lines, handles comments |
-| 4 | `MapAligner` | Aligns map-entry values to the same column within each contiguous map block |
-| 5 | `CommentFormatter` | Converts `//` / `/* */` comment blocks above declarations to Fantom `**` doc comments (when `convertFantomDocComments` is enabled) |
-
 #### Indentation
 
 Indentation is re-computed by tracking brace depth (`{` / `}`). Braces inside string literals and `//` comments are ignored. The unit is controlled by `fantom.format.indentSize` (spaces) or `fantom.format.useTabs` (tabs).
@@ -311,98 +290,6 @@ msg := "hello world this" +
 ```
 
 The split is at the last word-boundary space before the column limit. Backtick (DSL) strings are **never** split — their content (URIs, raw values) must remain intact. Continuation lines are indented one level deeper than the base line.
-
-#### Continuation line joining
-
-Before the main pass runs, lines that were split mid-expression are automatically joined into single logical lines. A line is treated as a continuation when it:
-
-- ends with a trailing `.` (member-access chain split across lines), or
-- has unclosed parentheses `(` at end of line.
-
-Blank lines are never crossed. After joining, the main pass re-indents and re-wraps the result.
-
-List and map literal lines (unclosed `[` with no unclosed `(`) are **not** joined — each element stays on its own line so that embedded `//` comments are never lost.
-
-#### List and map literal expansion
-
-List and map literals with two or more elements are always expanded to one element per line, regardless of total line length:
-
-```fantom
-// Before
-items := ["alpha", "beta", "gamma"]
-counts := ["a": 1, "b": 2]
-
-// After
-items :=
-[
-  "alpha",
-  "beta",
-  "gamma",
-]
-counts :=
-[
-  "a": 1,
-  "b": 2,
-]
-```
-
-Empty and single-element literals stay on one line.
-
-#### Method call and declaration expansion
-
-Method calls and method declarations with two or more arguments are always expanded to one argument per line, regardless of total line length:
-
-```fantom
-// Before
-result := doSomething(paramA, paramB, paramC)
-Void register(Str name, Int port, Bool secure) { ... }
-
-// After
-result := doSomething(
-  paramA,
-  paramB,
-  paramC)
-Void register(
-  Str name,
-  Int port,
-  Bool secure) { ... }
-```
-
-Single-argument calls and zero-argument calls stay on one line.
-
-#### Map value alignment
-
-After the main pass, map-entry values within each contiguous map block are aligned to the same column. The column is determined by the longest key in the block:
-
-```fantom
-// Before (after expansion)
-[
-  "name": "Alice",
-  "address": "123 Main St",
-  "zip": "00000",
-]
-
-// After alignment
-[
-  "name":    "Alice",
-  "address": "123 Main St",
-  "zip":     "00000",
-]
-```
-
-#### Doc-comment conversion
-
-When `fantom.format.convertFantomDocComments` is `true` (default `false`), `//` and `/* */` comment blocks that appear immediately before a Fantom method, field, or class declaration are converted to Fantom-style `**` doc comments:
-
-```fantom
-// Before
-// Returns the current value.
-Int getValue() { ... }
-
-// After
-** Returns the current value.
-Int getValue() { ... }
-```
 
 ### `.editorconfig` support
 

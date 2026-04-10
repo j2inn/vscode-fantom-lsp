@@ -705,6 +705,18 @@ function fanHomeFromExe(fanExe: string): string {
   return path.dirname(path.dirname(fanExe));
 }
 
+/** Resolve the fant test-runner executable from FAN_HOME. */
+function resolveFantExe(fanHome: string): string | undefined {
+  const bin = isWindows ? 'fant.bat' : 'fant';
+  const p = path.join(fanHome, 'bin', bin);
+  if (fs.existsSync(p)) { return p; }
+  if (isWindows) {
+    const alt = path.join(fanHome, 'bin', 'fant.exe');
+    if (fs.existsSync(alt)) { return alt; }
+  }
+  return undefined;
+}
+
 /**
  * Spawn a fan process, streaming stdout/stderr to `channel`.
  * Returns the process exit code.
@@ -757,10 +769,78 @@ function readPodName(buildFanPath: string): string | undefined {
   }
 }
 
-/** Find all .fan test files under src/test directories in the workspace. */
-async function findTestFiles(): Promise<string[]> {
-  const uris = await vscode.workspace.findFiles('**/src/test/**/*.fan', '**/node_modules/**');
-  return uris.map(u => u.fsPath).sort();
+const TEST_FOLDER_KEY = 'fantom.testFolder';
+
+/**
+ * Return the absolute path to the test folder, asking the user to enter it
+ * the first time (or when the previously saved path no longer exists on disk).
+ * The relative-to-workspace-root value is persisted in workspaceState.
+ */
+async function getOrAskTestFolder(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string
+): Promise<string | undefined> {
+  const saved = context.workspaceState.get<string>(TEST_FOLDER_KEY);
+
+  if (saved) {
+    const abs = path.isAbsolute(saved) ? saved : path.join(workspaceRoot, saved);
+    if (fs.existsSync(abs)) { return abs; }
+    log(`Saved test folder no longer exists: ${abs} — asking again`);
+  }
+
+  const input = await vscode.window.showInputBox({
+    title: 'Fantom: Test Folder',
+    prompt: 'Path to the test folder, relative to the workspace root',
+    placeHolder: 'src/test',
+    value: saved ?? 'src/test',
+    ignoreFocusOut: true,
+  });
+  if (input === undefined) { return undefined; }   // user cancelled
+
+  const trimmed = input.trim();
+  const abs = path.isAbsolute(trimmed) ? trimmed : path.join(workspaceRoot, trimmed);
+  if (!fs.existsSync(abs)) {
+    vscode.window.showErrorMessage(`Fantom: Folder not found: ${abs}`);
+    return undefined;
+  }
+
+  await context.workspaceState.update(TEST_FOLDER_KEY, trimmed);
+  log(`Test folder saved: ${abs}`);
+  return abs;
+}
+
+/** Recursively collect all .fan files inside a directory. */
+function findTestFilesInFolder(testFolder: string): string[] {
+  const results: string[] = [];
+  function walk(dir: string): void {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); }
+      else if (e.isFile() && e.name.endsWith('.fan')) { results.push(full); }
+    }
+  }
+  walk(testFolder);
+  return results.sort();
+}
+
+/**
+ * Build the argument list for a `fan <script> [fanTargetBuild] <action>` call.
+ * If `fanTargetBuild` is set in the config it is inserted between the script
+ * name and the action so the build.fan receives it as a positional argument.
+ */
+function buildFanArgs(finConfig: FinConfig, script: string, action: string): string[] {
+  const args = [script];
+  if (finConfig.fanTargetBuild) { args.push(finConfig.fanTargetBuild); }
+  args.push(action);
+  return args;
+}
+
+/** QuickPick item that carries an absolute file path or signals a folder change. */
+interface TestFileItem extends vscode.QuickPickItem {
+  filePath: string;
+  isChangeFolder: boolean;
 }
 
 /** Parse Void testXxx() method names from a Fantom source file. */
@@ -1190,7 +1270,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       channel.clear();
       channel.show(true);
 
-      const code = await spawnFan(fanExe, fanHome, [script, 'compile'], cwd, channel);
+      const code = await spawnFan(fanExe, fanHome, buildFanArgs(finConfig, script, 'compile'), cwd, channel);
       if (code === 0) {
         vscode.window.showInformationMessage('Fantom: Compilation successful.');
       } else {
@@ -1220,7 +1300,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       channel.clear();
       channel.show(true);
 
-      const code = await spawnFan(fanExe, fanHome, ['build.fan', 'test'], cwd, channel);
+      const code = await spawnFan(fanExe, fanHome, buildFanArgs(finConfig, 'build.fan', 'test'), cwd, channel);
       if (code === 0) {
         vscode.window.showInformationMessage('Fantom: All tests passed.');
       } else {
@@ -1238,61 +1318,63 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!fanExe) { return; }
 
       const folder = vscode.workspace.workspaceFolders?.[0];
-      if (!folder) {
-        vscode.window.showWarningMessage('Fantom: No workspace folder open.');
-        return;
-      }
+      if (!folder) { vscode.window.showWarningMessage('Fantom: No workspace folder open.'); return; }
 
-      const testFiles = await findTestFiles();
+      const testFolder = await getOrAskTestFolder(context, folder.uri.fsPath);
+      if (!testFolder) { return; }
+
+      const testFiles = findTestFilesInFolder(testFolder);
       if (testFiles.length === 0) {
-        vscode.window.showWarningMessage('Fantom: No test files found under src/test/.');
+        vscode.window.showWarningMessage(`Fantom: No .fan files found in ${testFolder}.`);
         return;
       }
 
       const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-      const items = testFiles.map(f => ({
+      const items: TestFileItem[] = testFiles.map((f: string): TestFileItem => ({
         label: path.basename(f, '.fan'),
-        description: path.relative(folder.uri.fsPath, f),
+        description: path.relative(testFolder, path.dirname(f)) || '.',
         filePath: f,
+        isChangeFolder: false,
       }));
       // Surface the currently open test file at the top
       if (activeFile) {
-        const activeIdx = items.findIndex(i => i.filePath === activeFile);
-        if (activeIdx > 0) {
-          items.unshift(...items.splice(activeIdx, 1));
-        }
+        const idx = items.findIndex((i: TestFileItem) => i.filePath === activeFile);
+        if (idx > 0) { items.unshift(...items.splice(idx, 1)); }
       }
+      items.push({
+        label: '$(gear) Change test folder…',
+        description: `currently: ${path.relative(folder.uri.fsPath, testFolder)}`,
+        filePath: '',
+        isChangeFolder: true,
+      });
 
-      const picked = await vscode.window.showQuickPick(items, {
+      const picked = await vscode.window.showQuickPick<TestFileItem>(items, {
         placeHolder: 'Select test file',
         matchOnDescription: true,
       });
       if (!picked) { return; }
+      if (picked.isChangeFolder) {
+        await context.workspaceState.update(TEST_FOLDER_KEY, undefined);
+        vscode.commands.executeCommand('fantom.runTestsInFile');
+        return;
+      }
 
       const buildFanPath = findBuildFanForFile(picked.filePath, folder.uri.fsPath)
         ?? path.join(folder.uri.fsPath, 'build.fan');
       const podName = readPodName(buildFanPath);
-      if (!podName) {
-        vscode.window.showErrorMessage('Fantom: Could not read podName from build.fan.');
-        return;
-      }
+      if (!podName) { vscode.window.showErrorMessage('Fantom: Could not read podName from build.fan.'); return; }
 
       const className = path.basename(picked.filePath, '.fan');
       const fanHome = fanHomeFromExe(fanExe);
-      const cwd = path.dirname(buildFanPath);
+      const fantExe = resolveFantExe(fanHome);
+      if (!fantExe) { vscode.window.showErrorMessage(`Fantom: fant executable not found in ${path.join(fanHome, 'bin')}.`); return; }
 
+      const cwd = path.dirname(buildFanPath);
       const channel = getBuildChannel();
       channel.clear();
       channel.show(true);
 
-      const compileCode = await spawnFan(fanExe, fanHome, ['build.fan', 'compile'], cwd, channel);
-      if (compileCode !== 0) {
-        vscode.window.showErrorMessage('Fantom: Compilation failed. Fix errors before running tests.');
-        return;
-      }
-
-      channel.appendLine('');
-      const testCode = await spawnFan(fanExe, fanHome, [`${podName}::${className}`], cwd, channel);
+      const testCode = await spawnFan(fantExe, fanHome, [`${podName}::${className}`], cwd, channel);
       if (testCode === 0) {
         vscode.window.showInformationMessage(`Fantom: ${className} — all tests passed.`);
       } else {
@@ -1310,35 +1392,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!fanExe) { return; }
 
       const folder = vscode.workspace.workspaceFolders?.[0];
-      if (!folder) {
-        vscode.window.showWarningMessage('Fantom: No workspace folder open.');
-        return;
-      }
+      if (!folder) { vscode.window.showWarningMessage('Fantom: No workspace folder open.'); return; }
 
-      const testFiles = await findTestFiles();
+      const testFolder = await getOrAskTestFolder(context, folder.uri.fsPath);
+      if (!testFolder) { return; }
+
+      const testFiles = findTestFilesInFolder(testFolder);
       if (testFiles.length === 0) {
-        vscode.window.showWarningMessage('Fantom: No test files found under src/test/.');
+        vscode.window.showWarningMessage(`Fantom: No .fan files found in ${testFolder}.`);
         return;
       }
 
       const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
-      const fileItems = testFiles.map(f => ({
+      const fileItems: TestFileItem[] = testFiles.map((f: string): TestFileItem => ({
         label: path.basename(f, '.fan'),
-        description: path.relative(folder.uri.fsPath, f),
+        description: path.relative(testFolder, path.dirname(f)) || '.',
         filePath: f,
+        isChangeFolder: false,
       }));
       if (activeFile) {
-        const activeIdx = fileItems.findIndex(i => i.filePath === activeFile);
-        if (activeIdx > 0) {
-          fileItems.unshift(...fileItems.splice(activeIdx, 1));
-        }
+        const idx = fileItems.findIndex((i: TestFileItem) => i.filePath === activeFile);
+        if (idx > 0) { fileItems.unshift(...fileItems.splice(idx, 1)); }
       }
+      fileItems.push({
+        label: '$(gear) Change test folder…',
+        description: `currently: ${path.relative(folder.uri.fsPath, testFolder)}`,
+        filePath: '',
+        isChangeFolder: true,
+      });
 
-      const pickedFile = await vscode.window.showQuickPick(fileItems, {
+      const pickedFile = await vscode.window.showQuickPick<TestFileItem>(fileItems, {
         placeHolder: 'Select test file',
         matchOnDescription: true,
       });
       if (!pickedFile) { return; }
+      if (pickedFile.isChangeFolder) {
+        await context.workspaceState.update(TEST_FOLDER_KEY, undefined);
+        vscode.commands.executeCommand('fantom.runTestMethod');
+        return;
+      }
 
       const methods = parseTestMethods(pickedFile.filePath);
       if (methods.length === 0) {
@@ -1347,7 +1439,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       const pickedMethod = await vscode.window.showQuickPick(
-        methods.map(m => ({ label: m })),
+        methods.map((m: string) => ({ label: m })),
         { placeHolder: 'Select test method' }
       );
       if (!pickedMethod) { return; }
@@ -1355,28 +1447,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const buildFanPath = findBuildFanForFile(pickedFile.filePath, folder.uri.fsPath)
         ?? path.join(folder.uri.fsPath, 'build.fan');
       const podName = readPodName(buildFanPath);
-      if (!podName) {
-        vscode.window.showErrorMessage('Fantom: Could not read podName from build.fan.');
-        return;
-      }
+      if (!podName) { vscode.window.showErrorMessage('Fantom: Could not read podName from build.fan.'); return; }
 
       const className = path.basename(pickedFile.filePath, '.fan');
       const fanHome = fanHomeFromExe(fanExe);
-      const cwd = path.dirname(buildFanPath);
+      const fantExe = resolveFantExe(fanHome);
+      if (!fantExe) { vscode.window.showErrorMessage(`Fantom: fant executable not found in ${path.join(fanHome, 'bin')}.`); return; }
 
+      const cwd = path.dirname(buildFanPath);
       const channel = getBuildChannel();
       channel.clear();
       channel.show(true);
 
-      const compileCode = await spawnFan(fanExe, fanHome, ['build.fan', 'compile'], cwd, channel);
-      if (compileCode !== 0) {
-        vscode.window.showErrorMessage('Fantom: Compilation failed. Fix errors before running tests.');
-        return;
-      }
-
-      channel.appendLine('');
       const testSpec = `${podName}::${className}.${pickedMethod.label}`;
-      const testCode = await spawnFan(fanExe, fanHome, [testSpec], cwd, channel);
+      const testCode = await spawnFan(fantExe, fanHome, [testSpec], cwd, channel);
       if (testCode === 0) {
         vscode.window.showInformationMessage(`Fantom: ${pickedMethod.label} passed.`);
       } else {
