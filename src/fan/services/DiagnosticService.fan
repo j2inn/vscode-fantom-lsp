@@ -36,6 +36,7 @@ class DiagnosticService
   private DiagnosticNullableUsageValidator nullableUsageValidator := DiagnosticNullableUsageValidator()
   private DiagnosticUnusedVarValidator unusedVarValidator := DiagnosticUnusedVarValidator()
   private DiagnosticDuplicateConstValidator duplicateConstValidator := DiagnosticDuplicateConstValidator()
+  private DiagnosticConstInitValidator constInitValidator := DiagnosticConstInitValidator()
   **
   ** Analyze source code and return diagnostics for a single file.
   ** Filters errors about types/variables that exist in the project index,
@@ -209,6 +210,18 @@ class DiagnosticService
     catch (Err e)
     {
       LspProtocol.logInfo("Nullable usage check error: $e")
+    }
+
+    // Cross-class const static initializer check: warn when a const static field
+    // is initialized from another class's field, which may not be loaded yet
+    try
+    {
+      constInitDiags := constInitValidator.checkCrossClassConstInit(source)
+      diagnostics.addAll(constInitDiags)
+    }
+    catch (Err e)
+    {
+      LspProtocol.logInfo("Const init check error: $e")
     }
 
     return diagnostics
