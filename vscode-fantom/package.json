@@ -325,19 +325,24 @@
     "pretest": "pnpm run compile",
     "lint": "eslint src --ext ts",
     "test:extension": "node out/test/declarationRange.test.js",
+    "test:integration": "node out/test/debugAdapter.test.js",
+    "test:integration:vscode": "node out/test/integration/runTest.js",
     "test:grammar": "vscode-tmgrammar-snap -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",
     "test:grammar:update": "vscode-tmgrammar-snap -u -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\""
   },
   "dependencies": {},
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.x",
-    "esbuild": "^0.25.0",
-    "vscode-languageclient": "^9.0.1",
     "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^6.x",
     "@typescript-eslint/parser": "^6.x",
+    "@vscode/test-electron": "^2.4.1",
+    "esbuild": "^0.25.0",
     "eslint": "^8.x",
+    "mocha": "^10.7.3",
     "typescript": "^5.3.0",
+    "vscode-languageclient": "^9.0.1",
     "vscode-tmgrammar-test": "^0.1.3"
   },
   "repository": {
@@ -349,6 +354,7 @@
       "esbuild"
     ],
     "overrides": {
+      "serialize-javascript": ">=7.0.3",
       "eslint>minimatch": "^3.1.4",
       "glob>minimatch": "^3.1.4",
       "vscode-languageclient>minimatch": "^5.1.8",

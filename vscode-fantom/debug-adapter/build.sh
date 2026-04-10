@@ -6,6 +6,14 @@
 
 set -euo pipefail
 
+# Classpath separator: always ':' in the shell script.
+# When this script runs on Windows via Git Bash (MSYS2), the runtime
+# automatically converts POSIX colon-separated path lists to the
+# Windows semicolon-separated format before passing them to native
+# executables like javac and java.  Using ';' here would bypass that
+# conversion and cause Java to receive unconverted POSIX paths.
+CP_SEP=":"
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORK="$SCRIPT_DIR"
 DEST="$SCRIPT_DIR/../bundled-debug"
@@ -81,19 +89,19 @@ rm -rf "$TEST_CLASSES"
 mkdir -p "$TEST_CLASSES"
 
 javac --add-modules jdk.jdi \
-  -cp "$GSON_JAR:$CLASSES" \
+  -cp "$GSON_JAR${CP_SEP}$CLASSES" \
   -d "$TEST_CLASSES" \
   "$TEST_SRC/fan/lsp/debug/fantomDebugSession/StackInspectorTest.java" \
   "$TEST_SRC/fan/lsp/debug/fantomDebugSession/LaunchHandlerTest.java"
 
 echo "[test] Running StackInspectorTest..."
 java --add-modules jdk.jdi \
-  -cp "$GSON_JAR:$CLASSES:$TEST_CLASSES" \
+  -cp "$GSON_JAR${CP_SEP}$CLASSES${CP_SEP}$TEST_CLASSES" \
   fan.lsp.debug.fantomDebugSession.StackInspectorTest
 
 echo "[test] Running LaunchHandlerTest..."
 java --add-modules jdk.jdi \
-  -cp "$GSON_JAR:$CLASSES:$TEST_CLASSES" \
+  -cp "$GSON_JAR${CP_SEP}$CLASSES${CP_SEP}$TEST_CLASSES" \
   fan.lsp.debug.fantomDebugSession.LaunchHandlerTest
 
 echo "[test] All tests passed."
