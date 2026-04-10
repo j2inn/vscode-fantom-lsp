@@ -1,3 +1,4 @@
+import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -23,6 +24,7 @@ let outputChannel: vscode.OutputChannel;
 
 let errorStatusItem: vscode.StatusBarItem | undefined;
 let warnStatusItem: vscode.StatusBarItem | undefined;
+let buildChannel: vscode.OutputChannel | undefined;
 
 const POD_FILE_NEW = 'vscodeFantomLsp.pod';
 const POD_FILE_LEGACY = 'lsp.pod';
@@ -687,6 +689,94 @@ async function suggestLaunchJson(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Build / test helpers
+// ---------------------------------------------------------------------------
+
+function getBuildChannel(): vscode.OutputChannel {
+  if (!buildChannel) {
+    buildChannel = vscode.window.createOutputChannel('Fantom Build');
+  }
+  return buildChannel;
+}
+
+/** Derive FAN_HOME from the resolved fan executable path (two levels up). */
+function fanHomeFromExe(fanExe: string): string {
+  return path.dirname(path.dirname(fanExe));
+}
+
+/**
+ * Spawn a fan process, streaming stdout/stderr to `channel`.
+ * Returns the process exit code.
+ */
+function spawnFan(
+  fanExe: string,
+  fanHome: string,
+  args: string[],
+  cwd: string,
+  channel: vscode.OutputChannel
+): Promise<number> {
+  const env = { ...process.env, FAN_HOME: fanHome };
+  channel.appendLine(`> ${[fanExe, ...args].join(' ')}`);
+  return new Promise((resolve) => {
+    const child = cp.spawn(fanExe, args, { cwd, env, shell: isWindows });
+    child.stdout?.on('data', (d: Buffer) => channel.append(d.toString()));
+    child.stderr?.on('data', (d: Buffer) => channel.append(d.toString()));
+    child.on('close', (code) => resolve(code ?? 1));
+    child.on('error', (e) => {
+      channel.appendLine(`\nError: ${e.message}`);
+      resolve(1);
+    });
+  });
+}
+
+/**
+ * Walk up from `filePath` toward `workspaceRoot` to find the nearest build.fan.
+ * Returns undefined if none is found within the workspace.
+ */
+function findBuildFanForFile(filePath: string, workspaceRoot: string): string | undefined {
+  let dir = path.dirname(filePath);
+  while (true) {
+    const candidate = path.join(dir, 'build.fan');
+    if (fs.existsSync(candidate)) { return candidate; }
+    if (dir === workspaceRoot) { break; }
+    const parent = path.dirname(dir);
+    if (parent === dir) { break; }
+    dir = parent;
+  }
+  return undefined;
+}
+
+/** Read the podName value from a build.fan file. */
+function readPodName(buildFanPath: string): string | undefined {
+  try {
+    const m = fs.readFileSync(buildFanPath, 'utf8').match(/podName\s*=\s*"([^"]+)"/);
+    return m?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+/** Find all .fan test files under src/test directories in the workspace. */
+async function findTestFiles(): Promise<string[]> {
+  const uris = await vscode.workspace.findFiles('**/src/test/**/*.fan', '**/node_modules/**');
+  return uris.map(u => u.fsPath).sort();
+}
+
+/** Parse Void testXxx() method names from a Fantom source file. */
+function parseTestMethods(filePath: string): string[] {
+  try {
+    const methods: string[] = [];
+    for (const line of fs.readFileSync(filePath, 'utf8').split('\n')) {
+      const m = line.trim().match(/^(?:override\s+)?Void\s+(test\w+)\s*\(\s*\)/);
+      if (m) { methods.push(m[1]); }
+    }
+    return methods;
+  } catch {
+    return [];
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
   log('Extension activating...');
@@ -1074,6 +1164,223 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'Fantom: launch.json created. Update "mainClass" to your pod\'s entry point.');
       } catch (e: any) {
         vscode.window.showErrorMessage(`Fantom: Could not create launch.json: ${e.message}`);
+      }
+    })
+  );
+
+  // --- Command: Compile project ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fantom.compile', async () => {
+      const finConfig = await readFinConfig();
+      if (!finConfig) { return; }
+      const fanExe = resolveFanPath(finConfig);
+      if (!fanExe) { return; }
+
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showWarningMessage('Fantom: No workspace folder open.');
+        return;
+      }
+
+      const cwd = folder.uri.fsPath;
+      const fanHome = fanHomeFromExe(fanExe);
+      const script = fs.existsSync(path.join(cwd, 'build.all')) ? 'build.all' : 'build.fan';
+
+      const channel = getBuildChannel();
+      channel.clear();
+      channel.show(true);
+
+      const code = await spawnFan(fanExe, fanHome, [script, 'compile'], cwd, channel);
+      if (code === 0) {
+        vscode.window.showInformationMessage('Fantom: Compilation successful.');
+      } else {
+        vscode.window.showErrorMessage(`Fantom: Compilation failed (exit ${code}). See "Fantom Build" output.`);
+      }
+    })
+  );
+
+  // --- Command: Run all tests ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fantom.runAllTests', async () => {
+      const finConfig = await readFinConfig();
+      if (!finConfig) { return; }
+      const fanExe = resolveFanPath(finConfig);
+      if (!fanExe) { return; }
+
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showWarningMessage('Fantom: No workspace folder open.');
+        return;
+      }
+
+      const cwd = folder.uri.fsPath;
+      const fanHome = fanHomeFromExe(fanExe);
+
+      const channel = getBuildChannel();
+      channel.clear();
+      channel.show(true);
+
+      const code = await spawnFan(fanExe, fanHome, ['build.fan', 'test'], cwd, channel);
+      if (code === 0) {
+        vscode.window.showInformationMessage('Fantom: All tests passed.');
+      } else {
+        vscode.window.showErrorMessage(`Fantom: Tests failed (exit ${code}). See "Fantom Build" output.`);
+      }
+    })
+  );
+
+  // --- Command: Run all tests in file ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fantom.runTestsInFile', async () => {
+      const finConfig = await readFinConfig();
+      if (!finConfig) { return; }
+      const fanExe = resolveFanPath(finConfig);
+      if (!fanExe) { return; }
+
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showWarningMessage('Fantom: No workspace folder open.');
+        return;
+      }
+
+      const testFiles = await findTestFiles();
+      if (testFiles.length === 0) {
+        vscode.window.showWarningMessage('Fantom: No test files found under src/test/.');
+        return;
+      }
+
+      const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
+      const items = testFiles.map(f => ({
+        label: path.basename(f, '.fan'),
+        description: path.relative(folder.uri.fsPath, f),
+        filePath: f,
+      }));
+      // Surface the currently open test file at the top
+      if (activeFile) {
+        const activeIdx = items.findIndex(i => i.filePath === activeFile);
+        if (activeIdx > 0) {
+          items.unshift(...items.splice(activeIdx, 1));
+        }
+      }
+
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select test file',
+        matchOnDescription: true,
+      });
+      if (!picked) { return; }
+
+      const buildFanPath = findBuildFanForFile(picked.filePath, folder.uri.fsPath)
+        ?? path.join(folder.uri.fsPath, 'build.fan');
+      const podName = readPodName(buildFanPath);
+      if (!podName) {
+        vscode.window.showErrorMessage('Fantom: Could not read podName from build.fan.');
+        return;
+      }
+
+      const className = path.basename(picked.filePath, '.fan');
+      const fanHome = fanHomeFromExe(fanExe);
+      const cwd = path.dirname(buildFanPath);
+
+      const channel = getBuildChannel();
+      channel.clear();
+      channel.show(true);
+
+      const compileCode = await spawnFan(fanExe, fanHome, ['build.fan', 'compile'], cwd, channel);
+      if (compileCode !== 0) {
+        vscode.window.showErrorMessage('Fantom: Compilation failed. Fix errors before running tests.');
+        return;
+      }
+
+      channel.appendLine('');
+      const testCode = await spawnFan(fanExe, fanHome, [`${podName}::${className}`], cwd, channel);
+      if (testCode === 0) {
+        vscode.window.showInformationMessage(`Fantom: ${className} — all tests passed.`);
+      } else {
+        vscode.window.showErrorMessage(`Fantom: ${className} — tests failed. See "Fantom Build" output.`);
+      }
+    })
+  );
+
+  // --- Command: Run specific test method in file ---
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fantom.runTestMethod', async () => {
+      const finConfig = await readFinConfig();
+      if (!finConfig) { return; }
+      const fanExe = resolveFanPath(finConfig);
+      if (!fanExe) { return; }
+
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showWarningMessage('Fantom: No workspace folder open.');
+        return;
+      }
+
+      const testFiles = await findTestFiles();
+      if (testFiles.length === 0) {
+        vscode.window.showWarningMessage('Fantom: No test files found under src/test/.');
+        return;
+      }
+
+      const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
+      const fileItems = testFiles.map(f => ({
+        label: path.basename(f, '.fan'),
+        description: path.relative(folder.uri.fsPath, f),
+        filePath: f,
+      }));
+      if (activeFile) {
+        const activeIdx = fileItems.findIndex(i => i.filePath === activeFile);
+        if (activeIdx > 0) {
+          fileItems.unshift(...fileItems.splice(activeIdx, 1));
+        }
+      }
+
+      const pickedFile = await vscode.window.showQuickPick(fileItems, {
+        placeHolder: 'Select test file',
+        matchOnDescription: true,
+      });
+      if (!pickedFile) { return; }
+
+      const methods = parseTestMethods(pickedFile.filePath);
+      if (methods.length === 0) {
+        vscode.window.showWarningMessage(`Fantom: No test methods found in ${path.basename(pickedFile.filePath)}.`);
+        return;
+      }
+
+      const pickedMethod = await vscode.window.showQuickPick(
+        methods.map(m => ({ label: m })),
+        { placeHolder: 'Select test method' }
+      );
+      if (!pickedMethod) { return; }
+
+      const buildFanPath = findBuildFanForFile(pickedFile.filePath, folder.uri.fsPath)
+        ?? path.join(folder.uri.fsPath, 'build.fan');
+      const podName = readPodName(buildFanPath);
+      if (!podName) {
+        vscode.window.showErrorMessage('Fantom: Could not read podName from build.fan.');
+        return;
+      }
+
+      const className = path.basename(pickedFile.filePath, '.fan');
+      const fanHome = fanHomeFromExe(fanExe);
+      const cwd = path.dirname(buildFanPath);
+
+      const channel = getBuildChannel();
+      channel.clear();
+      channel.show(true);
+
+      const compileCode = await spawnFan(fanExe, fanHome, ['build.fan', 'compile'], cwd, channel);
+      if (compileCode !== 0) {
+        vscode.window.showErrorMessage('Fantom: Compilation failed. Fix errors before running tests.');
+        return;
+      }
+
+      channel.appendLine('');
+      const testSpec = `${podName}::${className}.${pickedMethod.label}`;
+      const testCode = await spawnFan(fanExe, fanHome, [testSpec], cwd, channel);
+      if (testCode === 0) {
+        vscode.window.showInformationMessage(`Fantom: ${pickedMethod.label} passed.`);
+      } else {
+        vscode.window.showErrorMessage(`Fantom: ${pickedMethod.label} failed. See "Fantom Build" output.`);
       }
     })
   );
