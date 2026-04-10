@@ -7,9 +7,43 @@ on:
       - master
 
 jobs:
-  test:
-    name: Run Tests
+  # ---------------------------------------------------------------------------
+  # Fantom pod: compile + unit tests (Linux only — no Windows Fantom runtime)
+  # ---------------------------------------------------------------------------
+  fantom:
+    name: Fantom tests
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Fantom
+        run: printf '\n\n' | bash install-fantom.sh
+
+      - name: Set FAN_HOME
+        run: |
+          FAN_HOME=$(find /tmp -maxdepth 1 -name 'fantom-*' -type d | head -1)
+          echo "FAN_HOME=$FAN_HOME" >> "$GITHUB_ENV"
+          echo "$FAN_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Build Fantom pod
+        run: fan build.fan
+
+      - name: Run Fantom tests
+        run: fan build.fan test
+
+  # ---------------------------------------------------------------------------
+  # TypeScript + integration tests: run on both Linux and Windows
+  # ---------------------------------------------------------------------------
+  typescript:
+    name: TypeScript & integration tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -28,20 +62,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: vscode-fantom/pnpm-lock.yaml
 
-      - name: Install Fantom
-        run: printf '\n\n' | bash install-fantom.sh
-
-      - name: Set FAN_HOME
-        run: |
-          FAN_HOME=$(find /tmp -maxdepth 1 -name 'fantom-*' -type d | head -1)
-          echo "FAN_HOME=$FAN_HOME" >> "$GITHUB_ENV"
-          echo "$FAN_HOME/bin" >> "$GITHUB_PATH"
-
-      - name: Build Fantom pod
-        run: fan build.fan
-
-      - name: Run Fantom tests
-        run: fan build.fan test
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Install Node.js dependencies
         working-directory: vscode-fantom
@@ -51,14 +76,22 @@ jobs:
         working-directory: vscode-fantom
         run: pnpm audit --audit-level=high
 
+      - name: Build debug adapter JAR
+        working-directory: vscode-fantom
+        run: bash debug-adapter/build.sh
+
       - name: Compile TypeScript
         working-directory: vscode-fantom
         run: pnpm run compile
 
-      - name: Run extension tests
+      - name: Run unit tests
         working-directory: vscode-fantom
         run: pnpm run test:extension
 
       - name: Run grammar tests
         working-directory: vscode-fantom
         run: pnpm run test:grammar
+
+      - name: Run integration tests
+        working-directory: vscode-fantom
+        run: pnpm run test:integration
