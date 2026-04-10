@@ -40,6 +40,14 @@ jobs:
           echo "FAN_HOME=$FAN_HOME" >> "$GITHUB_ENV"
           echo "$FAN_HOME/bin" >> "$GITHUB_PATH"
 
+      - name: Detect pre-release
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "IS_PRERELEASE=true"  >> "$GITHUB_ENV"
+          else
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Build Fantom pod
         run: fan build.fan -DbuildVersion="${GITHUB_REF_NAME#v}"
 
@@ -81,11 +89,16 @@ jobs:
 
       - name: Package VSCode extension
         working-directory: vscode-fantom
-        run: pnpm dlx @vscode/vsce package --no-dependencies "${GITHUB_REF_NAME#v}"
+        run: |
+          EXTRA_FLAGS=""
+          [[ "$IS_PRERELEASE" == "true" ]] && EXTRA_FLAGS="--pre-release"
+          pnpm dlx @vscode/vsce package $EXTRA_FLAGS \
+            --no-dependencies "${GITHUB_REF_NAME#v}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ env.IS_PRERELEASE }}
           body_path: CHANGELOG.md
           fail_on_unmatched_files: true
           files: |
