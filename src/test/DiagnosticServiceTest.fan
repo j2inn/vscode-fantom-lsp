@@ -4391,6 +4391,145 @@ class DiagnosticServiceTest : Test
     verifyEq(multiLineStrDiags.size, 0,
       "String literal with 'class X : Y' must not produce multi-line Str errors")
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Cross-Class Const Static Initializer
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Basic cross-class const static initializer: warn when class B initializes
+  ** a const static field from another class's field (A.v1).
+  **
+  Void testConstInitCrossClassRef()
+  {
+    source :=
+      "class B\n" +
+      "{\n" +
+      "  const static Str v2 := A.v1\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/B.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("A.v1") }
+    verify(constDiags.size >= 1,
+      "Expected a warning about 'A.v1' cross-class const initializer")
+    verify(constDiags[0].message.contains("may not be loaded"),
+      "Warning message should mention loading order risk")
+  }
+
+  **
+  ** Same-class const static reference must not warn.
+  **
+  Void testConstInitSameClassNoWarn()
+  {
+    source :=
+      "class A\n" +
+      "{\n" +
+      "  const static Str v1 := \"hello\"\n" +
+      "  const static Str v2 := A.v1\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/A.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("A.v1") && d.message.contains("may not be loaded") }
+    verifyEq(constDiags.size, 0,
+      "Same-class const static reference should not produce a warning")
+  }
+
+  **
+  ** String literal initializer must not warn.
+  **
+  Void testConstInitLiteralNoWarn()
+  {
+    source :=
+      "class A\n" +
+      "{\n" +
+      "  const static Str v1 := \"hello\"\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/A.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("may not be loaded") }
+    verifyEq(constDiags.size, 0,
+      "String literal initializer should not produce a cross-class const warning")
+  }
+
+  **
+  ** Non-const static field (missing 'const') must not warn.
+  **
+  Void testConstInitNonConstNoWarn()
+  {
+    source :=
+      "class B\n" +
+      "{\n" +
+      "  static Str v2 := A.v1\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/B.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("A.v1") && d.message.contains("may not be loaded") }
+    verifyEq(constDiags.size, 0,
+      "Non-const static field should not trigger the cross-class const warning")
+  }
+
+  **
+  ** Method call on the RHS must not warn (method calls load the target class).
+  **
+  Void testConstInitMethodCallNoWarn()
+  {
+    source :=
+      "class B\n" +
+      "{\n" +
+      "  const static Str v := A.compute()\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/B.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("A.compute") && d.message.contains("may not be loaded") }
+    verifyEq(constDiags.size, 0,
+      "Method call in const static initializer should not warn")
+  }
+
+  **
+  ** Two classes in the same file: only the cross-class reference in class B
+  ** should warn; class A's literal initializer should not.
+  **
+  Void testConstInitMultiClassInFile()
+  {
+    source :=
+      "class A\n" +
+      "{\n" +
+      "  const static Str v1 := \"hello\"\n" +
+      "}\n" +
+      "class B\n" +
+      "{\n" +
+      "  const static Str v2 := A.v1\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/AB.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("may not be loaded") }
+    verifyEq(constDiags.size, 1,
+      "Exactly one cross-class const warning expected (for B.v2 := A.v1)")
+    verify(constDiags[0].message.contains("A.v1"),
+      "Warning should identify the problematic reference 'A.v1'")
+  }
+
+  **
+  ** The exact user-reported scenario: const class B with const static field
+  ** initialized from class A.
+  **
+  Void testConstInitUserScenario()
+  {
+    source :=
+      "class A\n" +
+      "{\n" +
+      "  const static Str v1 := \"hello\"\n" +
+      "}\n" +
+      "const class B\n" +
+      "{\n" +
+      "  const static Str v2 := A.v1\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/AB.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("A.v1") && d.message.contains("may not be loaded") }
+    verify(constDiags.size >= 1,
+      "User scenario: const static Str v2 := A.v1 must produce a warning")
+  }
 }
 
 internal class DiagnosticServiceBuilderFacade

@@ -206,6 +206,48 @@
         "command": "fantom.rebuildDebugAdapter",
         "title": "Rebuild debugger",
         "category": "Fantom"
+      },
+      {
+        "command": "fantom.compile",
+        "title": "Compile Project",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.runAllTests",
+        "title": "Run All Tests",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.runTestsInFile",
+        "title": "Run All Tests in File…",
+        "category": "Fantom"
+      },
+      {
+        "command": "fantom.runTestMethod",
+        "title": "Run Test Method…",
+        "category": "Fantom"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "fantom.compile",
+        "key": "ctrl+f9",
+        "mac": "cmd+f9"
+      },
+      {
+        "command": "fantom.runAllTests",
+        "key": "ctrl+shift+f9",
+        "mac": "cmd+shift+f9"
+      },
+      {
+        "command": "fantom.runTestsInFile",
+        "key": "ctrl+f10",
+        "mac": "cmd+f10"
+      },
+      {
+        "command": "fantom.runTestMethod",
+        "key": "ctrl+shift+f10",
+        "mac": "cmd+shift+f10"
       }
     ],
     "configuration": {

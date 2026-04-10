@@ -490,11 +490,7 @@ class LspServer
 
       sendProgress("report", "Analyzing files\u2026", 35)
       LspProtocol.logInfo("backgroundInit: analyzing all files...")
-      dependentErrorFiles := analyzeAndValidateAllFiles
-
-      sendProgress("report", "Build check\u2026", 25)
-      // Run full project build check on workspace open — show popup at boot
-      runBuild(dependentErrorFiles, true)
+      analyzeAndValidateAllFiles
 
       sendProgress("end", "Ready")
     }
@@ -651,9 +647,8 @@ class LspServer
       hasSaveErrors := saveDiags.any |d| { d.severity == DiagnosticSeverity.error }
       projectIndex.indexSavedFile(uri, doc.text, hasSaveErrors)
 
-      // Re-run full diagnostics/build to update dependent files.
-      dependentErrorFiles := analyzeAndValidateAllFiles
-      runBuild(dependentErrorFiles, false, uri)
+      // Re-run diagnostics for all files to update cross-file errors.
+      analyzeAndValidateAllFiles
     }
   }
 
@@ -981,8 +976,7 @@ class LspServer
     showMessage("\uD83D\uDC7B Fantom LSP: File changes detected (${summary}) \u2014 reindexing project...", 3)
 
     projectIndex.indexAll
-    dependentErrorFiles := analyzeAndValidateAllFiles
-    runBuild(dependentErrorFiles)
+    analyzeAndValidateAllFiles
   }
 
   **
