@@ -480,9 +480,12 @@ class ProjectIndex
   **
   Str? extractBaseTypeName(Str typeName)
   {
-    // Check AST-derived base type map first
+    // Trust AST-derived base only when the base is itself a known project type.
+    // If the compiler couldn't resolve the base (e.g. unresolved cross-file ref),
+    // it falls back to "Obj" — which is not in the project index — so we skip it
+    // and re-derive the base from the source text instead.
     astBase := baseTypeByType[typeName]
-    if (astBase != null) return astBase
+    if (astBase != null && hasType(astBase)) return astBase
 
     syms := findSymbols(typeName)
     typeSym := syms.find |s| { s.kind == SymbolKind.type }
@@ -531,17 +534,12 @@ class ProjectIndex
         // Skip := (walrus operator)
         if (colonIdx + 1 < line.size && line[colonIdx + 1] == '=') continue
 
-        // Extract the first base type after the colon
+        // Extract the first identifier after the colon
         afterColon := line[colonIdx + 1 ..-1].trim
-        // Remove trailing {
-        if (afterColon.endsWith("{"))
-          afterColon = afterColon[0 ..< afterColon.size - 1].trim
-        // Take first type (before comma if multiple)
-        commaIdx := afterColon.index(",")
-        if (commaIdx != null) afterColon = afterColon[0 ..< commaIdx].trim
-
-        if (afterColon.size > 0 && afterColon[0].isUpper)
-          return afterColon
+        nameEnd := 0
+        while (nameEnd < afterColon.size && LspUtil.isIdentifierChar(afterColon[nameEnd])) nameEnd++
+        if (nameEnd > 0 && afterColon[0].isUpper)
+          return afterColon[0..<nameEnd]
 
       }
     }
@@ -560,6 +558,17 @@ class ProjectIndex
       if (syms.any |s| { s.kind == SymbolKind.type })
         result.add(name)
     }
+    return result
+  }
+
+  **
+  ** Return a map of fileUri -> source for every indexed file.
+  ** Used by ReferencesService to scan all sources for usage sites.
+  **
+  Str:Str allFileSources()
+  {
+    result := Str:Str[:]
+    fileIndexes.each |idx, uri| { result[uri] = idx.source }
     return result
   }
 
