@@ -32,6 +32,9 @@ class LspServer
   ** Formatter service
   private FormatterService formatterSvc
 
+  ** References service
+  private ReferencesService referencesSvc
+
   ** Formatter options (from initializationOptions / .editorconfig)
   private FormatterOptions formatterOpts := FormatterOptions()
 
@@ -47,7 +50,8 @@ class LspServer
     HoverService hoverService,
     PodWatchService podWatcher,
     CodeActionService codeActionSvc,
-    FormatterService formatterSvc)
+    FormatterService formatterSvc,
+    ReferencesService referencesSvc)
   {
     this.docMgr = docMgr
     this.projectIndex = projectIndex
@@ -58,6 +62,7 @@ class LspServer
     this.podWatcher = podWatcher
     this.codeActionSvc = codeActionSvc
     this.formatterSvc = formatterSvc
+    this.referencesSvc = referencesSvc
   }
 
   ** Output stream for sending responses
@@ -296,6 +301,10 @@ class LspServer
         return handleCompletion(params)
       case "textDocument/definition":
         return handleDefinition(params)
+      case "textDocument/references":
+        return handleReferences(params)
+      case "textDocument/implementation":
+        return handleImplementation(params)
       case "textDocument/hover":
         return handleHover(params)
       case "textDocument/codeAction":
@@ -393,6 +402,8 @@ class LspServer
         ],
         "diagnosticProvider": [:],
         "definitionProvider": true,
+        "referencesProvider": true,
+        "implementationProvider": true,
         "hoverProvider": true,
         "codeActionProvider": true,
         "documentFormattingProvider": formatterEnabled,
@@ -1018,6 +1029,44 @@ class LspServer
     if (doc == null) return null
 
     return definition.findDefinition(uri, pos, doc.text, projectIndex)
+  }
+
+  **
+  ** Handle textDocument/references request
+  **
+  private Obj? handleReferences(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    position     := params["position"]     as Str:Obj?
+    context      := params["context"]      as Str:Obj?
+    if (textDocument == null || position == null) return null
+
+    uri  := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    pos  := LspPosition.fromMap(position)
+    incl := context != null ? ((context["includeDeclaration"] as Bool) ?: false) : false
+
+    doc := docMgr.get(uri)
+    if (doc == null) return null
+
+    return referencesSvc.findReferences(uri, pos, doc.text, projectIndex, incl)
+  }
+
+  **
+  ** Handle textDocument/implementation request
+  **
+  private Obj? handleImplementation(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    position     := params["position"]     as Str:Obj?
+    if (textDocument == null || position == null) return null
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    pos := LspPosition.fromMap(position)
+
+    doc := docMgr.get(uri)
+    if (doc == null) return null
+
+    return referencesSvc.findImplementations(uri, pos, doc.text, projectIndex)
   }
 
   **

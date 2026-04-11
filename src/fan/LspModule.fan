@@ -12,11 +12,12 @@ class LspModule
 	PodWatchService podWatcher := PodWatchService()
 	CodeActionService codeActionSvc := CodeActionService()
 	FormatterService formatterSvc := FormatterService()
+	ReferencesService referencesSvc := ReferencesService()
 
 	LspServer server
 
 	new make()
 	{
-		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher, codeActionSvc, formatterSvc)
+		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher, codeActionSvc, formatterSvc, referencesSvc)
 	}
 }

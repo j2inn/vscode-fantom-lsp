@@ -1025,4 +1025,19 @@ class ProjectIndexTest : Test
     verifyEq(labelFld.typeStr, "Str",
       "Str? field must have typeStr=\"Str\" (nullable marker stripped by extractDeclaredType)")
   }
+
+  Void testGetBaseTypeChainMultiLevel()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///A.fan", "class A {\n  Void go() {}\n}\n")
+    idx.indexFile("file:///B.fan", "class B : A {}\n")
+    idx.indexFile("file:///C.fan", "class C : B {}\n")
+
+    chainB := idx.getBaseTypeChain("B")
+    verify(chainB.contains("A"), "B's chain must include A, got: $chainB")
+
+    chainC := idx.getBaseTypeChain("C")
+    verify(chainC.contains("B"), "C's chain must include B, got: $chainC")
+    verify(chainC.contains("A"), "C's chain must include A, got: $chainC")
+  }
 }
