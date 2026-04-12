@@ -1040,4 +1040,24 @@ class ProjectIndexTest : Test
     verify(chainC.contains("B"), "C's chain must include B, got: $chainC")
     verify(chainC.contains("A"), "C's chain must include A, got: $chainC")
   }
+
+  Void testGetVarTypesCtorInference()
+  {
+    // Cross-file ctor inference: svc := Svc() — Svc is in a different file
+    a := "class Svc { Void stop() {} }\n"
+    b :=
+      "class Main {\n" +
+      "  Void run() {\n" +
+      "    svc := Svc()\n" +
+      "    svc.stop()\n" +
+      "  }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile("file:///Svc.fan", a)
+    idx.indexFile("file:///Main.fan", b)
+
+    varTypes := idx.getVarTypesForFile("file:///Main.fan")
+    verifyEq(varTypes["svc"], "Svc",
+      "ctor-inferred type must resolve to 'Svc', got varTypes=$varTypes")
+  }
 }

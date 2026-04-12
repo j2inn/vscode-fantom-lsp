@@ -89,7 +89,8 @@ class TypeResolver
     if (endIdx < line.size)
     {
       afterCh := line[endIdx]
-      if (afterCh == '[' || afterCh == '.' || afterCh == '(') return null
+      // '?' means null-safe access (foo?.bar) or nullable cast — not a declaration
+      if (afterCh == '[' || afterCh == '.' || afterCh == '(' || afterCh == '?') return null
     }
 
     before := line[0..<idx].trim
@@ -105,6 +106,10 @@ class TypeResolver
     }
 
     if (before.isEmpty) return null
+    // Guard: varName appears as a dict-literal value (KEY : varName) — before ends
+    // with ':'; or varName is on the RHS of another assignment (other := ... varName)
+    // — before contains ':='.  Neither is a type declaration for varName.
+    if (before.endsWith(":") || before.contains(":=")) return null
     // [MapType][] → List of maps (e.g. [Str:Obj?][] → List, not Map)
     if (before.startsWith("[") && before.endsWith("][]")) return "List"
     // Map type: Str:Dict[] or [Str:Dict] — must check for ':' before '[]' check
@@ -212,13 +217,19 @@ class TypeResolver
       if (castType.size > 0 && castType[0].isUpper)
       {
         resolved := defs.resolveAlias(castType)
-        return resolved ?: (index.hasType(castType) ? castType : null)
+        if (resolved != null) return resolved
+        if (index.hasType(castType)) return castType
+        // Check using-pod types (e.g. "as Number", "as Ref", "as Dict")
+        if (UsingPodIndex.fromSource(source).hasType(castType)) return castType
       }
     }
 
-    // Method call chain: receiver.method(args) or method(args)
-    // e.g.: "this.consumptionRows.colToList(TAG_NAME)" -> sys::List
+    // Method call chain: receiver.method(args) or bare method call
     rhsType := inferReturnTypeFromMethodCall(rhs, source, lineNum, index)
+    if (rhsType != null) return rhsType
+
+    // Field/property access without parens: receiver.field
+    rhsType = inferTypeFromMemberAccess(rhs, source, lineNum, index)
     if (rhsType != null) return rhsType
 
     return null
@@ -226,7 +237,7 @@ class TypeResolver
 
   **
   ** Try to infer the return type from a method-call expression on the RHS.
-  ** Handles patterns like: receiver.method(args)
+  ** Handles: receiver.method(args), TypeName.method(args), and bare method(args).
   ** First tries to resolve the receiver's type and look up the method slot.
   ** Falls back to searching the method name across all pods from 'using' statements.
   **
@@ -239,7 +250,23 @@ class TypeResolver
     // Everything before the first '(' is: receiver.methodName (or just methodName)
     beforeParen := rhs[0..<parenIdx].trim
     dotIdx := beforeParen.indexr(".")
-    if (dotIdx == null) return null
+
+    // Bare method call with no receiver (e.g. "methodName(args)")
+    if (dotIdx == null)
+    {
+      methodName := beforeParen
+      if (methodName.isEmpty || !methodName[0].isLower) return null
+      // Check project index: method declared in the same (or sibling) file
+      syms := index.findSymbols(methodName)
+      sym := syms.find |s|
+      {
+        s.kind == SymbolKind.method && s.typeStr != null &&
+        s.typeStr != "Void" && s.typeStr != "Obj"
+      }
+      if (sym != null) return sym.typeStr
+      // Fallback: search using-pod types
+      return findMethodReturnTypeByName(methodName, source, index)
+    }
 
     methodName := beforeParen[dotIdx + 1..-1].trim
     receiverExpr := beforeParen[0..<dotIdx].trim
@@ -259,8 +286,77 @@ class TypeResolver
       }
     }
 
+    // Check project index when reflection couldn't resolve the receiver type.
+    // Handles both uppercase receivers (static calls: TypeName.method()) and
+    // lowercase receivers whose explicit declared type is a project type
+    // (e.g. "Parser p := Parser(); p.parse(s)").
+    Str? indexTypeName := null
+    if (receiverExpr.size > 0 && receiverExpr[0].isUpper)
+      indexTypeName = receiverExpr
+    else
+      indexTypeName = resolveExplicitDeclaredType(receiverExpr, source)
+
+    if (indexTypeName != null && index.hasType(indexTypeName))
+    {
+      sym := index.findMemberSymbol(indexTypeName, methodName)
+      if (sym != null && sym.typeStr != null &&
+          sym.typeStr != "Void" && sym.typeStr != "Obj")
+        return sym.typeStr
+    }
+
     // Fallback: search by method name across all pods referenced by 'using' statements
     return findMethodReturnTypeByName(methodName, source, index)
+  }
+
+  **
+  ** Infer type from a field or zero-arg-method access with no parentheses.
+  ** Handles: receiver.field  (no parens on the RHS).
+  ** Tries reflection first, then the project index.
+  **
+  private static Str? inferTypeFromMemberAccess(Str rhs, Str source, Int lineNum, ProjectIndex index)
+  {
+    // Only handle expressions with no parens (field/property access, not method calls)
+    if (rhs.index("(") != null) return null
+    dotIdx := rhs.indexr(".")
+    if (dotIdx == null) return null
+
+    memberName := rhs[dotIdx + 1..-1].trim
+    receiverExpr := rhs[0..<dotIdx].trim
+    if (memberName.isEmpty || receiverExpr.isEmpty) return null
+    if (!memberName[0].isAlpha) return null
+
+    // Try reflection: resolve receiver type -> look up slot
+    receiverReflType := resolveReceiverReflType(receiverExpr, source, lineNum, index)
+    if (receiverReflType != null)
+    {
+      slot := receiverReflType.slot(memberName, false)
+      if (slot != null)
+      {
+        Type? slotType := null
+        if (slot is Method) slotType = ((Method)slot).returns
+        else if (slot is Field) slotType = ((Field)slot).type
+        qname := reflTypeToQname(slotType)
+        if (qname != null) return qname
+      }
+    }
+
+    // Reflection failed — try project index
+    // Determine the receiver's type name: uppercase → use directly, lowercase → find explicit decl
+    Str? typeName := null
+    if (receiverExpr.size > 0 && receiverExpr[0].isUpper)
+      typeName = receiverExpr
+    else
+      typeName = resolveExplicitDeclaredType(receiverExpr, source)
+
+    if (typeName != null && index.hasType(typeName))
+    {
+      sym := index.findMemberSymbol(typeName, memberName)
+      if (sym != null && sym.typeStr != null &&
+          sym.typeStr != "Void" && sym.typeStr != "Obj")
+        return sym.typeStr
+    }
+
+    return null
   }
 
   **

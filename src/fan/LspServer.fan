@@ -35,6 +35,9 @@ class LspServer
   ** References service
   private ReferencesService referencesSvc
 
+  ** Rename service
+  private RenameService renameSvc
+
   ** Formatter options (from initializationOptions / .editorconfig)
   private FormatterOptions formatterOpts := FormatterOptions()
 
@@ -51,7 +54,8 @@ class LspServer
     PodWatchService podWatcher,
     CodeActionService codeActionSvc,
     FormatterService formatterSvc,
-    ReferencesService referencesSvc)
+    ReferencesService referencesSvc,
+    RenameService renameSvc)
   {
     this.docMgr = docMgr
     this.projectIndex = projectIndex
@@ -63,6 +67,7 @@ class LspServer
     this.codeActionSvc = codeActionSvc
     this.formatterSvc = formatterSvc
     this.referencesSvc = referencesSvc
+    this.renameSvc = renameSvc
   }
 
   ** Output stream for sending responses
@@ -305,6 +310,10 @@ class LspServer
         return handleReferences(params)
       case "textDocument/implementation":
         return handleImplementation(params)
+      case "textDocument/rename":
+        return handleRename(params)
+      case "textDocument/prepareRename":
+        return handlePrepareRename(params)
       case "textDocument/hover":
         return handleHover(params)
       case "textDocument/codeAction":
@@ -404,6 +413,7 @@ class LspServer
         "definitionProvider": true,
         "referencesProvider": true,
         "implementationProvider": true,
+        "renameProvider": ["prepareProvider": true],
         "hoverProvider": true,
         "codeActionProvider": true,
         "documentFormattingProvider": formatterEnabled,
@@ -1067,6 +1077,43 @@ class LspServer
     if (doc == null) return null
 
     return referencesSvc.findImplementations(uri, pos, doc.text, projectIndex)
+  }
+
+  **
+  ** Handle textDocument/rename request
+  **
+  private Obj? handleRename(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    position     := params["position"]     as Str:Obj?
+    newName      := params["newName"]      as Str
+    if (textDocument == null || position == null || newName == null) return null
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    pos := LspPosition.fromMap(position)
+
+    doc := docMgr.get(uri)
+    if (doc == null) return null
+
+    return renameSvc.rename(uri, pos, doc.text, newName, projectIndex)
+  }
+
+  **
+  ** Handle textDocument/prepareRename request
+  **
+  private Obj? handlePrepareRename(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    position     := params["position"]     as Str:Obj?
+    if (textDocument == null || position == null) return null
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    pos := LspPosition.fromMap(position)
+
+    doc := docMgr.get(uri)
+    if (doc == null) return null
+
+    return renameSvc.prepareRename(uri, pos, doc.text)
   }
 
   **

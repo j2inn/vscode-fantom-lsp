@@ -13,11 +13,12 @@ class LspModule
 	CodeActionService codeActionSvc := CodeActionService()
 	FormatterService formatterSvc := FormatterService()
 	ReferencesService referencesSvc := ReferencesService()
+	RenameService renameSvc := RenameService()
 
 	LspServer server
 
 	new make()
 	{
-		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher, codeActionSvc, formatterSvc, referencesSvc)
+		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher, codeActionSvc, formatterSvc, referencesSvc, renameSvc)
 	}
 }

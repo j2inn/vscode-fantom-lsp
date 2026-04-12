@@ -11,14 +11,21 @@ class ReferencesScanner
   ** Scan one source file for references matching the given target.
   ** Returns a (possibly empty) list of LSP Location maps.
   **
-  [Str:Obj?][] scan(Str fileUri, Str source, ReferencesTarget target)
+  ** Scan one source file for references matching the given target.
+  ** Pass a ProjectIndex so that local-variable scoping can use the AST-derived
+  ** method bounds instead of heuristic text detection.
+  ** Scan one source file for references matching the given target.
+  ** Pass a ProjectIndex so that receiver-type and method-bounds lookups use
+  ** AST-derived index data instead of heuristic text detection.
+  [Str:Obj?][] scan(Str fileUri, Str source, ReferencesTarget target,
+                    ProjectIndex? index := null)
   {
     lines := source.splitLines
     switch (target.kind)
     {
       case "type":   return scanType(fileUri, lines, target.name)
-      case "member": return scanMember(fileUri, lines, target)
-      case "local":  return scanLocal(fileUri, lines, target)
+      case "member": return scanMember(fileUri, lines, target, index)
+      case "local":  return scanLocal(fileUri, lines, target, index)
       default:       return [Str:Obj?][,]
     }
   }
@@ -49,24 +56,19 @@ class ReferencesScanner
   // Member references (method / field)
   // ---------------------------------------------------------------------------
 
-  private [Str:Obj?][] scanMember(Str fileUri, Str[] lines, ReferencesTarget target)
+  private [Str:Obj?][] scanMember(Str fileUri, Str[] lines, ReferencesTarget target,
+                                  ProjectIndex? index)
   {
-    results   := [Str:Obj?][,]
-    name      := target.name
-    family    := target.typeFamily
-    // Build a lightweight receiver-type map for this file: varName -> typeName
-    varTypes  := resolveVarTypes(lines)
-    curClass  := ""
+    results  := [Str:Obj?][,]
+    name     := target.name
+    family   := target.typeFamily
+    // Receiver-type map: prefer AST-indexed symbols; fall back to text heuristic
+    // only when no index is available (e.g. in isolated unit tests).
+    varTypes := index != null ? index.getVarTypesForFile(fileUri) : resolveVarTypes(lines)
 
     for (i := 0; i < lines.size; i++)
     {
-      line    := lines[i]
-      trimmed := line.trim
-
-      // Track current class for bare-call matching
-      cls := parseClassName(trimmed)
-      if (cls != null) curClass = cls
-
+      line := lines[i]
       if (!line.contains(name)) continue
 
       col := 0
@@ -78,7 +80,11 @@ class ReferencesScanner
 
         if (isInStringOrComment(line, found)) continue
 
-        // Determine if this usage is accepted
+        // Enclosing class: prefer index lookup; fall back to text scan
+        curClass := index != null
+          ? (index.getEnclosingTypeAtLine(fileUri, i) ?: "")
+          : enclosingClassFromText(lines, i)
+
         if (isAcceptedMemberUsage(line, found, name, curClass, family, varTypes))
           results.add(loc(fileUri, i, found, name.size))
       }
@@ -103,10 +109,12 @@ class ReferencesScanner
         return family.contains(receiver)
     }
 
-    // b) Bare call (no dot):  name(  or  name  inside class body
+    // b) Bare call:  name(  or  name  inside class body — preceding char must not be '.'
+    //    (checking only the immediate predecessor avoids false exclusions when a dot
+    //     appears earlier on the same line, e.g. "TypeName.method(name, ...)")
     if ((col == 0 || !LspUtil.isIdentifierChar(line[col - 1])) && curClass != "")
     {
-      if (!line[0..<col].contains("."))
+      if (col == 0 || line[col - 1] != '.')
         return family.contains(curClass)
     }
 
@@ -128,39 +136,25 @@ class ReferencesScanner
   // Local variable references (single-file, method-scoped)
   // ---------------------------------------------------------------------------
 
-  private [Str:Obj?][] scanLocal(Str fileUri, Str[] lines, ReferencesTarget target)
+  private [Str:Obj?][] scanLocal(Str fileUri, Str[] lines, ReferencesTarget target,
+                                 ProjectIndex? index)
   {
     if (target.localFileUri != fileUri) return [Str:Obj?][,]
-    results       := [Str:Obj?][,]
-    name          := target.name
-    inMethod      := false
-    methodDepth   := 0
-    curMethod     := ""
+    results := [Str:Obj?][,]
+    name    := target.name
 
-    for (i := 0; i < lines.size; i++)
+    // Use AST-derived method bounds when available — no heuristic text detection.
+    // Falls back to scanning the whole file only if the index is absent.
+    startLine := 0
+    endLine   := lines.size - 1
+    if (index != null)
     {
-      trimmed := lines[i].trim
+      bounds := index.getMethodBounds(fileUri, target.enclosingMethod)
+      if (bounds != null) { startLine = bounds[0]; endLine = bounds[1] }
+    }
 
-      // Detect method declarations (indent == 2, contains '(', starts with type)
-      if (isMethodDecl(trimmed))
-      {
-        if (curMethod == target.enclosingMethod) inMethod = false
-        curMethod  = parseMethodName(trimmed) ?: curMethod
-        methodDepth = 0
-        if (curMethod == target.enclosingMethod) inMethod = true
-        continue
-      }
-
-      if (!inMethod) continue
-
-      // Track brace depth to know when we leave the method
-      trimmed.each |ch|
-      {
-        if (ch == '{') methodDepth++
-        else if (ch == '}') methodDepth--
-      }
-      if (methodDepth < 0) { inMethod = false; continue }
-
+    for (i := startLine; i <= endLine && i < lines.size; i++)
+    {
       line := lines[i]
       if (!line.contains(name)) continue
       col := findWordInLine(line, name, 0)
@@ -302,45 +296,26 @@ class ReferencesScanner
     return inStr
   }
 
-  ** Return class/mixin name from a trimmed declaration line, or null
-  private Str? parseClassName(Str trimmed)
+  ** Fallback used only when no index is available (isolated unit tests).
+  ** Scans backward from lineNum to find the nearest class/mixin declaration.
+  private Str enclosingClassFromText(Str[] lines, Int lineNum)
   {
-    for (ki := 0; ki < 2; ki++)
+    for (i := lineNum; i >= 0; i--)
     {
-      kw  := ki == 0 ? "class " : "mixin "
-      idx := trimmed.index(kw)
-      if (idx == null) continue
-      if (idx > 0 && LspUtil.isIdentifierChar(trimmed[idx - 1])) continue
-      rest := trimmed[idx + kw.size ..-1].trim
-      end  := 0
-      while (end < rest.size && LspUtil.isIdentifierChar(rest[end])) end++
-      if (end > 0 && rest[0].isUpper) return rest[0..<end]
+      trimmed := lines[i].trim
+      for (ki := 0; ki < 2; ki++)
+      {
+        kw  := ki == 0 ? "class " : "mixin "
+        idx := trimmed.index(kw)
+        if (idx == null) continue
+        if (idx > 0 && LspUtil.isIdentifierChar(trimmed[idx - 1])) continue
+        rest := trimmed[idx + kw.size ..-1].trim
+        end  := 0
+        while (end < rest.size && LspUtil.isIdentifierChar(rest[end])) end++
+        if (end > 0 && rest[0].isUpper) return rest[0..<end]
+      }
     }
-    return null
+    return ""
   }
 
-  ** True if the trimmed line looks like a method declaration at indent 2
-  private Bool isMethodDecl(Str trimmed)
-  {
-    if (trimmed.isEmpty || trimmed[0].isUpper || trimmed.startsWith("//") ||
-        trimmed.startsWith("**")) return false
-    parenIdx := trimmed.index("(")
-    if (parenIdx == null) return false
-    // Ensure there's a word before '(' that starts with lowercase
-    nameStart := parenIdx - 1
-    while (nameStart > 0 && LspUtil.isIdentifierChar(trimmed[nameStart - 1])) nameStart--
-    if (nameStart >= parenIdx) return false
-    return trimmed[nameStart].isLower
-  }
-
-  private Str? parseMethodName(Str trimmed)
-  {
-    parenIdx := trimmed.index("(")
-    if (parenIdx == null) return null
-    nameEnd   := parenIdx
-    nameStart := nameEnd - 1
-    while (nameStart > 0 && LspUtil.isIdentifierChar(trimmed[nameStart - 1])) nameStart--
-    if (nameStart >= nameEnd) return null
-    return trimmed[nameStart..<nameEnd]
-  }
 }

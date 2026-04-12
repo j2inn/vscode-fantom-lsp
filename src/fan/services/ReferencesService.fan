@@ -19,7 +19,7 @@ class ReferencesService
     results := [Str:Obj?][,]
     index.allFileSources.each |src, fileUri|
     {
-      hits := scanner.scan(fileUri, src, target)
+      hits := scanner.scan(fileUri, src, target, index)
       results.addAll(hits)
     }
 

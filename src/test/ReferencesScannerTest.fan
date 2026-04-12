@@ -177,6 +177,28 @@ class ReferencesScannerTest : Test
     verify(locs.any |l| { lineOf([l]) == 3 })
   }
 
+  Void testScanMemberCtorInferenceCrossFile()
+  {
+    // Cross-file ctor inference: svc := Svc() where Svc is in a different file
+    mainUri := "file:///Main.fan"
+    main :=
+      "class Main {\n" +
+      "  Void run() {\n" +
+      "    svc := Svc()\n" +
+      "    svc.stop()\n" +
+      "  }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile("file:///Svc.fan", "class Svc { Void stop() {} }\n")
+    idx.indexFile(mainUri, main)
+
+    family := ["Svc"]
+    t := ReferencesTarget.forMember("stop", "Svc", family)
+    locs := s.scan(mainUri, main, t, idx)
+    verify(locs.any |l| { lineOf([l]) == 3 },
+      "svc.stop() via ctor-inferred type must be found, got: $locs.size results")
+  }
+
 //////////////////////////////////////////////////////////////////////////
 // Member scanning — no family (include all)
 //////////////////////////////////////////////////////////////////////////
@@ -187,6 +209,214 @@ class ReferencesScannerTest : Test
     t := ReferencesTarget.forMember("run", null, Str[,])
     locs := scan(source, t)
     verifyEq(locs.size, 2)
+  }
+
+  Void testScanMemberBareCallAfterDot()
+  {
+    // cx() first arg of a static call: "Foo.bar(cx, x)"
+    // Old bug: the dot in "Foo." caused cx to be excluded entirely.
+    source :=
+      "class A {\n" +
+      "  static Context cx() { Context.cur }\n" +
+      "  static Void test() { Foo.bar(cx, x) }\n" +
+      "}\n"
+    family := ["A"]
+    t := ReferencesTarget.forMember("cx", "A", family)
+    locs := scan(source, t)
+    verify(locs.any |l| { lineOf([l]) == 1 }, "Declaration must be found")
+    verify(locs.any |l| { lineOf([l]) == 2 }, "Bare call cx after Foo. must be found")
+  }
+
+  Void testScanMemberBareCallOnlyArg()
+  {
+    // cx() sole argument: "Util.clear(cx)"
+    source :=
+      "class A {\n" +
+      "  static Context cx() { Context.cur }\n" +
+      "  static Void test() { Util.clear(cx) }\n" +
+      "}\n"
+    family := ["A"]
+    t := ReferencesTarget.forMember("cx", "A", family)
+    locs := scan(source, t)
+    verify(locs.any |l| { lineOf([l]) == 2 }, "cx sole arg must be found")
+  }
+
+  Void testScanMemberBareCallSecondArgChained()
+  {
+    // cx() second arg in a constructor call, result immediately chained:
+    // "Service(logger, cx).run(sectionId)"
+    source :=
+      "class A {\n" +
+      "  static Context cx() { Context.cur }\n" +
+      "  static Void test() { Service(logger, cx).run(sectionId) }\n" +
+      "}\n"
+    family := ["A"]
+    t := ReferencesTarget.forMember("cx", "A", family)
+    locs := scan(source, t)
+    verify(locs.any |l| { lineOf([l]) == 2 }, "cx as second arg in chained ctor must be found")
+  }
+
+  Void testScanMemberBareCallAsReceiver()
+  {
+    // cx() used as receiver of a property chain: "cx.proj.dir"
+    source :=
+      "class A {\n" +
+      "  static Context cx() { Context.cur }\n" +
+      "  static Void test() { uri := cx.proj.dir.uri }\n" +
+      "}\n"
+    family := ["A"]
+    t := ReferencesTarget.forMember("cx", "A", family)
+    locs := scan(source, t)
+    verify(locs.any |l| { lineOf([l]) == 2 }, "cx as receiver of property chain must be found")
+  }
+
+  Void testScanMemberBareCallMultipleUsagesOnDifferentLines()
+  {
+    // Multiple bare cx() calls spread across multiple method bodies —
+    // all must be found. Mirrors IntelliplantNACoreLib.fan real-world usage.
+    source :=
+      "class A {\n" +
+      "  static Context cx() { Context.cur }\n" +
+      "  static Void m1() { Foo.bar(cx, true) }\n" +
+      "  static Void m2() { Service(logger, cx).run() }\n" +
+      "  static Void m3() { Util.go(cx) }\n" +
+      "}\n"
+    family := ["A"]
+    t := ReferencesTarget.forMember("cx", "A", family)
+    locs := scan(source, t)
+    verify(locs.any |l| { lineOf([l]) == 2 }, "cx in m1 must be found")
+    verify(locs.any |l| { lineOf([l]) == 3 }, "cx in m2 must be found")
+    verify(locs.any |l| { lineOf([l]) == 4 }, "cx in m3 must be found")
+  }
+
+  Void testScanLocalStaticCallDoesNotBreakMethodBoundary()
+  {
+    // Regression: "SysLib.recTrash(entities)" was wrongly detected as a method
+    // declaration boundary. scanLocal now uses AST-derived method bounds from the
+    // index instead of heuristic text detection, so this is no longer fragile.
+    // All 4 occurrences of 'entities' must be found (decl + isEmpty + recTrash + size).
+    source :=
+      "class A {\n" +
+      "  static Number clear(Context cx) {\n" +
+      "    entities := cx.proj.readAll(\"tag\")\n" +
+      "    if (entities.isEmpty) { return Number.zero }\n" +
+      "    SysLib.recTrash(entities)\n" +
+      "    return Number(entities.size)\n" +
+      "  }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile(uri, source)
+    t := ReferencesTarget.forLocal("entities", "clear", uri)
+    locs := s.scan(uri, source, t, idx)
+    verifyEq(locs.size, 4, "All 4 occurrences of 'entities' must be found, got: $locs.size")
+    verify(locs.any |l| { lineOf([l]) == 2 }, "declaration on line 2 must be found")
+    verify(locs.any |l| { lineOf([l]) == 3 }, "entities.isEmpty on line 3 must be found")
+    verify(locs.any |l| { lineOf([l]) == 4 }, "SysLib.recTrash(entities) on line 4 must be found")
+    verify(locs.any |l| { lineOf([l]) == 5 }, "entities.size on line 5 must be found")
+  }
+
+  Void testScanLocalScopedToMethodOnly()
+  {
+    // 'x' exists in two methods — only the one in the target method must be returned
+    source :=
+      "class A {\n" +
+      "  Void first() { x := 1 }\n" +
+      "  Void second() { x := 2 }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile(uri, source)
+    t := ReferencesTarget.forLocal("x", "first", uri)
+    locs := s.scan(uri, source, t, idx)
+    verifyEq(locs.size, 1, "Only x in first() must be found")
+    verify(locs.any |l| { lineOf([l]) == 1 })
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Implementations
+//////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////
+// Member scanning — multi-hierarchy isolation (real-world pattern)
+//////////////////////////////////////////////////////////////////////////
+
+  Void testScanMemberFamilyIsolatesUnrelatedClass()
+  {
+    // Two unrelated classes both have a field named 'tag'.
+    // Scanning for Widget.tag (family = ["Widget"]) must not include Panel.tag.
+    // Mirrors the real-world pattern where many independent classes share
+    // a private 'className' or 'logger' field.
+    source :=
+      "class Widget {\n" +                     // line 0
+      "  const Str tag := \"widget\"\n" +       // line 1: tag decl
+      "  Void render() { echo(tag) }\n" +       // line 2: bare call
+      "}\n" +                                   // line 3
+      "class Panel {\n" +                       // line 4
+      "  const Str tag := \"panel\"\n" +         // line 5: tag decl (must NOT be found)
+      "  Void show() { echo(tag) }\n" +          // line 6: bare call (must NOT be found)
+      "}\n"
+    family := ["Widget"]
+    t := ReferencesTarget.forMember("tag", "Widget", family)
+    locs := scan(source, t)
+    lines := locs.map |l| { lineOf([l]) }
+    verify(lines.contains(1), "Widget.tag declaration must be found")
+    verify(lines.contains(2), "Widget.tag bare call in render() must be found")
+    verify(!lines.contains(5), "Panel.tag declaration must NOT be found")
+    verify(!lines.contains(6), "Panel.tag bare call in show() must NOT be found")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Member scanning — private helper called from multiple methods
+//////////////////////////////////////////////////////////////////////////
+
+  Void testScanMemberBareCallFromMultipleMethods()
+  {
+    // A private helper called as a bare name from several methods in the same class.
+    // Mirrors the real-world pattern of utility helpers like flush(), applyConfig(),
+    // or updateSettings() called throughout a service class.
+    source :=
+      "class Worker {\n" +                          // line 0
+      "  private Void flush() {}\n" +               // line 1: decl
+      "  Void step1() { flush() }\n" +              // line 2: bare call
+      "  Void step2() { flush() }\n" +              // line 3: bare call
+      "  Void step3() { flush() }\n" +              // line 4: bare call
+      "}\n"
+    family := ["Worker"]
+    t := ReferencesTarget.forMember("flush", "Worker", family)
+    locs := scan(source, t)
+    verify(locs.any |l| { lineOf([l]) == 1 }, "Declaration must be found")
+    verify(locs.any |l| { lineOf([l]) == 2 }, "Bare call in step1() must be found")
+    verify(locs.any |l| { lineOf([l]) == 3 }, "Bare call in step2() must be found")
+    verify(locs.any |l| { lineOf([l]) == 4 }, "Bare call in step3() must be found")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Member scanning — same helper name in two unrelated classes, both called bare
+//////////////////////////////////////////////////////////////////////////
+
+  Void testScanMemberBareCallTwoClassesSameName()
+  {
+    // Both classes have a private helper named 'commit()'.
+    // Scanning for Store.commit must not find Cache.commit.
+    // This is the worst case for bare-call detection: same name, same calling style,
+    // different owning class.
+    source :=
+      "class Store {\n" +                       // line 0
+      "  private Void commit() {}\n" +          // line 1: Store.commit decl
+      "  Void save(Dict d) { commit() }\n" +    // line 2: bare call inside Store
+      "}\n" +                                   // line 3
+      "class Cache {\n" +                       // line 4
+      "  private Void commit() {}\n" +          // line 5: Cache.commit (must NOT match)
+      "  Void put(Dict d) { commit() }\n" +     // line 6: bare call inside Cache (must NOT match)
+      "}\n"
+    family := ["Store"]
+    t := ReferencesTarget.forMember("commit", "Store", family)
+    locs := scan(source, t)
+    lines := locs.map |l| { lineOf([l]) }
+    verify(lines.contains(1), "Store.commit declaration must be found")
+    verify(lines.contains(2), "Store.commit call in save() must be found")
+    verify(!lines.contains(5), "Cache.commit declaration must NOT be found")
+    verify(!lines.contains(6), "Cache.commit call in put() must NOT be found")
   }
 
 //////////////////////////////////////////////////////////////////////////

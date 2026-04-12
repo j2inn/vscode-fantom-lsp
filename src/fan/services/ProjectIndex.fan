@@ -866,6 +866,7 @@ class ProjectIndex
             it.fileUri = fileUri
             it.line = i
             it.col = col
+            it.typeStr = extractLocalVarType(trimmed, localMatch)
           })
         }
 
@@ -1301,6 +1302,42 @@ class ProjectIndex
   }
 
   ** Match a local variable declaration: name := ... (walrus operator)
+  **
+  ** Extract the declared type of a local variable from its declaration line.
+  ** Handles two forms:
+  **   "TypeName varName := ..."  → returns "TypeName"  (explicit annotation)
+  **   "varName := TypeName(...)" → returns "TypeName"  (ctor inference)
+  ** Returns null when the type cannot be determined.
+  **
+  private Str? extractLocalVarType(Str trimmed, Str varName)
+  {
+    walrus := trimmed.index(":=")
+    if (walrus == null) return null
+
+    lhs := trimmed[0..<walrus].trim
+    rhs := trimmed[walrus + 2 ..-1].trim
+
+    // Explicit annotation: "TypeName varName :="
+    parts := lhs.split(' ').findAll |w| { !w.isEmpty }
+    if (parts.size >= 2 && parts[-1] == varName && parts[-2][0].isUpper)
+    {
+      typePart := parts[-2]
+      if (typePart.endsWith("?")) typePart = typePart[0..<typePart.size - 1]
+      return typePart
+    }
+
+    // Ctor inference: "varName := TypeName(" or "varName := TypeName {"
+    if (parts.size == 1 && parts[0] == varName && rhs.size > 0 && rhs[0].isUpper)
+    {
+      nameEnd := 0
+      while (nameEnd < rhs.size && LspUtil.isIdentifierChar(rhs[nameEnd])) nameEnd++
+      if (nameEnd < rhs.size && (rhs[nameEnd] == '(' || rhs[nameEnd] == ' ' || rhs[nameEnd] == '{'))
+        return rhs[0..<nameEnd]
+    }
+
+    return null
+  }
+
   private Str? matchLocalVarDecl(Str trimmed)
   {
     // Skip comments
@@ -1425,6 +1462,49 @@ class ProjectIndex
     }
   }
 
+  **
+  ** Return a varName -> typeName map for all typed locals and params in the
+  ** given file, built from indexed symbols (AST-derived typeStr).
+  ** Used by ReferencesScanner to resolve receiver types without text heuristics.
+  **
+  Str:Str getVarTypesForFile(Str fileUri)
+  {
+    result := Str:Str[:]
+    idx := fileIndexes[fileUri]
+    if (idx == null) return result
+    idx.symbols.each |sym|
+    {
+      if ((sym.kind == SymbolKind.localVar || sym.kind == SymbolKind.param) &&
+          sym.typeStr != null && sym.typeStr != "Obj" && sym.typeStr != "Error")
+        result[sym.name] = sym.typeStr
+    }
+    // For locals where the compiler resolved the type to "Obj" or "Error" (compiler
+    // placeholders for unresolved cross-file references), re-derive from source text
+    // using extractLocalVarType.
+    idx.symbols.each |sym|
+    {
+      if (sym.kind == SymbolKind.localVar && !result.containsKey(sym.name))
+      {
+        srcLines := idx.source.splitLines
+        if (sym.line < srcLines.size)
+        {
+          t := extractLocalVarType(srcLines[sym.line].trim, sym.name)
+          if (t != null) result[sym.name] = t
+        }
+      }
+    }
+    return result
+  }
+
+  **
+  ** Return the name of the type declaration that encloses the given line,
+  ** or null. Exposed publicly so scanners can avoid text-based class detection.
+  **
+  Str? getEnclosingTypeAtLine(Str fileUri, Int line)
+  {
+    return findEnclosingType(fileUri, line)
+  }
+
   ** Find the enclosing type name at a given line in a file
   private Str? findEnclosingType(Str fileUri, Int line)
   {
@@ -1463,6 +1543,38 @@ class ProjectIndex
       }
     }
     return best
+  }
+
+  **
+  ** Return the [startLine, endLine] (inclusive) for the named method in the
+  ** given file, as determined from indexed symbols — no text heuristics.
+  ** startLine is the method declaration line; endLine is the line before the
+  ** next method/type declaration, or the last line of the file.
+  ** Returns null if the method is not found in the index.
+  **
+  Int[]? getMethodBounds(Str fileUri, Str methodName)
+  {
+    idx := fileIndexes[fileUri]
+    if (idx == null) return null
+
+    // Collect all method symbols for this file, sorted by line
+    methods := idx.symbols.findAll |s| { s.kind == SymbolKind.method }
+    if (methods.isEmpty) return null
+    methods = methods.dup
+    methods.sort |a, b| { a.line <=> b.line }
+
+    // Find the target method
+    targetIdx := methods.findIndex |s| { s.name == methodName }
+    if (targetIdx == null) return null
+
+    startLine := methods[targetIdx].line
+
+    // End line = line before next method, or last source line
+    endLine := idx.source.splitLines.size - 1
+    if (targetIdx + 1 < methods.size)
+      endLine = methods[targetIdx + 1].line - 1
+
+    return [startLine, endLine]
   }
 
   // ---- Private: Build Output Parsing ----
