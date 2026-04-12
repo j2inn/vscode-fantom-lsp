@@ -21,10 +21,9 @@ let _current: Platform | undefined;
 /** Return the platform strategy for the running OS. */
 export function getPlatform(): Platform {
   if (!_current) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     _current = process.platform === 'win32'
       ? new (require('./platform/windowsPlatform').WindowsPlatform)() as Platform
       : new (require('./platform/linuxPlatform').LinuxPlatform)() as Platform;
   }
-  return _current!;
+  return _current as Platform;
 }

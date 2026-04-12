@@ -41,8 +41,12 @@ jobs:
           echo "$FAN_HOME/bin" >> "$GITHUB_PATH"
 
       - name: Detect pre-release
+        # Pre-release = odd minor version (e.g. 0.1.x, 0.3.x).
+        # Stable      = even minor version (e.g. 0.2.x, 1.0.x).
         run: |
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+          VERSION="${GITHUB_REF_NAME#v}"
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          if (( MINOR % 2 == 1 )); then
             echo "IS_PRERELEASE=true"  >> "$GITHUB_ENV"
           else
             echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
@@ -73,6 +77,10 @@ jobs:
       - name: Run grammar tests
         working-directory: vscode-fantom
         run: pnpm run test:grammar
+
+      - name: Run lint tests
+        working-directory: vscode-fantom
+        run: pnpm run test:lint
 
       - name: Generate CHANGELOG.md
         uses: orhun/git-cliff-action@v4

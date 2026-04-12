@@ -92,6 +92,10 @@ jobs:
         working-directory: vscode-fantom
         run: pnpm run test:grammar
 
+      - name: Run lint tests
+        working-directory: vscode-fantom
+        run: pnpm run test:lint
+
       - name: Run integration tests
         working-directory: vscode-fantom
         run: pnpm run test:integration

@@ -2,7 +2,7 @@
   "name": "fantom-language-server",
   "displayName": "Fantom Language Server",
   "description": "Language support for Fantom with syntax highlighting, diagnostics, and autocompletion",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "publisher": "AndreaGiusti",
   "license": "AFL-3.0",
   "icon": "icons/fantom-icon.png",
@@ -370,10 +370,13 @@
     "test:integration": "node out/test/debugAdapter.test.js",
     "test:integration:vscode": "node out/test/integration/runTest.js",
     "test:grammar": "vscode-tmgrammar-snap -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",
-    "test:grammar:update": "vscode-tmgrammar-snap -u -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\""
+    "test:grammar:update": "vscode-tmgrammar-snap -u -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",
+    "test:lint": "node out/test/lint.test.js",
+    "publish:prerelease": "vsce publish --pre-release",
+    "publish:stable": "vsce publish"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@types/eslint": "^9.6.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.x",
     "@types/vscode": "^1.75.0",
