@@ -159,7 +159,7 @@ function createShadowDir(mainPodFileName: string, realFanHome: string): string |
               .filter(line => !line.trim().startsWith('java.options'))
               .join('\n');
             fs.writeFileSync(shadowSysPath, modified, 'utf8');
-            log(`Shadow config.props: stripped java.options (JDWP suppressed)`);
+            log('Shadow config.props: stripped java.options (JDWP suppressed)');
           } else {
             fs.symlinkSync(realSysPath, shadowSysPath);
           }
