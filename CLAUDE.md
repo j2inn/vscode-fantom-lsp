@@ -34,6 +34,20 @@ cd vscode-fantom && pnpm run compile
 - README and inline documentation must describe features in terms of the Fantom language
   and standard tooling only — not in terms of any particular deployment or customer.
 
+## AST-First Policy
+
+**Never use heuristic text/regex parsing when the Fantom compiler or AST can be used instead.**
+
+- `ProjectIndex` indexes every symbol (types, methods, fields, locals, params) using the Fantom compiler AST via `AstIndex.parse()`. Use this indexed data as the source of truth.
+- When you need method boundaries, local variable scope, type names, or symbol locations, query the index (`getMethodBounds`, `findDefinition`, `findEnclosingMethod`, `getBaseTypeChain`, etc.) — do not re-derive them by scanning source text.
+- Text-based scanning (`ReferencesScanner`) is only acceptable for finding *occurrence positions* of an already-resolved symbol name. The *identity* of the symbol (what method it belongs to, what type it has) must come from the index.
+- If the index lacks a needed query method, add it to `ProjectIndex` using the indexed symbols — do not add heuristic text parsing to scanner/service code.
+
+Examples of what **not** to do:
+- Detecting method boundaries by scanning for `Void foo(` patterns in source text
+- Re-deriving variable types by scanning `:=` assignments when `symbol.typeStr` is already indexed
+- Checking if a name is a type by looking for uppercase first letter instead of `index.hasType(name)`
+
 ## Testing Policy
 
 - Always run `build.fan test` after fixing a bug or adding a feature.
