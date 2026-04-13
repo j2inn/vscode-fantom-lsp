@@ -357,7 +357,7 @@
   },
   "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "vscode:prepublish": "cp ../README.md README.md && pnpm run compile && pnpm run bundle-lsp && pnpm run bundle-extension -- --production",
+    "vscode:prepublish": "cp ../README.md README.md && pnpm run compile && pnpm run bundle-lsp && pnpm run bundle-debug-adapter && pnpm run bundle-extension -- --production",
     "compile": "tsc -p ./",
     "bundle-lsp": "node scripts/bundle-lsp.js",
     "bundle-extension": "node scripts/bundle-extension.js",
