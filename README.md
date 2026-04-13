@@ -135,10 +135,12 @@ export PATH=$FAN_HOME/bin:$PATH
 
 Additional settings available through the VSCode UI or `settings.json`:
 
-| Setting                                | Type      | Default | Description                                                                                                                                |
-| -------------------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --- | ---------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `fantom.javaPath`                      | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                       |     | `fantom.suppressJavaWarning` | `boolean` | `false` | Suppress the startup warning when Java is not found. Enable this if you do not use the Fantom debugger.                                   |
-| `fantom.suppressWarningPopup`          | `boolean` | `false` | Suppress the "Warnings found" notification popup shown at startup when the build produces warnings.                                        |     | `fantom.useBuiltInLspPod`    | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod. |
+| Setting                                | Type      | Default | Description                                                                                                                               |
+| -------------------------------------- | --------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `fantom.javaPath`                      | `string`  | `""`    | Full path to the `java` executable. Defaults to `$JAVA_HOME/bin/java`, then just `java` from `PATH`.                                     |
+| `fantom.suppressJavaWarning`           | `boolean` | `false` | Suppress the startup warning when Java is not found. Enable this if you do not use the Fantom debugger.                                   |
+| `fantom.suppressWarningPopup`          | `boolean` | `false` | Suppress the "Warnings found" notification popup shown at startup when the build produces warnings.                                       |
+| `fantom.useBuiltInLspPod`              | `boolean` | `true`  | Use the `vscodeFantomLsp` bundled with the extension (recommended). Set to `false` only if you have built and installed your own LSP pod. |
 | `fantom.pedanticMode`                  | `boolean` | `false` | Warn on local variable declarations that lack an explicit type annotation (neither a type on the left side nor an `as` cast on the right). |
 | `fantom.trace.server`                  | `string`  | `"off"` | Trace LSP message traffic: `"off"`, `"messages"`, or `"verbose"`. Useful for debugging the extension itself.                               |
 | `fantom.format.enable`                 | `boolean` | `true`  | Enable the Fantom formatter (Format Document / Format Selection).                                                                          |
@@ -158,15 +160,19 @@ Additional settings available through the VSCode UI or `settings.json`:
 
 Access these from the Command Palette (`Ctrl+Shift+P`):
 
-| Command                                            | Description                                                                                                     |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| **Fantom: Remove Unused Imports in File**          | Deletes all unused `using` lines in the current file and saves                                                  |
-| **Fantom: Remove Unused Imports in Project**       | Deletes unused `using` lines across every `.fan` file in the project                                            |
-| **Fantom: Remove Unused Variables in File**        | Deletes unused variable declarations in the current file                                                        |
-| **Fantom: Remove Unused Variables in Project**     | Deletes unused variable declarations across the whole project                                                   |
-| **Fantom: Format Entire Project**                  | Formats every `.fan` file in the project with a progress bar                                                    |
-| **Fantom: Create launch.json for Fantom Debugger** | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json`   |
-| **Fantom: Rebuild debugger**                       | (Re)compiles the debug adapter JAR from the bundled Java sources. Run this if the debugger is missing or broken |
+| Command                                            | Shortcut (Linux/Win · Mac)              | Description                                                                                                     |
+| -------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Fantom: Compile Project**                        | `Ctrl+F9` · `Cmd+F9`                   | Runs `fan build.fan <target>` and reports compiler errors with clickable file links                             |
+| **Fantom: Run All Tests**                          | `Ctrl+Shift+F9` · `Cmd+Shift+F9`       | Runs all Fantom tests in the project                                                                            |
+| **Fantom: Run All Tests in File…**                 | `Ctrl+F10` · `Cmd+F10`                 | Runs all test methods in the currently open `.fan` file                                                         |
+| **Fantom: Run Test Method…**                       | `Ctrl+Shift+F10` · `Cmd+Shift+F10`     | Runs a single test method chosen from the current file                                                          |
+| **Fantom: Remove Unused Imports in File**          | —                                       | Deletes all unused `using` lines in the current file and saves                                                  |
+| **Fantom: Remove Unused Imports in Project**       | —                                       | Deletes unused `using` lines across every `.fan` file in the project                                            |
+| **Fantom: Remove Unused Variables in File**        | —                                       | Deletes unused variable declarations in the current file                                                        |
+| **Fantom: Remove Unused Variables in Project**     | —                                       | Deletes unused variable declarations across the whole project                                                   |
+| **Fantom: Format Entire Project**                  | —                                       | Formats every `.fan` file in the project with a progress bar                                                    |
+| **Fantom: Create launch.json for Fantom Debugger** | —                                       | Creates `.vscode/launch.json` with default Launch and Attach configurations pre-filled from `fan.config.json`   |
+| **Fantom: Rebuild debugger**                       | —                                       | (Re)compiles the debug adapter JAR from the bundled Java sources. Run this if the debugger is missing or broken |
 
 ---
 

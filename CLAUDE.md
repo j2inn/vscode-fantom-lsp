@@ -48,6 +48,15 @@ Examples of what **not** to do:
 - Re-deriving variable types by scanning `:=` assignments when `symbol.typeStr` is already indexed
 - Checking if a name is a type by looking for uppercase first letter instead of `index.hasType(name)`
 
+## Command Palette Policy
+
+Whenever a new command is added to the `contributes.commands` array in
+`vscode-fantom/package.json`, **also update the Commands table in `README.md`**:
+
+- Add a row to the `## 🛠️ Commands` table.
+- Columns: **Command** (display title), **Shortcut** (from `contributes.keybindings`, `—` if none), **Description**.
+- Keep rows sorted: commands with keyboard shortcuts first (ordered by shortcut), then the rest alphabetically.
+
 ## Testing Policy
 
 - Always run `build.fan test` after fixing a bug or adding a feature.
