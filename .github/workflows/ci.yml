@@ -81,6 +81,10 @@ jobs:
         working-directory: vscode-fantom
         run: bash debug-adapter/build.sh
 
+      - name: Bundle debug adapter sources
+        working-directory: vscode-fantom
+        run: pnpm run bundle-debug-adapter
+
       - name: Compile TypeScript
         working-directory: vscode-fantom
         run: pnpm run compile

@@ -43,6 +43,20 @@ async function test(name: string, fn: () => void | Promise<void>): Promise<void>
 const EXTENSION_ROOT = path.resolve(__dirname, '../..');
 const JAR_PATH = path.join(EXTENSION_ROOT, 'bundled-debug', 'fantom-debug-adapter.jar');
 
+/** Recursively collect all .java files under a directory. */
+function collectJavaFilesSync(dir: string): string[] {
+  const result: string[] = [];
+  function walk(d: string): void {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) { walk(full); }
+      else if (entry.name.endsWith('.java')) { result.push(full); }
+    }
+  }
+  walk(dir);
+  return result;
+}
+
 function getPlatform(): Platform {
   return process.platform === 'win32' ? new WindowsPlatform() : new LinuxPlatform();
 }
@@ -101,6 +115,30 @@ async function main(): Promise<void> {
       available,
       `java is not runnable at "${javaCmd}". ` +
       'Set JAVA_HOME or ensure java is on PATH.'
+    );
+  });
+
+  // ── Bundled Java sources ──────────────────────────────────────────────────
+
+  const JAVA_SRC_DIR = path.join(EXTENSION_ROOT, 'bundled-debug', 'java-src');
+
+  await test('bundled-debug/java-src/ directory exists', () => {
+    assert.ok(
+      fs.existsSync(JAVA_SRC_DIR),
+      `Java source directory not found at: ${JAVA_SRC_DIR}\n` +
+      'Run "pnpm run bundle-debug-adapter" (requires JAR to be built first).'
+    );
+  });
+
+  await test('bundled-debug/java-src/ contains .java files', () => {
+    if (!fs.existsSync(JAVA_SRC_DIR)) {
+      // Skip — the previous test already reports the missing-directory failure.
+      return;
+    }
+    const javaFiles = collectJavaFilesSync(JAVA_SRC_DIR);
+    assert.ok(
+      javaFiles.length > 0,
+      `No .java files found under: ${JAVA_SRC_DIR}`
     );
   });
 
