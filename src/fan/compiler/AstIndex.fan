@@ -132,6 +132,7 @@ class AstIndex
       slot.name = md.name
       slot.isField = false
       slot.isCtor = md.isCtor
+      slot.isStatic = md.isStatic
       slot.line = (md.loc.line ?: 1) - 1
       slot.col = (md.loc.col ?: 1) - 1
       try { slot.typeName = md.returnType.name } catch {}
@@ -466,6 +467,7 @@ class AstSlot
   Str? typeName
   Bool isField := false
   Bool isCtor := false
+  Bool isStatic := false
   AstParam[] params := AstParam[,]
   AstFacet[] facets := AstFacet[,]
   AstLocalVar[] localVars := AstLocalVar[,]

@@ -37,6 +37,7 @@ class DiagnosticService
   private DiagnosticUnusedVarValidator unusedVarValidator := DiagnosticUnusedVarValidator()
   private DiagnosticDuplicateConstValidator duplicateConstValidator := DiagnosticDuplicateConstValidator()
   private DiagnosticConstInitValidator constInitValidator := DiagnosticConstInitValidator()
+  private DiagnosticStaticContextValidator staticContextValidator := DiagnosticStaticContextValidator()
   **
   ** Analyze source code and return diagnostics for a single file.
   ** Filters errors about types/variables that exist in the project index,
@@ -222,6 +223,18 @@ class DiagnosticService
     catch (Err e)
     {
       LspProtocol.logInfo("Const init check error: $e")
+    }
+
+    // Static context check: error when 'this' or a bare instance field is used
+    // inside a static method. baseTypes feeds the inherited-field detection.
+    try
+    {
+      staticContextDiags := staticContextValidator.checkStaticContext(source, baseTypes, index)
+      diagnostics.addAll(staticContextDiags)
+    }
+    catch (Err e)
+    {
+      LspProtocol.logInfo("Static context check error: $e")
     }
 
     return diagnostics
