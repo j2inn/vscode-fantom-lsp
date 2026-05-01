@@ -1095,6 +1095,10 @@ class LspServer
     doc := docMgr.get(uri)
     if (doc == null) return null
 
+    // Ensure the index reflects the current buffer so method-bounds and
+    // symbol-position lookups are accurate for unsaved edits.
+    projectIndex.indexLiveSource(uri, doc.text)
+
     return renameSvc.rename(uri, pos, doc.text, newName, projectIndex)
   }
 

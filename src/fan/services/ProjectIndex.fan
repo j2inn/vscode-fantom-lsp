@@ -573,6 +573,21 @@ class ProjectIndex
   }
 
   **
+  ** Re-index one file with a live (possibly unsaved) source snapshot.
+  ** Updates symbol positions in-place so that subsequent getMethodBounds /
+  ** findDefinition calls reflect the current buffer state.
+  ** Called by RenameService before scanning to ensure edits target accurate
+  ** character positions even when the file has not yet been saved.
+  **
+  Void indexLiveSource(Str fileUri, Str source)
+  {
+    // Only re-index if the source has actually changed since the last index.
+    existing := fileIndexes[fileUri]
+    if (existing != null && existing.source == source) return
+    indexFile(fileUri, source)
+  }
+
+  **
   ** Find all symbols with a given name.
   **
   IndexedSymbol[] findSymbols(Str name)

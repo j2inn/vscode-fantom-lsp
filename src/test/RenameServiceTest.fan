@@ -43,6 +43,26 @@ class RenameServiceTest : Test
     catch (Err e) { return null }
   }
 
+  private Int editStartChar([Str:Obj?] edit)
+  {
+    r := edit["range"] as Str:Obj?
+    if (r == null) return -1
+    s := r["start"] as Str:Obj?
+    if (s == null) return -1
+    v := s["character"] as Int
+    return v ?: -1
+  }
+
+  private Int editEndChar([Str:Obj?] edit)
+  {
+    r := edit["range"] as Str:Obj?
+    if (r == null) return -1
+    e := r["end"] as Str:Obj?
+    if (e == null) return -1
+    v := e["character"] as Int
+    return v ?: -1
+  }
+
 //////////////////////////////////////////////////////////////////////////
 // Type rename
 //////////////////////////////////////////////////////////////////////////
@@ -480,6 +500,88 @@ class RenameServiceTest : Test
     editsCB := editsFor(result, "file:///ClientB.fan")
     verify(editsCB == null || editsCB.isEmpty,
       "ClientB.fan must NOT be renamed (ServiceB receiver)")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Rename local — Bool-typed annotation + negation in return (regression)
+//////////////////////////////////////////////////////////////////////////
+
+  Void testRenameLocalBoolTypedAnnotationWithNegationInReturn()
+  {
+    // Regression: renaming a Bool-typed local whose name is used with '!'
+    // in the return line must rename exactly that word and leave the rest
+    // of the return statement intact.
+    src :=
+      "class MyService\n" +                                                     // 0
+      "{\n" +                                                                    // 1
+      "  internal static Bool registerMapNeedsUpdate()\n" +                     // 2
+      "  {\n" +                                                                  // 3
+      "    Bool hasExternalCompressorSwBit1 :=  true\n" +                       // 4
+      "    Bool hasSgReadyBit1 := false\n" +                                    // 5
+      "    return !hasExternalCompressorSwBit1 || !hasSgReadyBit1\n" +          // 6
+      "  }\n" +                                                                  // 7
+      "}"                                                                        // 8
+    idx := makeIndex(["file:///MyService.fan": src])
+
+    // Cursor on hasExternalCompressorSwBit1 at its declaration (line 4)
+    varCol := src.splitLines[4].index("hasExternalCompressorSwBit1") ?: 0
+    result := svc.rename("file:///MyService.fan", pos(4, varCol + 2), src, "x", idx)
+
+    verifyNotNull(result, "Rename must return a WorkspaceEdit")
+    edits := editsFor(result, "file:///MyService.fan")
+    verifyNotNull(edits, "Must produce edits")
+    verifyEq(edits.size, 2, "Exactly 2 occurrences: declaration + return")
+    verify(edits.all |e| { newTextOf(e) == "x" }, "All edits must use the new name")
+
+    lines := edits.map |e| { editLine(e) }
+    verify(lines.contains(4), "Declaration line must be renamed")
+    verify(lines.contains(6), "Return line must be renamed")
+
+    // Verify hasSgReadyBit1 is NOT touched
+    verify(!lines.contains(5), "hasSgReadyBit1 declaration must NOT be renamed")
+
+    // Verify each edit targets only the variable word, not a wider range
+    edits.each |e|
+    {
+      sC := editStartChar(e)
+      eC := editEndChar(e)
+      verifyEq(eC - sC, "hasExternalCompressorSwBit1".size,
+        "Edit width must match the variable name length, got " + sC + ".." + eC)
+    }
+  }
+
+  Void testRenameLocalBoolTypedAnnotationEditsDescending()
+  {
+    // Edits must be returned in reverse document order (bottom-to-top)
+    // so VS Code can apply them sequentially without offset drift.
+    src :=
+      "class S\n" +
+      "{\n" +
+      "  static Bool check()\n" +
+      "  {\n" +
+      "    Bool flag := true\n" +           // 4: declaration
+      "    if (flag) return true\n" +       // 5: use 1
+      "    return !flag\n" +               // 6: use 2
+      "  }\n" +
+      "}"
+    idx := makeIndex(["file:///S.fan": src])
+
+    varCol := src.splitLines[4].index("flag") ?: 0
+    result := svc.rename("file:///S.fan", pos(4, varCol + 1), src, "ok", idx)
+
+    verifyNotNull(result)
+    edits := editsFor(result, "file:///S.fan")
+    verifyNotNull(edits)
+    verifyEq(edits.size, 3, "All 3 occurrences must be renamed")
+
+    // Edits must be in descending line order
+    editLines := edits.map |e| { editLine(e) ?: -1 }
+    for (i := 0; i < editLines.size - 1; i++)
+    {
+      a := (editLines[i] as Int) ?: 0
+      b := (editLines[i+1] as Int) ?: 0
+      verify(a >= b, "Edits must be in descending order: got $editLines")
+    }
   }
 
 //////////////////////////////////////////////////////////////////////////
