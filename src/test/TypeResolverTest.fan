@@ -116,7 +116,7 @@ class TypeResolverTest : Test
       "}\n"
     idx := makeIndex(["file:///Processor.fan": src])
     result := TypeResolver.resolveVarType("result", src, 4, idx)
-    verifyEq(result, "Str", "bare method call return type must be inferred from project index")
+    verifyEq(result, "sys::Str", "bare method call return type must be inferred from project index")
   }
 
   Void testBareSiblingFileMethodCall()
@@ -136,7 +136,7 @@ class TypeResolverTest : Test
       "}\n"
     idx := makeIndex(["file:///LabelBuilder.fan": helperSrc, "file:///App.fan": mainSrc])
     result := TypeResolver.resolveVarType("lbl", mainSrc, 4, idx)
-    verifyEq(result, "Str", "bare method call return type must be inferred when method is indexed")
+    verifyEq(result, "sys::Str", "bare method call return type must be inferred when method is indexed")
   }
 
   Void testBareMethodCallVoidReturnIgnored()
@@ -291,7 +291,7 @@ class TypeResolverTest : Test
     idx := makeIndex(["file:///Svc.fan": src])
     // Must be resolved by method-call path, not field-access path
     result := TypeResolver.resolveVarType("x", src, 4, idx)
-    verifyEq(result, "Str", "method call result must still resolve even though field-access path is active")
+    verifyEq(result, "sys::Str", "method call result must still resolve even though field-access path is active")
   }
 
 //////////////////////////////////////////////////////////////////////////
@@ -400,5 +400,143 @@ class TypeResolverTest : Test
     result := TypeResolver.resolveVarType("host", src, 4, idx)
     verifyEq(result, "sys::Str",
       "var used as dict-literal value must not be inferred as Map")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Option A — CompletionDefs.returnTypeFrom()
+//////////////////////////////////////////////////////////////////////////
+
+  Void testReturnTypeFromGroupBy()
+  {
+    // groupBy detail: "Obj:V[] groupBy(|V val, Int index->Obj| c)"
+    // Return type prefix is "Obj:V[]" which contains ":" → Map
+    detail := "Obj:V[] groupBy(|V val, Int index->Obj| c)"
+    verifyEq(CompletionDefs.returnTypeFrom(detail), "sys::Map",
+      "groupBy detail must parse to sys::Map")
+  }
+
+  Void testReturnTypeFromListReturningMethod()
+  {
+    // A method whose return type is an array e.g. "V[] findAll(|V->Bool| c)"
+    detail := "V[] findAll(|V->Bool| c)"
+    verifyEq(CompletionDefs.returnTypeFrom(detail), "sys::List",
+      "V[] return type must resolve to sys::List")
+  }
+
+  Void testReturnTypeFromConcreteType()
+  {
+    // "Str join(Str sep)" → return type "Str" → "sys::Str" via alias
+    detail := "Str join(Str sep)"
+    verifyEq(CompletionDefs.returnTypeFrom(detail), "sys::Str",
+      "Str return type must resolve to sys::Str")
+  }
+
+  Void testReturnTypeFromVoidIsNull()
+  {
+    detail := "Void add(V val)"
+    verifyNull(CompletionDefs.returnTypeFrom(detail),
+      "Void return type must return null")
+  }
+
+  Void testReturnTypeFromGenericPlaceholderIsNull()
+  {
+    // "V get(Int index)" — return type "V" is a generic placeholder, not useful
+    detail := "V get(Int index)"
+    verifyNull(CompletionDefs.returnTypeFrom(detail),
+      "Generic placeholder V must return null")
+  }
+
+  Void testReturnTypeFromNullDetail()
+  {
+    verifyNull(CompletionDefs.returnTypeFrom(null),
+      "null detail must return null")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Option B — resolveVarTypeFromIndex() (AST-indexed local vars)
+//////////////////////////////////////////////////////////////////////////
+
+  Void testIndexResolvesExplicitlyTypedLocal()
+  {
+    // Compiler indexes "Map m" as typeStr="Map"
+    src :=
+      "class Svc {\n" +
+      "  Void run() {\n" +
+      "    Map m := [:]\n" +
+      "    m.get(\"k\", null)\n" +
+      "  }\n" +
+      "}\n"
+    idx := makeIndex(["file:///Svc.fan": src])
+    result := TypeResolver.resolveVarTypeFromIndex("m", src, 3, idx)
+    verifyEq(result, "sys::Map",
+      "explicitly typed local Map must be found in index as sys::Map")
+  }
+
+  Void testIndexResolvesListLocal()
+  {
+    src :=
+      "class Svc {\n" +
+      "  Void run() {\n" +
+      "    List items := [,]\n" +
+      "    items.add(\"x\")\n" +
+      "  }\n" +
+      "}\n"
+    idx := makeIndex(["file:///Svc.fan": src])
+    result := TypeResolver.resolveVarTypeFromIndex("items", src, 3, idx)
+    verifyEq(result, "sys::List",
+      "explicitly typed local List must be found in index as sys::List")
+  }
+
+  Void testIndexReturnsNullForUnknownVar()
+  {
+    src :=
+      "class Svc {\n" +
+      "  Void run() {\n" +
+      "    x := 42\n" +
+      "  }\n" +
+      "}\n"
+    idx := makeIndex(["file:///Svc.fan": src])
+    // "unknown" is not declared anywhere
+    result := TypeResolver.resolveVarTypeFromIndex("unknown", src, 3, idx)
+    verifyNull(result, "undeclared var must return null from index lookup")
+  }
+
+  Void testIndexDoesNotResolveFutureDeclaration()
+  {
+    // Declaration at line 4, use at line 2 — must not resolve forward
+    src :=
+      "class Svc {\n" +
+      "  Void run() {\n" +
+      "    echo(m)\n" +
+      "    Map m := [:]\n" +
+      "  }\n" +
+      "}\n"
+    idx := makeIndex(["file:///Svc.fan": src])
+    result := TypeResolver.resolveVarTypeFromIndex("m", src, 2, idx)
+    verifyNull(result,
+      "declaration after currentLine must not be resolved")
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// End-to-end: groupBy → Map → get(key, default) not flagged
+//////////////////////////////////////////////////////////////////////////
+
+  Void testGroupByResultResolvesToMapViaYml()
+  {
+    // bacnetDevicesMap is assigned via .groupBy() — YML says groupBy returns Map.
+    // resolveVarType must return sys::Map so that Map.get(key, default) is not
+    // mistakenly validated against List.get(index).
+    src :=
+      "class Svc {\n" +
+      "  Void run() {\n" +
+      "    rows := getRows()\n" +
+      "    bacnetDevicesMap := rows.groupBy |Dict row -> Str| { row->id }\n" +
+      "    x := bacnetDevicesMap.get(\"key\", [,])\n" +
+      "  }\n" +
+      "}\n"
+    idx := makeIndex(["file:///Svc.fan": src])
+    result := TypeResolver.resolveVarType("bacnetDevicesMap", src, 4, idx)
+    verifyEq(result, "sys::Map",
+      "var assigned via .groupBy() must resolve to sys::Map")
   }
 }

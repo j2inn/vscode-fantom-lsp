@@ -45,6 +45,64 @@ const class CompletionDefs
   **
   Bool hasAlias(Str simpleName) { typeAliases.containsKey(simpleName) }
 
+  **
+  ** Return all qualified type names that have completion entries in the YML
+  ** (e.g. ["sys::List", "sys::Map", "sys::Str", ...]).
+  **
+  Str[] allQualifiedTypeNames()
+  {
+    completions := (Str:Obj)typeCompletionsRef.val
+    return completions.keys
+  }
+
+  **
+  ** Parse the return type from a YML detail string.
+  ** Detail strings have the form: "RetType methodName(...)" where RetType
+  ** precedes the method name.  Generic placeholders (V, K, Obj, Obj?, This)
+  ** are normalised to concrete collection types when they appear in a known
+  ** collection context (e.g. "V[]" → "sys::List", "Obj:V[]" → "sys::Map").
+  ** Returns null when the detail string carries no useful type information.
+  **
+  static Str? returnTypeFrom(Str? detail)
+  {
+    if (detail == null || detail.isEmpty) return null
+
+    // Find the return-type prefix: everything before the first '('
+    parenIdx := detail.index("(")
+    if (parenIdx == null || parenIdx == 0) return null
+
+    // The method name is the last identifier before '(' — strip it
+    beforeParen := detail[0 ..< parenIdx].trim
+    lastSpace := beforeParen.indexr(" ")
+    retStr := lastSpace != null ? beforeParen[0 ..< lastSpace].trim : null
+    if (retStr == null || retStr.isEmpty) return null
+
+    // Strip nullable marker for classification
+    bare := retStr.endsWith("?") ? retStr[0 ..< retStr.size - 1] : retStr
+
+    // Map/List sugar: "Obj:V[]", "K:V", "[K:V]" → Map
+    if (bare.contains(":") && !bare.startsWith("//"))
+      return "sys::Map"
+
+    // List sugar: "V[]", "K[]", "Obj[]", "Str[]", etc.
+    // "V[]", "Str[]", etc. — any array type is a List
+    if (bare.endsWith("[]")) return "sys::List"
+
+    // Generic placeholders that convey no concrete type
+    if (bare == "V" || bare == "K" || bare == "Obj" ||
+        bare == "This" || bare == "Void" || bare.isEmpty)
+      return null
+
+    // Try alias resolution (e.g. "Str" → "sys::Str", "List" → "sys::List")
+    resolved := CompletionDefs.cur.resolveAlias(bare)
+    if (resolved != null) return resolved
+
+    // Return the bare name as-is if it looks like a type (starts with upper)
+    if (bare.size > 0 && bare[0].isUpper) return bare
+
+    return null
+  }
+
   // ---- Loading ----
 
   private static CompletionDefs load()

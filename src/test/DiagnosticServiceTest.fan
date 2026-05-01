@@ -3117,6 +3117,33 @@ class DiagnosticServiceTest : Test
   ** List type Str[] should still be resolved as List.
   ** List.add takes 1 arg — validate that 2 args is flagged.
   **
+  **
+  ** groupBy() returns Map, not List.  Map.get() takes 2 args (key + default).
+  ** Must NOT be flagged as "get expects 1 argument but got 2".
+  **
+  Void testGroupByResultIsMapNotList()
+  {
+    source :=
+      "class Svc\n" +
+      "{\n" +
+      "  Void run()\n" +
+      "  {\n" +
+      "    rows := getRows()\n" +
+      "    bacnetDevicesMap := rows.groupBy |Dict row -> Str| { row->id }\n" +
+      "    x := bacnetDevicesMap.get(\"key\", [,])\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Svc.fan", source, idx)
+    getDiags := diags.findAll |d|
+    {
+      d.message.contains("get") && d.message.contains("expects")
+    }
+    verifyEq(getDiags.size, 0,
+      "Map.get(key, default) must not be flagged after groupBy — got: " +
+      getDiags.map |d| { d.message }.join(", "))
+  }
+
   Void testListTypeStillValidatedCorrectly()
   {
     source :=
