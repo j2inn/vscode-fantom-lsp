@@ -57,6 +57,32 @@ Whenever a new command is added to the `contributes.commands` array in
 - Columns: **Command** (display title), **Shortcut** (from `contributes.keybindings`, `—` if none), **Description**.
 - Keep rows sorted: commands with keyboard shortcuts first (ordered by shortcut), then the rest alphabetically.
 
+## Fantom Coding Style
+
+- **Use `while` instead of `for` when the loop index is manipulated inside the block body.**
+  If any statement inside the loop changes the iteration variable (e.g. `i++`, `i += 2`,
+  an inner `while` that advances `i`), write the loop as an explicit `while` with `i` declared
+  before the loop. `for` is only appropriate when the index advances solely via the for-header
+  increment and is never touched inside the body.
+
+  ```fantom
+  // Preferred — index manipulation is explicit and visible
+  i := 0
+  while (i < str.size)
+  {
+    ch := str[i]
+    if (ch == '\\') { i += 2; continue }
+    i++
+  }
+
+  // Avoid — index manipulation hidden inside a for-body is error-prone
+  for (i := 0; i < str.size; i++)
+  {
+    ch := str[i]
+    if (ch == '\\') { i++; continue }   // double-advance is subtle
+  }
+  ```
+
 ## Testing Policy
 
 - Always run `build.fan test` after fixing a bug or adding a feature.

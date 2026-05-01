@@ -200,24 +200,42 @@ class DiagnosticMethodParamValidator
   {
     depth := 0
     inStr := false
-    for (i := openPos; i < line.size; i++)
+    i := openPos
+    while (i < line.size)
     {
       ch := line[i]
-      if (ch == '"' && !inStr) inStr = true
-      else if (ch == '"' && inStr) inStr = false
-      else if (ch == '\\' && inStr) { i++; continue }
-      if (!inStr)
+      // Block comment: /* ... */
+      if (!inStr && ch == '/' && i + 1 < line.size && line[i + 1] == '*')
       {
-        if (ch == '(' || ch == '[') depth++
-        else if (ch == ')' || ch == ']') { depth--; if (depth == 0) return i }
+        i += 2
+        while (i + 1 < line.size && !(line[i] == '*' && line[i + 1] == '/')) i++
+        i++
+        continue
       }
+      // Double-quoted string literal
+      if (ch == '"') { inStr = !inStr; i++; continue }
+      if (ch == '\\' && inStr) { i += 2; continue }
+      // Single-quoted character literal: 'x' or '\n' etc.
+      if (ch == '\'' && !inStr)
+      {
+        i++
+        if (i < line.size && line[i] == '\\') i++
+        while (i < line.size && line[i] != '\'') i++
+        i++
+        continue
+      }
+      if (inStr) { i++; continue }
+      if (ch == '(' || ch == '[') depth++
+      else if (ch == ')' || ch == ']') { depth--; if (depth == 0) return i }
+      i++
     }
     return null
   }
 
   **
   ** Count the number of arguments in an argument string.
-  ** Handles nested parens, brackets, closures, and string literals.
+  ** Handles nested parens, brackets, closures, string literals,
+  ** single-quoted character literals, and block comments.
   **
   private Int countArgs(Str argStr)
   {
@@ -226,19 +244,37 @@ class DiagnosticMethodParamValidator
     pipeDepth := 0
     inStr := false
     count := 1
+    i := 0
 
-    for (i := 0; i < argStr.size; i++)
+    while (i < argStr.size)
     {
       ch := argStr[i]
-      if (ch == '"' && !inStr) inStr = true
-      else if (ch == '"' && inStr) inStr = false
-      else if (ch == '\\' && inStr) { i++; continue }
-      if (inStr) continue
-
+      // Block comment: /* ... */
+      if (!inStr && ch == '/' && i + 1 < argStr.size && argStr[i + 1] == '*')
+      {
+        i += 2
+        while (i + 1 < argStr.size && !(argStr[i] == '*' && argStr[i + 1] == '/')) i++
+        i++
+        continue
+      }
+      // Double-quoted string literal
+      if (ch == '"') { inStr = !inStr; i++; continue }
+      if (ch == '\\' && inStr) { i += 2; continue }
+      if (inStr) { i++; continue }
+      // Single-quoted character literal: 'x' or '\n' etc.
+      if (ch == '\'')
+      {
+        i++
+        if (i < argStr.size && argStr[i] == '\\') i++
+        while (i < argStr.size && argStr[i] != '\'') i++
+        i++
+        continue
+      }
       if (ch == '(' || ch == '[' || ch == '{') depth++
       else if (ch == ')' || ch == ']' || ch == '}') depth--
       else if (ch == '|') pipeDepth = pipeDepth == 0 ? 1 : 0
       else if (ch == ',' && depth == 0 && pipeDepth == 0) count++
+      i++
     }
     return count
   }
