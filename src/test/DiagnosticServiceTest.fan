@@ -2024,6 +2024,81 @@ class DiagnosticServiceTest : Test
   }
 
 //////////////////////////////////////////////////////////////////////////
+// Method param: char literal and block comment as arguments (regression)
+//////////////////////////////////////////////////////////////////////////
+
+  Void testMethodCallCharLiteralArgNotMiscounted()
+  {
+    // Regression: split(',', true) was reported as "expects 0-2 arguments,
+    // but got 3" because the comma inside ',' was counted as an arg separator.
+    // Char literals must be treated as opaque tokens in arg counting.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(Str appAccess)\n" +
+      "  {\n" +
+      "    Str[] parts := appAccess.split(',', true)\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+
+    paramErrs := diags.findAll |d|
+    {
+      d.message.contains("'split'") && d.message.contains("argument")
+    }
+    verifyEq(paramErrs.size, 0,
+      "split(',', true) must not be flagged — char literal comma is not an arg separator")
+  }
+
+  Void testMethodCallCharLiteralWithBlockComment()
+  {
+    // Regression: split(',', /* trim */ true) — block comment inside args
+    // must not affect the argument count.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(Str appAccess)\n" +
+      "  {\n" +
+      "    Str[] parts := appAccess.split(',', /* trim */ true)\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+
+    paramErrs := diags.findAll |d|
+    {
+      d.message.contains("'split'") && d.message.contains("argument")
+    }
+    verifyEq(paramErrs.size, 0,
+      "split(',', /* trim */ true) must not be flagged — 2 real args")
+  }
+
+  Void testMethodCallEscapedCharLiteralArg()
+  {
+    // Char literal used as separator with a second bool arg — the char
+    // contains a pipe '|' which is also used in closure syntax; must not
+    // be miscounted.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(Str s)\n" +
+      "  {\n" +
+      "    Str[] parts := s.split('|', true)\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+
+    paramErrs := diags.findAll |d|
+    {
+      d.message.contains("'split'") && d.message.contains("argument")
+    }
+    verifyEq(paramErrs.size, 0,
+      "split('|', true) must not be flagged — pipe in char literal is not a closure")
+  }
+
+//////////////////////////////////////////////////////////////////////////
 // Undeclared constant not suppressed when member exists in other type
 //////////////////////////////////////////////////////////////////////////
 
