@@ -90,6 +90,9 @@ Whenever a new command is added to the `contributes.commands` array in
   - Diagnostic false-positive fixes → `DiagnosticServiceTest.fan`
   - Add tests near the relevant section (e.g. "Map Type Resolution", "Method Parameter Validation").
 - All tests must pass before considering the fix complete.
+- **Always test the inheritance case**: when a class extends a project base type, `AstIndex.parse()`
+  returns `null` (unresolvable base). Any diagnostic validator must be tested with a `ProjectIndex`
+  that has the base type indexed, to confirm the fallback path works.
 
 ## Security Audits
 

@@ -4605,6 +4605,185 @@ class DiagnosticServiceTest : Test
     verify(constDiags.size >= 1,
       "User scenario: const static Str v2 := A.v1 must produce a warning")
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Static Context: 'this' in static methods
+//////////////////////////////////////////////////////////////////////////
+
+  Void testThisInStaticMethodIsError()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    x := this.name\n" +
+      "  }\n" +
+      "  Str name := \"test\"\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verify(staticDiags.size >= 1, "Expected at least one error for 'this' in static method")
+    verifyEq(staticDiags[0].range.start.line, 4)
+  }
+
+  Void testThisInInstanceMethodIsNotError()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Str name := \"test\"\n" +
+      "  Str bar() { return this.name }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verifyEq(staticDiags.size, 0, "'this' in instance method must not be flagged")
+  }
+
+  Void testThisInStringLiteralInsideStaticNotFlagged()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  static Str bar() { return \"this is fine\" }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verifyEq(staticDiags.size, 0, "'this' inside string literal must not be flagged")
+  }
+
+  Void testThisAsSubstringInsideStaticNotFlagged()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  static Void bar() { thisVar := 1 }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verifyEq(staticDiags.size, 0, "'this' as part of longer identifier must not be flagged")
+  }
+
+  Void testMultipleThisInStaticMethod()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Str name := \"x\"\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    a := this.name\n" +
+      "    b := this.name\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verify(staticDiags.size >= 2, "Each 'this' occurrence in static method should produce an error")
+  }
+
+  Void testThisInCommentInsideStaticNotFlagged()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    // this is a comment\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verifyEq(staticDiags.size, 0, "'this' inside // comment must not be flagged")
+  }
+
+  Void testThisInStaticMethodWithUnresolvableBase()
+  {
+    // When a class extends a project base type, AstIndex.parse returns null
+    // because the base cannot be resolved. The text-based fallback must still
+    // report the 'this' usage as an error.
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Base.fan",
+      "class Base\n" +
+      "{\n" +
+      "  Str name := \"base\"\n" +
+      "}")
+
+    source :=
+      "class Foo : Base\n" +
+      "{\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    x := this.name\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verify(staticDiags.size >= 1,
+      "Text-based fallback must catch 'this' when AstIndex.parse fails due to unresolvable base")
+    verifyEq(staticDiags[0].range.start.line, 4)
+  }
+
+  Void testBareInheritedFieldInStaticMethodIsError()
+  {
+    // When an inherited instance field is accessed without 'this.' inside a
+    // static method, the compiler's error is swallowed (filtered as an
+    // "Unknown variable" false positive). The validator must still report it.
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Base.fan",
+      "class Base\n" +
+      "{\n" +
+      "  Str name := \"base\"\n" +
+      "}")
+
+    source :=
+      "class Foo : Base\n" +
+      "{\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    x := name\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    fieldDiags := diags.findAll |d| { d.message.contains("Cannot access instance field 'name'") }
+    verify(fieldDiags.size >= 1,
+      "Bare inherited field 'name' in static method must be flagged")
+    verifyEq(fieldDiags[0].range.start.line, 4)
+  }
+
+  Void testBareLocalVarShadowingFieldNotFlagged()
+  {
+    // A local variable that happens to share a name with an inherited field
+    // must not be flagged — the local takes precedence.
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Base.fan",
+      "class Base\n" +
+      "{\n" +
+      "  Str name := \"base\"\n" +
+      "}")
+
+    source :=
+      "class Foo : Base\n" +
+      "{\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    name := \"local\"\n" +
+      "    x := name\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    fieldDiags := diags.findAll |d| { d.message.contains("Cannot access instance field 'name'") }
+    verifyEq(fieldDiags.size, 0,
+      "Local var 'name' shadows the inherited field — must not be flagged")
+  }
 }
 
 internal class DiagnosticServiceBuilderFacade
