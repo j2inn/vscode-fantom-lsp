@@ -20,14 +20,18 @@ class RenameService
     target := ReferencesTarget.resolve(uri, pos, source, index)
     if (target == null) return null
 
-    // Collect every location (declarations + usages) across all files
+    // Collect every location (declarations + usages) across all files.
+    // Use the caller-supplied source for the active file so that rename
+    // works correctly on unsaved buffers whose index may be stale.
     locs := [Str:Obj?][,]
     index.allFileSources.each |src, fileUri|
     {
-      locs.addAll(scanner.scan(fileUri, src, target, index))
+      fileSrc := fileUri == uri ? source : src
+      locs.addAll(scanner.scan(fileUri, fileSrc, target, index))
     }
 
-    // Group text edits by file URI
+    // Group text edits by file URI, sorted bottom-to-top so VS Code applies
+    // them without offset shift between successive edits in the same document.
     seenUris := Str:Bool[:]
     locs.each |l| { u := l["uri"] as Str; if (u != null) seenUris[u] = true }
 
@@ -36,6 +40,7 @@ class RenameService
     {
       edits := [Str:Obj?][,]
       locs.each |l| { if (l["uri"] == fileUri) edits.add(makeEdit(l, newName)) }
+      edits = sortEditsDescending(edits)
       docChanges.add(["textDocument": ["uri": fileUri, "version": null], "edits": edits])
     }
 
@@ -44,7 +49,8 @@ class RenameService
     {
       index.allFileSources.each |src, fileUri|
       {
-        newUri := singleClassFileUri(src, fileUri, target.name, newName)
+        fileSrc := fileUri == uri ? source : src
+        newUri := singleClassFileUri(fileSrc, fileUri, target.name, newName)
         if (newUri != null)
           docChanges.add(["kind": "rename", "oldUri": fileUri, "newUri": newUri])
       }
@@ -79,6 +85,44 @@ class RenameService
   private [Str:Obj?] makeEdit([Str:Obj?] loc, Str newName)
   {
     return ["range": loc["range"], "newText": newName]
+  }
+
+  ** Sort edits in reverse document order (bottom-to-top, right-to-left).
+  ** The LSP spec requires edits within a TextDocumentEdit to be applied
+  ** without overlapping; providing them in descending position order
+  ** ensures each edit's range refers to the original document positions
+  ** and no earlier edit can shift a later edit's character offset.
+  private [Str:Obj?][] sortEditsDescending([Str:Obj?][] edits)
+  {
+    sorted := edits.dup
+    sorted.sort |a, b|
+    {
+      aLine := editStartLine(a); bLine := editStartLine(b)
+      aChar := editStartChar(a); bChar := editStartChar(b)
+      if (bLine != aLine) return bLine <=> aLine
+      return bChar <=> aChar
+    }
+    return sorted
+  }
+
+  private Int editStartLine([Str:Obj?] edit)
+  {
+    r := edit["range"] as Str:Obj?
+    if (r == null) return 0
+    s := r["start"] as Str:Obj?
+    if (s == null) return 0
+    v := s["line"] as Int
+    return v ?: 0
+  }
+
+  private Int editStartChar([Str:Obj?] edit)
+  {
+    r := edit["range"] as Str:Obj?
+    if (r == null) return 0
+    s := r["start"] as Str:Obj?
+    if (s == null) return 0
+    v := s["character"] as Int
+    return v ?: 0
   }
 
   **
