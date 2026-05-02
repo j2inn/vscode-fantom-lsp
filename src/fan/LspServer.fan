@@ -38,6 +38,9 @@ class LspServer
   ** Rename service
   private RenameService renameSvc
 
+  ** Semantic tokens service
+  private SemanticTokensService semanticTokensSvc
+
   ** Formatter options (from initializationOptions / .editorconfig)
   private FormatterOptions formatterOpts := FormatterOptions()
 
@@ -55,7 +58,8 @@ class LspServer
     CodeActionService codeActionSvc,
     FormatterService formatterSvc,
     ReferencesService referencesSvc,
-    RenameService renameSvc)
+    RenameService renameSvc,
+    SemanticTokensService semanticTokensSvc)
   {
     this.docMgr = docMgr
     this.projectIndex = projectIndex
@@ -68,6 +72,7 @@ class LspServer
     this.formatterSvc = formatterSvc
     this.referencesSvc = referencesSvc
     this.renameSvc = renameSvc
+    this.semanticTokensSvc = semanticTokensSvc
   }
 
   ** Output stream for sending responses
@@ -322,6 +327,8 @@ class LspServer
         return handleFormatting(params)
       case "textDocument/rangeFormatting":
         return handleRangeFormatting(params)
+      case "textDocument/semanticTokens/full":
+        return handleSemanticTokensFull(params)
       default:
         LspProtocol.logInfo("Unhandled request: $method")
         return null
@@ -417,7 +424,11 @@ class LspServer
         "hoverProvider": true,
         "codeActionProvider": true,
         "documentFormattingProvider": formatterEnabled,
-        "documentRangeFormattingProvider": formatterEnabled
+        "documentRangeFormattingProvider": formatterEnabled,
+        "semanticTokensProvider": [
+          "legend": SemanticTokensLegend.toMap,
+          "full": true
+        ]
       ],
       "serverInfo": [
         "name": "Fantom Language Server",
@@ -1238,6 +1249,17 @@ class LspServer
     edits := formatterSvc.formatRange(uri, text, range, formatterOpts, workspaceRootUri)
     LspProtocol.logInfo("rangeFormatting: returning ${edits.size} edit(s)")
     return edits
+  }
+
+  private Obj? handleSemanticTokensFull(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    if (textDocument == null) return ["data": Int[,]]
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    LspProtocol.logInfo("semanticTokens/full: $uri")
+
+    return semanticTokensSvc.fullTokens(uri, projectIndex)
   }
 
   **

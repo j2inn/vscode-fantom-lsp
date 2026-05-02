@@ -1039,6 +1039,7 @@ class ProjectIndex
           it.line = m.line
           it.col = m.col
           it.typeStr = m.typeName
+          it.isStatic = m.isStatic
           it.doc = extractDocComment(srcLines, m.line)
           it.paramStr = pStr
         })
@@ -1479,6 +1480,16 @@ class ProjectIndex
 
   **
   ** Return a varName -> typeName map for all typed locals and params in the
+  **
+  ** Return all indexed symbols for the given file URI, or an empty list.
+  ** Used by SemanticTokensService.
+  **
+  IndexedSymbol[] getFileSymbols(Str fileUri)
+  {
+    idx := fileIndexes[fileUri]
+    return idx?.symbols ?: IndexedSymbol[,]
+  }
+
   ** given file, built from indexed symbols (AST-derived typeStr).
   ** Used by ReferencesScanner to resolve receiver types without text heuristics.
   **
@@ -2051,6 +2062,7 @@ class IndexedSymbol
   Str? typeStr  // resolved type name from AST (e.g. "Str", "Int")
   Str? doc      // doc comment text (from ** comments above symbol)
   Str? paramStr // method parameter signature (e.g. "Str name, Int count")
+  Bool isStatic := false
 }
 
 **************************************************************************

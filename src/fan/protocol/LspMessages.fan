@@ -328,3 +328,63 @@ class TextDocumentContentChangeEvent
     return TextDocumentContentChangeEvent(text, range)
   }
 }
+
+**************************************************************************
+** SemanticTokenTypes
+**************************************************************************
+
+**
+** Semantic token type index constants matching the legend declared in
+** ServerCapabilities.semanticTokensProvider.legend.tokenTypes.
+** The index of each const must match its position in that legend array.
+**
+class SemanticTokenTypes
+{
+  static const Int typeToken      := 0
+  static const Int enumMember     := 1
+  static const Int method         := 2
+  static const Int field          := 3
+  static const Int variable       := 4
+  static const Int parameter      := 5
+  static const Int facet          := 6
+}
+
+**************************************************************************
+** SemanticTokenModifiers
+**************************************************************************
+
+**
+** Semantic token modifier bitmask constants matching the legend declared in
+** ServerCapabilities.semanticTokensProvider.legend.tokenModifiers.
+**
+class SemanticTokenModifiers
+{
+  static const Int staticMod   := 1   // bit 0
+  static const Int readonlyMod := 2   // bit 1
+}
+
+**************************************************************************
+** SemanticTokensLegend
+**************************************************************************
+
+**
+** Legend that must be declared in server capabilities so the client
+** knows how to decode the integer arrays we emit.
+**
+class SemanticTokensLegend
+{
+  static Str[] tokenTypes()
+  {
+    return ["type", "enumMember", "method", "property", "variable", "parameter", "decorator"]
+  }
+
+  static Str[] tokenModifiers()
+  {
+    return ["static", "readonly"]
+  }
+
+  static Str:Obj toMap()
+  {
+    return ["tokenTypes": tokenTypes, "tokenModifiers": tokenModifiers]
+  }
+}

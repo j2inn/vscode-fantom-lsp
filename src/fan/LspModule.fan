@@ -14,11 +14,12 @@ class LspModule
 	FormatterService formatterSvc := FormatterService()
 	ReferencesService referencesSvc := ReferencesService()
 	RenameService renameSvc := RenameService()
+	SemanticTokensService semanticTokensSvc := SemanticTokensService()
 
 	LspServer server
 
 	new make()
 	{
-		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher, codeActionSvc, formatterSvc, referencesSvc, renameSvc)
+		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, hoverService, podWatcher, codeActionSvc, formatterSvc, referencesSvc, renameSvc, semanticTokensSvc)
 	}
 }
