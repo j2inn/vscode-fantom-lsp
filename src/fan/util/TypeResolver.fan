@@ -14,6 +14,11 @@ class TypeResolver
   **
   static Str? resolveVarType(Str varName, Str source, Int currentLine, ProjectIndex index)
   {
+    // Option B: query the AST-indexed symbols first — authoritative, no heuristics.
+    // Locals and params carry typeStr set by the compiler; prefer this over text scanning.
+    idxType := resolveVarTypeFromIndex(varName, source, currentLine, index)
+    if (idxType != null) return idxType
+
     lines := source.splitLines
 
     // Scan backwards for variable declarations
@@ -71,6 +76,51 @@ class TypeResolver
       }
     }
 
+    return null
+  }
+
+  **
+  ** Option B: resolve a variable's type directly from the project index.
+  ** Looks up localVar/param symbols whose name matches varName and whose
+  ** declaration line is at or before currentLine.  The typeStr stored on
+  ** each symbol comes from the compiler AST — it is authoritative for all
+  ** types the compiler could resolve, including inferred locals whose RHS
+  ** is a method call (e.g. x := someList.groupBy(...) → typeStr = "Map").
+  ** Returns null when the symbol is not in the index or has no useful type.
+  **
+  static Str? resolveVarTypeFromIndex(Str varName, Str source, Int currentLine, ProjectIndex index)
+  {
+    // Find the file URI that owns this source by matching indexed source text.
+    // We scan all file indexes rather than requiring the caller to pass a URI,
+    // keeping the public API of resolveVarType unchanged.
+    fileUri := index.findFileUriForSource(source)
+    if (fileUri == null) return null
+
+    syms := index.findSymbols(varName)
+    best := null as IndexedSymbol
+    syms.each |sym|
+    {
+      if (sym.fileUri != fileUri) return
+      if (sym.kind != SymbolKind.localVar && sym.kind != SymbolKind.param) return
+      if (sym.typeStr == null) return
+      // Skip compiler placeholder types that convey no real information
+      t := sym.typeStr
+      if (t == "Obj" || t == "Obj?" || t == "Error" || t == "Void") return
+      // Symbol must be declared at or before the use site
+      if (sym.line > currentLine) return
+      // Prefer the declaration closest to (but not past) currentLine
+      if (best == null || sym.line > best.line) best = sym
+    }
+    if (best == null || best.typeStr == null) return null
+
+    // Normalise the type name through the alias table so callers always
+    // receive a qualified name (e.g. "Map" → "sys::Map", "List" → "sys::List")
+    raw := best.typeStr
+    resolved := defs.resolveAlias(raw)
+    if (resolved != null) return resolved
+    if (index.hasType(raw)) return raw
+    // Also accept fully-qualified names (contain "::")
+    if (raw.contains("::")) return raw
     return null
   }
 
@@ -228,6 +278,25 @@ class TypeResolver
     rhsType := inferReturnTypeFromMethodCall(rhs, source, lineNum, index)
     if (rhsType != null) return rhsType
 
+    // Trailing-closure call with no parens: receiver.method |params| { ... }
+    // Extract the method name before the first '|' and delegate to YML lookup.
+    pipeIdx := rhs.index("|")
+    if (pipeIdx != null && pipeIdx > 0)
+    {
+      beforePipe := rhs[0..<pipeIdx].trim
+      dotIdx := beforePipe.indexr(".")
+      if (dotIdx != null)
+      {
+        tcMethod := beforePipe[dotIdx + 1..-1].trim
+        tcReceiver := beforePipe[0..<dotIdx].trim
+        if (tcMethod.size > 0 && tcMethod[0].isLower)
+        {
+          tcType := findMethodReturnTypeFromYml(tcMethod, tcReceiver, source, index)
+          if (tcType != null) return tcType
+        }
+      }
+    }
+
     // Field/property access without parens: receiver.field
     rhsType = inferTypeFromMemberAccess(rhs, source, lineNum, index)
     if (rhsType != null) return rhsType
@@ -303,6 +372,12 @@ class TypeResolver
           sym.typeStr != "Void" && sym.typeStr != "Obj")
         return sym.typeStr
     }
+
+    // Option A: look up the method in YML completion defs and parse return type
+    // from the detail string.  Covers framework/pod types (e.g. List.groupBy → Map)
+    // that reflection can't reach because no explicit receiver type was declared.
+    ymlReturnType := findMethodReturnTypeFromYml(methodName, receiverExpr, source, index)
+    if (ymlReturnType != null) return ymlReturnType
 
     // Fallback: search by method name across all pods referenced by 'using' statements
     return findMethodReturnTypeByName(methodName, source, index)
@@ -421,6 +496,57 @@ class TypeResolver
       if (typeName != null) return typeName
     }
     return null
+  }
+
+  **
+  ** Option A: look up methodName in the YML completion definitions.
+  ** When the receiver's type can be resolved (explicit decl or index), search
+  ** only that type's items.  Otherwise search all defined types for the first
+  ** match.  Parses the return type from the detail string via
+  ** CompletionDefs.returnTypeFrom().
+  **
+  private static Str? findMethodReturnTypeFromYml(Str methodName, Str receiverExpr,
+                                                   Str source, ProjectIndex index)
+  {
+    // Try to narrow to a specific receiver type first
+    Str? receiverType := null
+    if (receiverExpr.size > 0 && receiverExpr[0].isUpper)
+      receiverType = defs.resolveAlias(receiverExpr) ?: receiverExpr
+    else
+    {
+      explicit := resolveExplicitDeclaredType(receiverExpr, source)
+      if (explicit != null)
+        receiverType = defs.resolveAlias(explicit) ?: explicit
+    }
+
+    if (receiverType != null)
+    {
+      items := defs.itemsFor(receiverType)
+      if (items != null)
+      {
+        item := items.find |ci| { ci.label == methodName }
+        if (item != null)
+        {
+          ret := CompletionDefs.returnTypeFrom(item.detail)
+          if (ret != null) return ret
+        }
+      }
+    }
+
+    // No specific receiver type — scan all YML types for the method name.
+    // Return the first unambiguous result; skip if multiple types define it
+    // with conflicting return types (too ambiguous to be useful).
+    found := Str[,]
+    defs.allQualifiedTypeNames.each |typeName|
+    {
+      items := defs.itemsFor(typeName)
+      if (items == null) return
+      item := items.find |ci| { ci.label == methodName }
+      if (item == null) return
+      ret := CompletionDefs.returnTypeFrom(item.detail)
+      if (ret != null && !found.contains(ret)) found.add(ret)
+    }
+    return found.size == 1 ? found[0] : null
   }
 
   **

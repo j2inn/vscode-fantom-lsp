@@ -562,6 +562,22 @@ class ProjectIndex
   }
 
   **
+  ** Find the file URI whose indexed source text equals the given source string.
+  ** Used by TypeResolver to map a raw source buffer back to its index entry
+  ** without requiring callers to track the URI separately.
+  ** Returns null when no indexed file matches.
+  **
+  Str? findFileUriForSource(Str source)
+  {
+    result := null as Str
+    fileIndexes.each |idx, uri|
+    {
+      if (result == null && idx.source == source) result = uri
+    }
+    return result
+  }
+
+  **
   ** Return a map of fileUri -> source for every indexed file.
   ** Used by ReferencesService to scan all sources for usage sites.
   **
