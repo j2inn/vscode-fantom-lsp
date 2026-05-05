@@ -316,7 +316,34 @@ class TypeResolver
     parenIdx := rhs.index("(")
     if (parenIdx == null || parenIdx == 0) return null
 
-    // Everything before the first '(' is: receiver.methodName (or just methodName)
+    // For chained calls like a().b(c) or a().b |closure|, use the LAST
+    // .method( segment so we resolve b's return type, not a's.
+    // Scan for the rightmost '(' that is preceded by '.identifier'.
+    // Stop before any trailing '|' (closure) to avoid overrunning into closure params.
+    pipeIdx := rhs.index("|")
+    scanEnd := pipeIdx != null ? pipeIdx : rhs.size
+    lastDotParen := null as Int
+    i := scanEnd - 1
+    while (i >= 1)
+    {
+      if (rhs[i] == '(')
+      {
+        j := i - 1
+        while (j >= 0 && rhs[j].isSpace) j--
+        if (j >= 0 && (rhs[j].isAlphaNum || rhs[j] == '_'))
+        {
+          // Walk back over the identifier
+          while (j >= 0 && (rhs[j].isAlphaNum || rhs[j] == '_')) j--
+          if (j >= 0 && rhs[j] == '.') { lastDotParen = i; break }
+          // Bare method call at start (no dot)
+          if (j < 0 && i == parenIdx) { lastDotParen = i; break }
+        }
+      }
+      i--
+    }
+    if (lastDotParen != null) parenIdx = lastDotParen
+
+    // Everything before the chosen '(' is: receiver.methodName (or just methodName)
     beforeParen := rhs[0..<parenIdx].trim
     dotIdx := beforeParen.indexr(".")
 
