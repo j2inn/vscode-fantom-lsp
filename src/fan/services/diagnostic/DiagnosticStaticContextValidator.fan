@@ -33,9 +33,17 @@ class DiagnosticStaticContextValidator
   private LspDiagnostic[] checkViaAst(AstIndex ast, Str[] lines, Str[] baseTypes, ProjectIndex index)
   {
     diagnostics := LspDiagnostic[,]
+    types := ast.types
 
-    ast.types.each |astType|
+    for (ti := 0; ti < types.size; ti++)
     {
+      astType := types[ti]
+
+      // Upper bound for any method in this type: the line before the next type starts.
+      typeEndLine := lines.size - 1
+      if (ti + 1 < types.size)
+        typeEndLine = types[ti + 1].line - 1
+
       methods := astType.methods
       for (mi := 0; mi < methods.size; mi++)
       {
@@ -43,9 +51,10 @@ class DiagnosticStaticContextValidator
         if (!m.isStatic) continue
 
         startLine := m.line
-        endLine   := lines.size - 1
+        endLine   := typeEndLine
         if (mi + 1 < methods.size)
           endLine = methods[mi + 1].line - 1
+        if (endLine > typeEndLine) endLine = typeEndLine
 
         astType.fields.each |f|
         {
@@ -80,19 +89,21 @@ class DiagnosticStaticContextValidator
     inStaticMethod := false
     depth := 0
     methodEntryDepth := 0
+    inBlockComment := Bool[false]
     // Local names collected while scanning the current static method body
     localNames := Str:Bool[:]
 
     for (li := 0; li < lines.size; li++)
     {
       line := lines[li]
-      trimmed := line.trim
+      effective := stripBlockComments(line, inBlockComment)
+      trimmed := effective.trim
 
       if (!inStaticMethod &&
           (trimmed.isEmpty || trimmed.startsWith("//") ||
            trimmed.startsWith("**") || trimmed.startsWith("*")))
       {
-        depth += countBraces(line)
+        depth += countBraces(effective)
         continue
       }
 
@@ -102,11 +113,11 @@ class DiagnosticStaticContextValidator
         methodEntryDepth = depth
         localNames = Str:Bool[:]
         collectParamsFromDecl(trimmed, localNames)
-        depth += countBraces(line)
+        depth += countBraces(effective)
         continue
       }
 
-      depth += countBraces(line)
+      depth += countBraces(effective)
 
       if (inStaticMethod)
       {
@@ -143,9 +154,10 @@ class DiagnosticStaticContextValidator
     Str[] baseTypes, ProjectIndex index,
     LspDiagnostic[] out)
   {
+    inBlockComment := Bool[false]
     for (li := startLine; li <= endLine && li < lines.size; li++)
     {
-      line := lines[li]
+      line := stripBlockComments(lines[li], inBlockComment)
 
       // --- 'this' tokens ---
       findThisColumnsInLine(line).each |col|
@@ -308,6 +320,45 @@ class DiagnosticStaticContextValidator
     name := parts.last.trim
     if (name.size > 0 && !name[0].isUpper && !name.isEmpty)
       localNames[name] = true
+  }
+
+  **
+  ** Strip block-comment content from a single source line, maintaining state
+  ** across calls for multi-line comments. inBlockComment[0] must be false on
+  ** the first call and is updated on each call.
+  ** Characters inside a block comment are replaced with spaces to preserve
+  ** column offsets. The returned string has the same length as the input.
+  **
+  private Str stripBlockComments(Str line, Bool[] inBlockComment)
+  {
+    buf := StrBuf(line.size)
+    i := 0
+    size := line.size
+    while (i < size)
+    {
+      ch := line[i]
+      if (inBlockComment[0])
+      {
+        if (ch == '*' && i + 1 < size && line[i + 1] == '/')
+        {
+          buf.addChar(' '); buf.addChar(' ')
+          inBlockComment[0] = false
+          i += 2
+        }
+        else { buf.addChar(' '); i++ }
+      }
+      else
+      {
+        if (ch == '/' && i + 1 < size && line[i + 1] == '*')
+        {
+          inBlockComment[0] = true
+          buf.addChar(' '); buf.addChar(' ')
+          i += 2
+        }
+        else { buf.addChar(ch); i++ }
+      }
+    }
+    return buf.toStr
   }
 
   private Int countBraces(Str line)

@@ -4811,6 +4811,89 @@ class DiagnosticServiceTest : Test
     verifyEq(fieldDiags.size, 0,
       "Local var 'name' shadows the inherited field — must not be flagged")
   }
+
+  Void testThisInBlockCommentInsideStaticNotFlagged()
+  {
+    // 'this' inside a /* ... */ block comment must not be flagged.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Str name := \"test\"\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    /* this is a comment */\n" +
+      "    x := 1\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verifyEq(staticDiags.size, 0, "'this' inside /* */ block comment must not be flagged")
+  }
+
+  Void testThisInMultiLineBlockCommentInsideStaticNotFlagged()
+  {
+    // 'this' inside a multi-line /** ... */ Javadoc-style block comment must not be flagged.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Str name := \"test\"\n" +
+      "  /**\n" +
+      "  * @param this the context\n" +
+      "  */\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    x := 1\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    staticDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verifyEq(staticDiags.size, 0, "'this' inside /** */ Javadoc comment must not be flagged")
+  }
+
+  Void testThisInConstructorNotFlaggedWhenEnumInSameFile()
+  {
+    // Enum classes synthesize a non-synthetic static method (fromStr) whose loc
+    // points to the enum's type declaration line. Without type-scoped bounds,
+    // its endLine bleeds to the end of the file, causing this. inside
+    // constructors of later classes to be falsely flagged.
+    source :=
+      "public enum class MyKind { a, b }\n" +
+      "\n" +
+      "public class Foo {\n" +
+      "  Str val\n" +
+      "  new make(MyKind kind) {\n" +
+      "    this.val = kind.toStr\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, ProjectIndex())
+    thisDiags := diags.findAll |d| { d.message == "Cannot access 'this' in static context" }
+    verifyEq(thisDiags.size, 0,
+      "'this' inside a constructor must not be flagged even when an enum is defined in the same file")
+  }
+
+  Void testStaticFieldAccessInStaticMethodNotFlagged()
+  {
+    // A static field accessed inside a static method must not be flagged.
+    // Regression: AstIndex was not copying fd.isStatic, so every field
+    // appeared as an instance field and triggered a false positive.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  private static const Str className := Foo#.name\n" +
+      "  static Void bar()\n" +
+      "  {\n" +
+      "    x := className\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, ProjectIndex())
+    fieldDiags := diags.findAll |d| { d.message.contains("Cannot access instance field 'className'") }
+    verifyEq(fieldDiags.size, 0,
+      "Static field 'className' accessed in static method must not be flagged")
+  }
 }
 
 internal class DiagnosticServiceBuilderFacade

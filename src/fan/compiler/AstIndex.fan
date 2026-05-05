@@ -116,6 +116,7 @@ class AstIndex
       slot := AstSlot()
       slot.name = fd.name
       slot.isField = true
+      slot.isStatic = fd.isStatic
       slot.line = (fd.loc.line ?: 1) - 1
       slot.col = (fd.loc.col ?: 1) - 1
       try { slot.typeName = fd.fieldType.name } catch {}
