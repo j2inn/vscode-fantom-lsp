@@ -3015,6 +3015,67 @@ class DiagnosticServiceTest : Test
     verifyEq(memberDiags.size, 0)
   }
 
+  Void testEnumValuesNamedAfterCommonWordsNotFlagged()
+  {
+    // Enum values whose names match common words (method, field, type, localVar, param)
+    // must not be flagged as unknown members. Regression for SymbolKind.method etc.
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/SymbolKind.fan",
+      "enum class SymbolKind\n" +
+      "{\n" +
+      "  type,\n" +
+      "  method,\n" +
+      "  field,\n" +
+      "  localVar,\n" +
+      "  param,\n" +
+      "  enumVal\n" +
+      "}")
+
+    verify(typeIdx.hasType("SymbolKind"), "SymbolKind type must be indexed")
+    verify(typeIdx.hasMember("SymbolKind", "type"),    "SymbolKind.type must be indexed")
+    verify(typeIdx.hasMember("SymbolKind", "method"),  "SymbolKind.method must be indexed")
+    verify(typeIdx.hasMember("SymbolKind", "field"),   "SymbolKind.field must be indexed")
+    verify(typeIdx.hasMember("SymbolKind", "localVar"),"SymbolKind.localVar must be indexed")
+    verify(typeIdx.hasMember("SymbolKind", "param"),   "SymbolKind.param must be indexed")
+    verify(typeIdx.hasMember("SymbolKind", "enumVal"), "SymbolKind.enumVal must be indexed")
+
+    source :=
+      "class Checker\n" +
+      "{\n" +
+      "  Void check()\n" +
+      "  {\n" +
+      "    syms := [,]\n" +
+      "    a := syms.find |s| { s.kind == SymbolKind.type }\n" +
+      "    b := syms.find |s| { s.kind == SymbolKind.method }\n" +
+      "    c := syms.find |s| { s.kind == SymbolKind.field }\n" +
+      "    d := syms.find |s| { s.kind == SymbolKind.localVar }\n" +
+      "    e := syms.find |s| { s.kind == SymbolKind.param }\n" +
+      "    f := syms.find |s| { s.kind == SymbolKind.enumVal }\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Checker.fan", source, typeIdx)
+    memberDiags := diags.findAll |d|
+    {
+      d.message.contains("is not a member of") && d.message.contains("SymbolKind")
+    }
+    verifyEq(memberDiags.size, 0,
+      "No SymbolKind cross-file member errors expected, got: " + memberDiags.map |d| { d.message }.join(", "))
+
+    // Also verify no compiler-generated errors about SymbolKind values after preprocessing.
+    // After replacing SymbolKind→Obj, the compiler would produce "Unknown slot 'sys::Obj.method'"
+    // for SymbolKind.method etc. These must also be suppressed.
+    compilerSymbolDiags := diags.findAll |d|
+    {
+      d.message.contains("Obj.method") || d.message.contains("Obj.field") ||
+      d.message.contains("Obj.localVar") || d.message.contains("Obj.param") ||
+      d.message.contains("Obj.enumVal") || d.message.contains("Unknown slot") ||
+      d.message.contains("Unknown variable 'SymbolKind'")
+    }
+    verifyEq(compilerSymbolDiags.size, 0,
+      "No compiler errors for SymbolKind values expected, got: " + compilerSymbolDiags.map |d| { d.message }.join(", "))
+  }
+
 //////////////////////////////////////////////////////////////////////////
 // Unknown Slot/Field on Replaced Base (Regression)
 //////////////////////////////////////////////////////////////////////////
@@ -3141,6 +3202,33 @@ class DiagnosticServiceTest : Test
     }
     verifyEq(getDiags.size, 0,
       "Map.get(key, default) must not be flagged after groupBy — got: " +
+      getDiags.map |d| { d.message }.join(", "))
+  }
+
+  Void testGroupByOnChainedCallResultIsMapNotList()
+  {
+    // When groupBy is called on the result of a method call (chained),
+    // the type resolver must resolve groupBy's return type (Map), not the
+    // intermediate call's return type (List). Map.get(key, default) takes
+    // 1-2 args and must not be flagged.
+    source :=
+      "class Svc\n" +
+      "{\n" +
+      "  Dict[] getRows() { [,] }\n" +
+      "  Void run()\n" +
+      "  {\n" +
+      "    bacnetDevicesMap := getRows().groupBy |Dict row -> Str| { row->id }\n" +
+      "    x := bacnetDevicesMap.get(\"key\", [,])\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Svc.fan", source, idx)
+    getDiags := diags.findAll |d|
+    {
+      d.message.contains("get") && d.message.contains("expects")
+    }
+    verifyEq(getDiags.size, 0,
+      "Map.get(key, default) must not be flagged when groupBy is called on a chained method call — got: " +
       getDiags.map |d| { d.message }.join(", "))
   }
 
