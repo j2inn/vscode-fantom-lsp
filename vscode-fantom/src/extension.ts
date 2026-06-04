@@ -18,6 +18,7 @@ import {
 } from 'vscode';
 import { getPlatform } from './platform';
 import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
+import { unlinkShadowLinks } from './shadowCleanup';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -182,12 +183,22 @@ function createShadowDir(mainPodFileName: string, realFanHome: string): string |
 function cleanupShadowDir(): void {
   if (currentShadowDir) {
     try {
-      fs.rmSync(currentShadowDir, { recursive: true });
-      log(`Cleaned up shadow dir: ${currentShadowDir}`);
+      // On Windows, fs.rmSync with recursive:true follows junctions as if they
+      // were real directories, deleting the junction target's contents.
+      // Unlink all junctions/symlinks first; if any unlink fails on Windows we
+      // skip the recursive delete entirely to protect the junction targets.
+      const allUnlinked = unlinkShadowLinks(currentShadowDir);
+      if (!isWindows || allUnlinked) {
+        fs.rmSync(currentShadowDir, { recursive: true });
+        log(`Cleaned up shadow dir: ${currentShadowDir}`);
+      } else {
+        log(`WARNING: Could not unlink all junctions in shadow dir — skipping recursive delete to protect FAN_HOME: ${currentShadowDir}`);
+      }
     } catch (_) {}
     currentShadowDir = undefined;
   }
 }
+
 
 /**
  * Check if the current workspace is a Fantom project.

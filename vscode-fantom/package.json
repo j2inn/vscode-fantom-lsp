@@ -366,7 +366,7 @@
     "watch": "tsc -watch -p ./",
     "pretest": "pnpm run compile",
     "lint": "eslint src --ext ts",
-    "test:extension": "node out/test/declarationRange.test.js",
+    "test:extension": "node out/test/declarationRange.test.js && node out/test/shadowCleanup.test.js",
     "test:integration": "node out/test/debugAdapter.test.js",
     "test:integration:vscode": "node out/test/integration/runTest.js",
     "test:grammar": "vscode-tmgrammar-snap -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",
