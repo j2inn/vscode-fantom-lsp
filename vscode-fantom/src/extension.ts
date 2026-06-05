@@ -18,7 +18,7 @@ import {
 } from 'vscode';
 import { getPlatform } from './platform';
 import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
-import { unlinkShadowLinks } from './shadowCleanup';
+import { unlinkShadowLinks, linkOrCopyLibJava } from './shadowCleanup';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -74,6 +74,7 @@ function log(msg: string): void {
 // Path of the current shadow dir, if any.  Cleaned up on deactivation.
 let currentShadowDir: string | undefined;
 
+
 /**
  * Creates a shadow copy of lsp.pod in a temp directory so the LSP server
  * loads the pod from there, leaving the original free to be overwritten
@@ -82,7 +83,7 @@ let currentShadowDir: string | undefined;
  * Structure:
  *   <shadowDir>/lib/fan/lsp.pod  – real copy (original stays unlocked for builds)
  *   <shadowDir>/lib/fan/*.pod    – symlink/hardlink to each real pod
- *   <shadowDir>/lib/java         – junction/symlink → realFanHome/lib/java (sys.jar)
+ *   <shadowDir>/lib/java         – junction/symlink → realFanHome/lib/java (sys.jar), or copy as fallback
  *   <shadowDir>/etc              – junction/symlink → realFanHome/etc (timezone data etc.)
  *
  * Returns the shadow dir path, or undefined on failure.
@@ -116,10 +117,13 @@ function createShadowDir(mainPodFileName: string, realFanHome: string): string |
 
     // Junction (Windows) / symlink (Linux/Mac) for lib/java so the fanlaunch
     // script finds sys.jar when it derives FAN_CP from FAN_HOME.
-    fs.symlinkSync(
+    // On Windows, creating a junction can fail if the process lacks the
+    // SeCreateSymbolicLink privilege.  Fall back to copying lib/java into the
+    // shadow dir so the JVM can always find sys.jar without touching FAN_HOME.
+    linkOrCopyLibJava(
       path.join(realFanHome, 'lib', 'java'),
       path.join(shadowDir, 'lib', 'java'),
-      'junction'
+      log,
     );
 
     // Build a shadow etc/ tree.  We need a real etc/sys/config.props that
@@ -162,12 +166,21 @@ function createShadowDir(mainPodFileName: string, realFanHome: string): string |
             fs.writeFileSync(shadowSysPath, modified, 'utf8');
             log('Shadow config.props: stripped java.options (JDWP suppressed)');
           } else {
-            fs.symlinkSync(realSysPath, shadowSysPath);
+            // On Windows file symlinks require Developer Mode / admin rights.
+            // Copy small etc/sys files instead — they are tiny and rarely change.
+            isWindows
+              ? fs.copyFileSync(realSysPath, shadowSysPath)
+              : fs.symlinkSync(realSysPath, shadowSysPath);
           }
         }
       } else {
-        // Symlink the entire subdirectory / file as-is
-        fs.symlinkSync(realEtcPath, shadowEtcPath);
+        // Junction (Windows) / symlink (Linux/Mac) for each etc/ subdirectory.
+        const stat = fs.statSync(realEtcPath);
+        if (isWindows && stat.isDirectory()) {
+          fs.symlinkSync(realEtcPath, shadowEtcPath, 'junction');
+        } else {
+          fs.symlinkSync(realEtcPath, shadowEtcPath);
+        }
       }
     }
 
@@ -175,6 +188,9 @@ function createShadowDir(mainPodFileName: string, realFanHome: string): string |
     return shadowDir;
   } catch (e: any) {
     log(`WARNING: Could not create shadow dir: ${e.message}`);
+    // Unlink any junctions first so the recursive delete cannot follow them
+    // into realFanHome (same risk as in cleanupShadowDir).
+    unlinkShadowLinks(shadowDir);
     try { fs.rmSync(shadowDir, { recursive: true }); } catch (_) {}
     return undefined;
   }
@@ -395,6 +411,38 @@ function resolveFanPath(finConfig: FinConfig): string | undefined {
 }
 
 /**
+ * Shows a targeted error popup when the LSP server fails to start.
+ *
+ * The JVM prints "Could not find or load main class fanx.tools.Fan" to stderr
+ * and the LSP client surfaces "write EPIPE" because the process dies before
+ * the JSON-RPC handshake completes.  Both signals indicate that sys.jar is
+ * missing from FAN_HOME/lib/java — most likely because a previous extension
+ * version corrupted it, or because FAN_HOME lives inside a folder that
+ * requires administrator rights.
+ */
+function showLspStartupError(errorMessage: string, fanHome: string): void {
+  const isJvmMissing = errorMessage.includes('EPIPE') || errorMessage.includes('disposed');
+  if (isJvmMissing) {
+    vscode.window.showErrorMessage(
+      'Fantom Language Server could not start. ' +
+      `This usually means the Fantom installation at "${fanHome}" is inside a folder that requires administrator rights, ` +
+      'or its lib/java folder is missing/corrupted. ' +
+      'Try running VS Code as administrator, moving the installation to a user-writable folder, or reinstalling the extension.',
+      'Show Logs',
+      'Open Settings',
+    ).then(choice => {
+      if (choice === 'Show Logs') {
+        outputChannel.show();
+      } else if (choice === 'Open Settings') {
+        vscode.commands.executeCommand('workbench.action.openWorkspaceSettings', { query: 'fantom.fanPath' });
+      }
+    });
+  } else {
+    vscode.window.showErrorMessage(`Fantom Language Server failed to start: ${errorMessage}`);
+  }
+}
+
+/**
  * Start (or restart) the LSP client with the given configuration.
  * The caller is responsible for stopping any existing client first.
  */
@@ -526,10 +574,9 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
       );
     }
   }).catch((error) => {
-    log(`ERROR starting Language Server: ${error.message}`);
-    vscode.window.showErrorMessage(
-      `Failed to start Fantom Language Server: ${error.message}`
-    );
+    const msg: string = error?.message ?? String(error);
+    log(`ERROR starting Language Server: ${msg}`);
+    showLspStartupError(msg, fanHome);
   });
 }
 

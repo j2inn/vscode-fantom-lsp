@@ -27,3 +27,39 @@ export function unlinkShadowLinks(dir: string): boolean {
   }
   return allOk;
 }
+
+/**
+ * Points shadowLibJava at realLibJava using a junction (Windows) or symlink
+ * (Linux/Mac).  If the junction/symlink cannot be created (e.g. missing
+ * SeCreateSymbolicLink privilege on Windows), falls back to a recursive copy
+ * of lib/java into the shadow dir so the JVM can always find sys.jar without
+ * touching FAN_HOME.
+ */
+export function linkOrCopyLibJava(
+  realLibJava: string,
+  shadowLibJava: string,
+  log: (msg: string) => void,
+): void {
+  try {
+    fs.symlinkSync(realLibJava, shadowLibJava, 'junction');
+    return;
+  } catch (_) {
+    // Junction creation failed — fall through to copy.
+  }
+  log('lib/java junction failed — copying lib/java into shadow dir as fallback');
+  copyDirRecursive(realLibJava, shadowLibJava);
+}
+
+/** Recursively copies all files from src into dest (dest is created if needed). */
+export function copyDirRecursive(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath  = path.join(src,  entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}

@@ -1,5 +1,5 @@
 /**
- * Unit tests for unlinkShadowLinks.
+ * Unit tests for unlinkShadowLinks, linkOrCopyLibJava, and copyDirRecursive.
  *
  * No VS Code dependency — runs with plain Node.js after TypeScript compilation:
  *   node out/test/shadowCleanup.test.js
@@ -9,7 +9,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { unlinkShadowLinks } from '../shadowCleanup';
+import { unlinkShadowLinks, linkOrCopyLibJava, copyDirRecursive } from '../shadowCleanup';
 
 let passed = 0;
 let failed = 0;
@@ -153,6 +153,127 @@ test('removes multiple symlinks and returns true', () => {
     try { fs.rmSync(shadowDir, { recursive: true }); } catch (_) {}
     try { fs.rmSync(t1, { recursive: true }); } catch (_) {}
     try { fs.rmSync(t2, { recursive: true }); } catch (_) {}
+  }
+});
+
+// ---------------------------------------------------------------------------
+// copyDirRecursive
+// ---------------------------------------------------------------------------
+
+test('copyDirRecursive copies files from a flat directory', () => {
+  const src  = makeTmpDir();
+  const dest = makeTmpDir();
+  try {
+    writeFile(path.join(src, 'sys.jar'), 'jar-bytes');
+    writeFile(path.join(src, 'other.jar'), 'other-bytes');
+    fs.rmSync(dest, { recursive: true });  // let copyDirRecursive create it
+    copyDirRecursive(src, dest);
+    assert.strictEqual(fs.readFileSync(path.join(dest, 'sys.jar'),   'utf8'), 'jar-bytes');
+    assert.strictEqual(fs.readFileSync(path.join(dest, 'other.jar'), 'utf8'), 'other-bytes');
+  } finally {
+    try { fs.rmSync(src,  { recursive: true }); } catch (_) {}
+    try { fs.rmSync(dest, { recursive: true }); } catch (_) {}
+  }
+});
+
+test('copyDirRecursive copies nested subdirectories', () => {
+  const src  = makeTmpDir();
+  const dest = makeTmpDir();
+  try {
+    writeFile(path.join(src, 'sub', 'deep.txt'), 'deep');
+    fs.rmSync(dest, { recursive: true });
+    copyDirRecursive(src, dest);
+    assert.strictEqual(fs.readFileSync(path.join(dest, 'sub', 'deep.txt'), 'utf8'), 'deep');
+  } finally {
+    try { fs.rmSync(src,  { recursive: true }); } catch (_) {}
+    try { fs.rmSync(dest, { recursive: true }); } catch (_) {}
+  }
+});
+
+test('copyDirRecursive does not modify the source', () => {
+  const src  = makeTmpDir();
+  const dest = makeTmpDir();
+  try {
+    writeFile(path.join(src, 'sys.jar'), 'original');
+    fs.rmSync(dest, { recursive: true });
+    copyDirRecursive(src, dest);
+    assert.strictEqual(fs.readFileSync(path.join(src, 'sys.jar'), 'utf8'), 'original');
+  } finally {
+    try { fs.rmSync(src,  { recursive: true }); } catch (_) {}
+    try { fs.rmSync(dest, { recursive: true }); } catch (_) {}
+  }
+});
+
+// ---------------------------------------------------------------------------
+// linkOrCopyLibJava — symlink/junction path
+// ---------------------------------------------------------------------------
+
+test('linkOrCopyLibJava creates a symlink/junction when possible', () => {
+  const realLibJava   = makeTmpDir();
+  const shadowLibJava = path.join(makeTmpDir(), 'lib', 'java');
+  const shadowParent  = path.dirname(shadowLibJava);
+  try {
+    writeFile(path.join(realLibJava, 'sys.jar'), 'jar');
+    fs.mkdirSync(shadowParent, { recursive: true });
+    const logs: string[] = [];
+    linkOrCopyLibJava(realLibJava, shadowLibJava, msg => logs.push(msg));
+    // Whether a symlink or copy, sys.jar must be readable at the shadow path
+    assert.ok(fs.existsSync(path.join(shadowLibJava, 'sys.jar')), 'sys.jar must be accessible');
+    assert.ok(logs.length === 0, 'no fallback log expected when symlink succeeds');
+  } finally {
+    try { fs.rmSync(realLibJava,                      { recursive: true }); } catch (_) {}
+    try { fs.rmSync(path.dirname(shadowParent),       { recursive: true }); } catch (_) {}
+  }
+});
+
+// ---------------------------------------------------------------------------
+// linkOrCopyLibJava — copy fallback path
+// ---------------------------------------------------------------------------
+
+test('linkOrCopyLibJava falls back to copy when symlink throws', () => {
+  const realLibJava   = makeTmpDir();
+  const shadowLibJava = path.join(makeTmpDir(), 'lib', 'java');
+  const shadowParent  = path.dirname(shadowLibJava);
+  try {
+    writeFile(path.join(realLibJava, 'sys.jar'),  'jar-content');
+    writeFile(path.join(realLibJava, 'other.jar'), 'other-content');
+    fs.mkdirSync(shadowParent, { recursive: true });
+
+    // Simulate junction failure by pre-creating the destination so symlinkSync throws.
+    fs.mkdirSync(shadowLibJava, { recursive: true });
+
+    const logs: string[] = [];
+    linkOrCopyLibJava(realLibJava, shadowLibJava, msg => logs.push(msg));
+
+    assert.ok(logs.some(l => l.includes('fallback')), 'fallback log message expected');
+    assert.strictEqual(fs.readFileSync(path.join(shadowLibJava, 'sys.jar'),   'utf8'), 'jar-content');
+    assert.strictEqual(fs.readFileSync(path.join(shadowLibJava, 'other.jar'), 'utf8'), 'other-content');
+
+    // Source must be untouched
+    assert.strictEqual(fs.readFileSync(path.join(realLibJava, 'sys.jar'), 'utf8'), 'jar-content');
+  } finally {
+    try { fs.rmSync(realLibJava,                { recursive: true }); } catch (_) {}
+    try { fs.rmSync(path.dirname(shadowParent), { recursive: true }); } catch (_) {}
+  }
+});
+
+test('linkOrCopyLibJava fallback does not delete source contents', () => {
+  const realLibJava   = makeTmpDir();
+  const shadowLibJava = path.join(makeTmpDir(), 'lib', 'java');
+  const shadowParent  = path.dirname(shadowLibJava);
+  try {
+    writeFile(path.join(realLibJava, 'sys.jar'), 'precious');
+    fs.mkdirSync(shadowParent, { recursive: true });
+    // Force fallback
+    fs.mkdirSync(shadowLibJava, { recursive: true });
+
+    linkOrCopyLibJava(realLibJava, shadowLibJava, () => {});
+
+    assert.strictEqual(fs.readFileSync(path.join(realLibJava, 'sys.jar'), 'utf8'), 'precious',
+      'source sys.jar must be untouched after copy fallback');
+  } finally {
+    try { fs.rmSync(realLibJava,                { recursive: true }); } catch (_) {}
+    try { fs.rmSync(path.dirname(shadowParent), { recursive: true }); } catch (_) {}
   }
 });
 
