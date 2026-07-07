@@ -117,6 +117,38 @@ Then run `pnpm install && pnpm audit` to confirm clean.
 All current vulnerabilities are in devDependencies (never shipped in the VSIX) but must still
 be pinned to safe versions via overrides.
 
+## Shadow Dir Policy
+
+Any code that creates, mirrors, or removes a temporary copy of a Fantom
+installation directory **must** use `ShadowDir` from
+`vscode-fantom/src/shadowDir.ts`. Never call `fs.rmSync`, `fs.unlinkSync`,
+`fs.symlinkSync`, or `fs.linkSync` directly on paths that may point into or
+overlap with `fanPath` (the Fantom installation).
+
+### Rules
+
+- **Always use `ShadowDir.create()`** to build a shadow FAN_HOME. Never
+  construct a mirror tree by hand in extension code.
+- **Always use `shadowDir.dispose()`** to tear it down. Never call `fs.rmSync`
+  directly on a shadow dir path.
+- **Extend `ShadowDir`** when a new sub-tree needs to be mirrored (e.g. a new
+  `lib/` subfolder). Add the new build phase as a private static method inside
+  the class, following the existing `buildLibFan` / `buildLibJava` / `buildEtc`
+  pattern.
+- `ShadowDir.safeRemove()` is the **only** permitted deletion path. It enforces:
+  1. The target path must be under `os.tmpdir()` — refuses otherwise.
+  2. All junctions/symlinks are unlinked before `rmSync` — on Windows, `rmSync`
+     is skipped entirely if any junction could not be unlinked.
+- `ShadowDir.unlinkSymlinks()` and `ShadowDir.copyDirRecursive()` are available
+  as static utilities for tests and internal helpers.
+
+### Why
+
+On Windows, `fs.rmSync({ recursive: true })` follows directory junctions as if
+they were real directories, deleting the junction *target's* contents — which
+can be inside `fanPath`. `ShadowDir` is the single place that handles this
+safely; bypassing it risks corrupting the Fantom installation.
+
 ## Cross-Platform Rules (Windows & Linux)
 
 The extension must work on **both Windows and Linux**. Follow these rules strictly:

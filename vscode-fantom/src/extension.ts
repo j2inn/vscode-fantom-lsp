@@ -1,6 +1,5 @@
 import * as cp from 'child_process';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { getDeclarationEndLine } from './declarationRange';
@@ -18,7 +17,7 @@ import {
 } from 'vscode';
 import { getPlatform } from './platform';
 import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
-import { unlinkShadowLinks, linkOrCopyLibJava } from './shadowCleanup';
+import { ShadowDir } from './shadowDir';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -71,149 +70,8 @@ function log(msg: string): void {
   console.log(`[Fantom] ${msg}`);
 }
 
-// Path of the current shadow dir, if any.  Cleaned up on deactivation.
-let currentShadowDir: string | undefined;
-
-
-/**
- * Creates a shadow copy of lsp.pod in a temp directory so the LSP server
- * loads the pod from there, leaving the original free to be overwritten
- * during builds.
- *
- * Structure:
- *   <shadowDir>/lib/fan/lsp.pod  – real copy (original stays unlocked for builds)
- *   <shadowDir>/lib/fan/*.pod    – symlink/hardlink to each real pod
- *   <shadowDir>/lib/java         – junction/symlink → realFanHome/lib/java (sys.jar), or copy as fallback
- *   <shadowDir>/etc              – junction/symlink → realFanHome/etc (timezone data etc.)
- *
- * Returns the shadow dir path, or undefined on failure.
- */
-function createShadowDir(mainPodFileName: string, realFanHome: string): string | undefined {
-  const shadowDir = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}`);
-  try {
-    const shadowLibFan = path.join(shadowDir, 'lib', 'fan');
-    fs.mkdirSync(shadowLibFan, { recursive: true });
-
-    // Fantom loads sys.pod at JVM static-init time, before config.props path= is
-    // applied, so we must expose ALL pods in shadowDir/lib/fan/.
-    // - main pod: real copy so the original file is never opened by the server
-    //   and stays free for the build to overwrite.
-    // - every other pod: symlink (Linux/Mac) or hard link (Windows).
-    //   Hard links share the inode with the original, but those pods are never
-    //   rebuilt so any JVM lock on them is harmless.
-    const realLibFan = path.join(realFanHome, 'lib', 'fan');
-    for (const entry of fs.readdirSync(realLibFan)) {
-      if (!entry.endsWith('.pod')) { continue; }
-      const src  = path.join(realLibFan, entry);
-      const dest = path.join(shadowLibFan, entry);
-      if (entry === mainPodFileName) {
-        fs.copyFileSync(src, dest);
-      } else {
-        // fs.linkSync creates a hard link (no elevation needed on Windows).
-        // fs.symlinkSync creates a plain symlink on Linux/Mac.
-        isWindows ? fs.linkSync(src, dest) : fs.symlinkSync(src, dest);
-      }
-    }
-
-    // Junction (Windows) / symlink (Linux/Mac) for lib/java so the fanlaunch
-    // script finds sys.jar when it derives FAN_CP from FAN_HOME.
-    // On Windows, creating a junction can fail if the process lacks the
-    // SeCreateSymbolicLink privilege.  Fall back to copying lib/java into the
-    // shadow dir so the JVM can always find sys.jar without touching FAN_HOME.
-    linkOrCopyLibJava(
-      path.join(realFanHome, 'lib', 'java'),
-      path.join(shadowDir, 'lib', 'java'),
-      log,
-    );
-
-    // Build a shadow etc/ tree.  We need a real etc/sys/config.props that
-    // strips the java.options entry (typically contains -agentlib:jdwp=…).
-    // When java.options is present, the JVM prints a JDWP startup message to
-    // stdout which corrupts the LSP Content-Length wire protocol.
-    //
-    // Strategy:
-    //   • etc/ — real directory (not a symlink)
-    //   • etc/<subdir> — symlink to realFanHome/etc/<subdir> for every entry
-    //     EXCEPT etc/sys (which needs a real dir so we can override config.props)
-    //   • etc/sys/ — real directory
-    //   • etc/sys/config.props — modified copy with java.options line removed
-    //   • etc/sys/<other> — symlink to realFanHome/etc/sys/<other>
-    const realEtcDir   = path.join(realFanHome, 'etc');
-    const shadowEtcDir = path.join(shadowDir, 'etc');
-    fs.mkdirSync(shadowEtcDir, { recursive: true });
-
-    for (const etcEntry of fs.readdirSync(realEtcDir)) {
-      const realEtcPath   = path.join(realEtcDir, etcEntry);
-      const shadowEtcPath = path.join(shadowEtcDir, etcEntry);
-
-      if (etcEntry === 'sys') {
-        // Special-case: real dir so we can write a custom config.props
-        const realSysDir   = realEtcPath;
-        const shadowSysDir = shadowEtcPath;
-        fs.mkdirSync(shadowSysDir, { recursive: true });
-
-        for (const sysEntry of fs.readdirSync(realSysDir)) {
-          const realSysPath   = path.join(realSysDir, sysEntry);
-          const shadowSysPath = path.join(shadowSysDir, sysEntry);
-
-          if (sysEntry === 'config.props') {
-            // Strip java.options to prevent JDWP from writing to LSP stdout
-            const original = fs.readFileSync(realSysPath, 'utf8');
-            const modified = original
-              .split('\n')
-              .filter(line => !line.trim().startsWith('java.options'))
-              .join('\n');
-            fs.writeFileSync(shadowSysPath, modified, 'utf8');
-            log('Shadow config.props: stripped java.options (JDWP suppressed)');
-          } else {
-            // On Windows file symlinks require Developer Mode / admin rights.
-            // Copy small etc/sys files instead — they are tiny and rarely change.
-            isWindows
-              ? fs.copyFileSync(realSysPath, shadowSysPath)
-              : fs.symlinkSync(realSysPath, shadowSysPath);
-          }
-        }
-      } else {
-        // Junction (Windows) / symlink (Linux/Mac) for each etc/ subdirectory.
-        const stat = fs.statSync(realEtcPath);
-        if (isWindows && stat.isDirectory()) {
-          fs.symlinkSync(realEtcPath, shadowEtcPath, 'junction');
-        } else {
-          fs.symlinkSync(realEtcPath, shadowEtcPath);
-        }
-      }
-    }
-
-    log(`Shadow dir created: ${shadowDir}`);
-    return shadowDir;
-  } catch (e: any) {
-    log(`WARNING: Could not create shadow dir: ${e.message}`);
-    // Unlink any junctions first so the recursive delete cannot follow them
-    // into realFanHome (same risk as in cleanupShadowDir).
-    unlinkShadowLinks(shadowDir);
-    try { fs.rmSync(shadowDir, { recursive: true }); } catch (_) {}
-    return undefined;
-  }
-}
-
-function cleanupShadowDir(): void {
-  if (currentShadowDir) {
-    try {
-      // On Windows, fs.rmSync with recursive:true follows junctions as if they
-      // were real directories, deleting the junction target's contents.
-      // Unlink all junctions/symlinks first; if any unlink fails on Windows we
-      // skip the recursive delete entirely to protect the junction targets.
-      const allUnlinked = unlinkShadowLinks(currentShadowDir);
-      if (!isWindows || allUnlinked) {
-        fs.rmSync(currentShadowDir, { recursive: true });
-        log(`Cleaned up shadow dir: ${currentShadowDir}`);
-      } else {
-        log(`WARNING: Could not unlink all junctions in shadow dir — skipping recursive delete to protect FAN_HOME: ${currentShadowDir}`);
-      }
-    } catch (_) {}
-    currentShadowDir = undefined;
-  }
-}
+// Current shadow dir instance, if any.  Disposed on deactivation or restart.
+let currentShadowDir: ShadowDir | undefined;
 
 
 /**
@@ -456,7 +314,8 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
 
   // Create a shadow copy of lsp.pod so builds can overwrite the original
   // while the server is running.
-  cleanupShadowDir();
+  currentShadowDir?.dispose(log);
+  currentShadowDir = undefined;
   const fanHome = path.dirname(path.dirname(fanExe));
   const podDir = path.join(fanHome, 'lib', 'fan');
   const newPodSrc = path.join(podDir, POD_FILE_NEW);
@@ -469,7 +328,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   log(`Selected language server script: ${serverScript}`);
 
   if (fs.existsSync(mainPodSrc)) {
-    currentShadowDir = createShadowDir(mainPodFileName, fanHome);
+    currentShadowDir = ShadowDir.create(mainPodFileName, fanHome, log);
   }
 
   const serverOptions: ServerOptions = {
@@ -480,7 +339,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
       env: {
         ...process.env,
         FAN_JAVA: actualJavaPath,
-        ...(currentShadowDir ? { FAN_HOME: currentShadowDir } : {})
+        ...(currentShadowDir ? { FAN_HOME: currentShadowDir.path } : {})
       }
     }
   };
@@ -1648,7 +1507,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): Thenable<void> | undefined {
-  cleanupShadowDir();
+  currentShadowDir?.dispose(log);
+  currentShadowDir = undefined;
   if (!client) {
     return undefined;
   }
