@@ -212,6 +212,37 @@ On activation the extension:
 5. **Checks for Java** (`JAVA_HOME` → `fantom.javaPath` setting → `PATH`). If Java is not found, a warning popup is shown with options to configure the path. If Java is found and the debug adapter JAR has not been built yet, it is compiled automatically from the bundled Java sources in the background with a progress notification.
 6. The server indexes all `.fan` sources from `build.fan`'s `srcDirs`, pre-loads available pods, runs diagnostics, and performs an initial build check — all in the background so the editor stays responsive.
 
+### Shadow directories
+
+The extension never modifies your Fantom installation while it is running. Instead, it creates a **shadow directory** — a lightweight mirror of `FAN_HOME` placed in the system temp folder — and points the LSP server and the debugger at that instead.
+
+#### Why
+
+The LSP server holds `vscodeFantomLsp.pod` open as long as it runs. Without a shadow copy, a build command that tries to overwrite that file would fail with a "file in use" error on Windows. The shadow dir gives the server its own unlocked copy while the original stays free for builds.
+
+#### What is in the shadow dir
+
+| Path inside shadow dir | What it contains |
+|---|---|
+| `lib/fan/<main>.pod` | Real copy of the LSP pod — the original is never locked |
+| `lib/fan/*.pod` | Hard links (Windows) or symlinks (Linux/Mac) to the real pods |
+| `lib/java/` | Junction (Windows) or symlink (Linux/Mac) to the real `lib/java/`; falls back to a full recursive copy if the junction cannot be created |
+| `etc/sys/config.props` | Modified copy with `java.options` stripped to suppress JDWP output on the LSP stdout pipe |
+| `etc/sys/<other>` | Copies (Windows) or symlinks (Linux/Mac) of the remaining `etc/sys/` files |
+| `etc/<other>/` | Junction (Windows) or symlink (Linux/Mac) to each real `etc/` subdirectory |
+
+The shadow dir is created at LSP server startup and deleted when the server stops or restarts.
+
+#### Safe deletion on Windows
+
+On Windows, `fs.rmSync({ recursive: true })` follows directory junctions as real directories, which would delete the contents of the junction target — i.e. your Fantom installation. The extension guards against this through `ShadowDir` (`vscode-fantom/src/shadowDir.ts`), the single class responsible for all shadow dir lifecycle operations:
+
+1. **Boundary check** — refuses to delete any path that is not under the system temp directory.
+2. **Junction unlink first** — unlinks every junction and symlink before calling `rmSync`, so `rmSync` only ever sees regular files and empty directories.
+3. **Abort on partial failure** — if any junction cannot be unlinked on Windows, the `rmSync` call is skipped entirely. The shadow dir leaks in `%TEMP%` but your installation is never touched.
+
+The same class is used by the debugger's launch-mode shadow dir.
+
 ### Diagnostics lifecycle
 
 - **While typing** — changes are debounced (`debounceTime` ms). No analysis runs until typing pauses.

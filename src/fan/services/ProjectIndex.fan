@@ -331,6 +331,23 @@ class ProjectIndex
   }
 
   **
+  ** Check if a type has a specific instance (non-static) field.
+  ** Used by the static-context validator to avoid false positives on
+  ** static fields accessed by bare name inside static methods.
+  **
+  Bool hasInstanceField(Str typeName, Str fieldName)
+  {
+    syms := symbolsByName[fieldName]
+    if (syms == null) return false
+    return syms.any |s|
+    {
+      s.typeName == typeName &&
+      s.kind == SymbolKind.field &&
+      !s.isStatic
+    }
+  }
+
+  **
   ** Check if a type is an enum class (has any enumVal symbols).
   **
   Bool isEnumType(Str typeName)
@@ -867,6 +884,7 @@ class ProjectIndex
         {
           col := findIdentCol(line, fieldMatch)
           fieldTypeStr := TypeResolver.extractDeclaredType(trimmed, fieldMatch)
+          fieldIsStatic := trimmed.contains("static ")
           idx.symbols.add(IndexedSymbol
           {
             it.name = fieldMatch
@@ -877,6 +895,7 @@ class ProjectIndex
             it.line = i
             it.col = col
             it.doc = extractDocComment(lines, i)
+            it.isStatic = fieldIsStatic
           })
         }
       }
@@ -1036,6 +1055,7 @@ class ProjectIndex
           it.col = f.col
           it.typeStr = f.typeName
           it.doc = extractDocComment(srcLines, f.line)
+          it.isStatic = f.isStatic
         })
       }
 
@@ -2064,9 +2084,10 @@ class IndexedSymbol
   Str fileUri := ""
   Int line := 0
   Int col := 0
-  Str? typeStr  // resolved type name from AST (e.g. "Str", "Int")
-  Str? doc      // doc comment text (from ** comments above symbol)
-  Str? paramStr // method parameter signature (e.g. "Str name, Int count")
+  Str? typeStr   // resolved type name from AST (e.g. "Str", "Int")
+  Str? doc       // doc comment text (from ** comments above symbol)
+  Str? paramStr  // method parameter signature (e.g. "Str name, Int count")
+  Bool isStatic  // true for static fields and static methods
 }
 
 **************************************************************************

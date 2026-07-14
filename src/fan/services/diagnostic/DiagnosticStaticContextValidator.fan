@@ -217,7 +217,7 @@ class DiagnosticStaticContextValidator
       if (localNames.containsKey(name)) continue
 
       isOwnField  := ownInstanceFields.containsKey(name)
-      isBaseField := baseTypes.any |bt| { index.hasMember(bt, name) }
+      isBaseField := baseTypes.any |bt| { index.hasInstanceField(bt, name) }
       if (!isOwnField && !isBaseField) continue
 
       // Skip if preceded by a dot (already qualified: obj.field)

@@ -22,11 +22,11 @@ const isWindows = process.platform === 'win32';
  *   etc/sys/<other>      – copy (Windows) or symlink (Linux/Mac) to real file
  *   etc/<other>/         – junction (Windows) or symlink (Linux/Mac) to real subdir
  *
- * All deletion goes through safeRemove(), which:
- *   1. Verifies the path is inside os.tmpdir() — refuses to delete otherwise.
- *   2. Unlinks all junctions/symlinks before rmSync so Windows cannot follow
- *      them into the real installation.
- *   3. Only calls rmSync when every junction was successfully unlinked.
+ * Deletion is always targeted — never recursive:
+ *   - Each junction/symlink is removed with fs.unlinkSync (leaf-only, never followed).
+ *   - Each real directory created by this class is removed with fs.rmdirSync (non-recursive).
+ *   - fs.rmSync is never called on any directory, so Windows cannot follow a junction
+ *     into the real Fantom installation.
  */
 export class ShadowDir {
   private constructor(readonly path: string) {}
@@ -49,14 +49,29 @@ export class ShadowDir {
       return new ShadowDir(dir);
     } catch (e: any) {
       log(`WARNING: Could not create shadow dir: ${e.message}`);
-      ShadowDir.safeRemove(dir, log);
+      // Clean up whatever was partially built — same targeted approach as dispose().
+      ShadowDir.disposeLibFan(dir, log);
+      ShadowDir.disposeLibJava(dir, log);
+      ShadowDir.disposeEtc(dir, log);
+      ShadowDir.removeRealDirIfEmpty(path.join(dir, 'lib'), log);
+      ShadowDir.removeRealDirIfEmpty(dir, log);
       return undefined;
     }
   }
 
-  /** Removes the shadow dir safely. */
+  /**
+   * Removes the shadow dir by deleting only the entries the extension created,
+   * in reverse build order.  Each junction/symlink is unlinked as a leaf —
+   * fs.rmSync is never called on any path that contains or could contain a
+   * junction, so Windows can never follow a junction into the real installation.
+   */
   dispose(log: (msg: string) => void): void {
-    ShadowDir.safeRemove(this.path, log);
+    ShadowDir.disposeLibFan(this.path, log);
+    ShadowDir.disposeLibJava(this.path, log);
+    ShadowDir.disposeEtc(this.path, log);
+    ShadowDir.removeRealDirIfEmpty(path.join(this.path, 'lib'), log);
+    ShadowDir.removeRealDirIfEmpty(this.path, log);
+    log(`Cleaned up shadow dir: ${this.path}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -157,37 +172,89 @@ export class ShadowDir {
   }
 
   // ---------------------------------------------------------------------------
-  // Safe removal
+  // Targeted disposal helpers (one per build phase, executed in reverse)
   // ---------------------------------------------------------------------------
 
   /**
-   * The single place in the codebase that deletes a shadow dir.
-   *
-   * Guards:
-   *   1. Path must be inside os.tmpdir() — never deletes outside %TEMP%/tmp.
-   *   2. All junctions/symlinks inside the tree are unlinked first so that
-   *      Windows rmSync cannot follow them into the real installation.
-   *   3. rmSync is skipped entirely if any junction failed to unlink on Windows.
+   * Deletes every entry inside lib/fan/ then removes the real directories.
+   * Hard links and symlinks are unlinked as leaf nodes — rmSync is only called
+   * on the real lib/fan/ directory after it has been emptied entry-by-entry.
    */
-  private static safeRemove(dir: string, log: (msg: string) => void): void {
-    // Guard 1: boundary check — refuse to delete anything outside os.tmpdir().
-    const tmpBase = os.tmpdir();
-    if (!isUnderDir(dir, tmpBase)) {
-      log(`WARNING: shadow dir "${dir}" is not under tmpdir "${tmpBase}" — refusing to delete`);
-      return;
-    }
+  private static disposeLibFan(shadowDir: string, log: (msg: string) => void): void {
+    const libFan = path.join(shadowDir, 'lib', 'fan');
+    ShadowDir.removeLeafEntries(libFan, log);
+    ShadowDir.removeRealDirIfEmpty(libFan, log);
+  }
 
-    // Guard 2 + 3: unlink junctions first; on Windows abort if any remain.
-    const allUnlinked = ShadowDir.unlinkSymlinks(dir);
-    if (isWindows && !allUnlinked) {
-      log(`WARNING: Could not unlink all junctions in shadow dir — skipping delete to protect FAN_HOME: ${dir}`);
-      return;
-    }
-
+  /**
+   * Removes lib/java — either an unlink (junction/symlink) or entry-by-entry
+   * deletion of the copied directory, never a recursive rmSync on a junction.
+   */
+  private static disposeLibJava(shadowDir: string, log: (msg: string) => void): void {
+    const libJava = path.join(shadowDir, 'lib', 'java');
     try {
-      fs.rmSync(dir, { recursive: true });
-      log(`Cleaned up shadow dir: ${dir}`);
+      const stat = fs.lstatSync(libJava);
+      if (stat.isSymbolicLink()) {
+        // Junction or symlink — unlink the leaf entry only, never recurse.
+        fs.unlinkSync(libJava);
+      } else if (stat.isDirectory()) {
+        // Copied fallback — only real files inside, safe to delete entry-by-entry.
+        ShadowDir.removeLeafEntries(libJava, log);
+        ShadowDir.removeRealDirIfEmpty(libJava, log);
+      }
     } catch (_) {}
+  }
+
+  /**
+   * Removes etc/ — unlinks junction/symlink leaves, then removes the real
+   * etc/sys/ entries one by one, then rmdir the real directories.
+   * Never calls rmSync on a directory that may contain junctions.
+   */
+  private static disposeEtc(shadowDir: string, log: (msg: string) => void): void {
+    const etcDir    = path.join(shadowDir, 'etc');
+    const etcSysDir = path.join(etcDir, 'sys');
+
+    // etc/sys/ — only real files (copies); remove individually then rmdir.
+    ShadowDir.removeLeafEntries(etcSysDir, log);
+    ShadowDir.removeRealDirIfEmpty(etcSysDir, log);
+
+    // etc/<other>/ — each is a junction or symlink leaf; unlink directly.
+    ShadowDir.removeLeafEntries(etcDir, log);
+    ShadowDir.removeRealDirIfEmpty(etcDir, log);
+  }
+
+  /**
+   * Walks `dir` one level deep and removes every entry:
+   * - Symlinks/junctions: fs.unlinkSync (removes the leaf, never follows)
+   * - Regular files:      fs.unlinkSync
+   * - Subdirectories:     NOT touched — this method is intentionally shallow
+   *
+   * Real subdirectories must be emptied by a dedicated helper before calling
+   * removeRealDirIfEmpty on them.
+   */
+  private static removeLeafEntries(dir: string, log: (msg: string) => void): void {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink() || entry.isFile()) {
+        try { fs.unlinkSync(full); } catch (e: any) {
+          log(`WARNING: could not remove shadow entry "${full}": ${e.message}`);
+        }
+      }
+      // Real subdirectories are left for their own dedicated disposal helper.
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public utilities (used by tests and as internal helpers)
+  // ---------------------------------------------------------------------------
+
+  /** Removes `dir` with fs.rmdirSync (non-recursive — safe by design). */
+  static removeRealDirIfEmpty(dir: string, log: (msg: string) => void): void {
+    try { fs.rmdirSync(dir); } catch (e: any) {
+      log(`WARNING: could not remove shadow dir "${dir}": ${e.message}`);
+    }
   }
 
   /**
@@ -227,10 +294,4 @@ export class ShadowDir {
       }
     }
   }
-}
-
-/** Returns true when target is equal to base or is a descendant of base. */
-function isUnderDir(target: string, base: string): boolean {
-  const rel = path.relative(base, target);
-  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
