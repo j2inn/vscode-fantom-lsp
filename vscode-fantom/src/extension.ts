@@ -743,14 +743,13 @@ function findTestFilesInFolder(testFolder: string): string[] {
 }
 
 /**
- * Build the argument list for a `fan <script> [fanTargetBuild] <action>` call.
- * If `fanTargetBuild` is set in the config it is inserted between the script
- * name and the action so the build.fan receives it as a positional argument.
+ * Build the argument list for a `fan <script> [fanTargetBuild]` call.
+ * Mirrors the on-save build in the LSP server: fanTargetBuild is the only
+ * extra argument — no hardcoded action is appended.
  */
-function buildFanArgs(finConfig: FinConfig, script: string, action: string): string[] {
+function buildFanArgs(finConfig: FinConfig, script: string): string[] {
   const args = [script];
   if (finConfig.fanTargetBuild) { args.push(finConfig.fanTargetBuild); }
-  args.push(action);
   return args;
 }
 
@@ -1187,7 +1186,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       channel.clear();
       channel.show(true);
 
-      const code = await spawnFan(fanExe, fanHome, buildFanArgs(finConfig, script, 'compile'), cwd, channel);
+      const code = await spawnFan(fanExe, fanHome, buildFanArgs(finConfig, script), cwd, channel);
       if (code === 0) {
         vscode.window.showInformationMessage('Fantom: Compilation successful.');
       } else {
@@ -1217,7 +1216,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       channel.clear();
       channel.show(true);
 
-      const code = await spawnFan(fanExe, fanHome, buildFanArgs(finConfig, 'build.fan', 'test'), cwd, channel);
+      const code = await spawnFan(fanExe, fanHome, buildFanArgs(finConfig, 'build.fan'), cwd, channel);
       if (code === 0) {
         vscode.window.showInformationMessage('Fantom: All tests passed.');
       } else {
