@@ -4982,6 +4982,50 @@ class DiagnosticServiceTest : Test
     verifyEq(fieldDiags.size, 0,
       "Static field 'className' accessed in static method must not be flagged")
   }
+
+  **
+  ** Regression: static const field declared on a project base type must not
+  ** be flagged as "Cannot access instance field" when accessed by bare name
+  ** inside a static method of a subclass.
+  **
+  ** ModelEntitySite.setSiteCurrency uses bare 'className' (static const on
+  ** ModelEntityGeneric), and the validator was treating it as an instance
+  ** field because hasMember() did not filter by isStatic.
+  **
+  Void testStaticFieldInBaseTypeNotFlaggedInSubclassStaticMethod()
+  {
+    typeIdx := ProjectIndex()
+
+    // Index the base class with a static const field 'className'
+    typeIdx.indexFile("file:///test/ModelEntityGeneric.fan",
+      "class ModelEntityGeneric\n" +
+      "{\n" +
+      "  static const Str className := ModelEntityGeneric#.name\n" +
+      "  Str instanceField := \"\"\n" +
+      "}")
+
+    // Subclass: accesses bare 'className' inside a static method — must NOT be flagged.
+    // Also accesses bare 'instanceField' inside a static method — MUST be flagged.
+    source :=
+      "class ModelEntitySite : ModelEntityGeneric\n" +
+      "{\n" +
+      "  static Void doWork()\n" +
+      "  {\n" +
+      "    Logger.logInfo(className, \"msg\")\n" +
+      "    x := instanceField\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/ModelEntitySite.fan", source, typeIdx)
+
+    classNameDiags := diags.findAll |d| { d.message.contains("Cannot access instance field 'className'") }
+    verifyEq(classNameDiags.size, 0,
+      "Static const field 'className' from base type must not be flagged in subclass static method")
+
+    instanceFieldDiags := diags.findAll |d| { d.message.contains("Cannot access instance field 'instanceField'") }
+    verifyEq(instanceFieldDiags.size, 1,
+      "Instance field 'instanceField' from base type must still be flagged in static method")
+  }
 }
 
 internal class DiagnosticServiceBuilderFacade

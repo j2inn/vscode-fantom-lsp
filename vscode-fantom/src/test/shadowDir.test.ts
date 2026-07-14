@@ -283,6 +283,194 @@ test('lib/java fallback does not delete source contents', () => {
 });
 
 // ---------------------------------------------------------------------------
+// ShadowDir.removeRealDirIfEmpty
+// ---------------------------------------------------------------------------
+
+test('removeRealDirIfEmpty removes an empty directory', () => {
+  const dir = makeTmpDir();
+  const logs: string[] = [];
+  ShadowDir.removeRealDirIfEmpty(dir, m => logs.push(m));
+  assert.ok(!fs.existsSync(dir), 'empty dir must be removed');
+  assert.strictEqual(logs.length, 0, 'no warnings expected');
+});
+
+test('removeRealDirIfEmpty logs a warning (does not throw) when dir is not empty', () => {
+  const dir = makeTmpDir();
+  try {
+    writeFile(path.join(dir, 'file.txt'));
+    const logs: string[] = [];
+    ShadowDir.removeRealDirIfEmpty(dir, m => logs.push(m));
+    assert.ok(fs.existsSync(dir), 'non-empty dir must NOT be removed');
+    assert.ok(logs.some(m => m.includes('WARNING')), 'a warning must be logged');
+  } finally {
+    try { fs.rmSync(dir, { recursive: true }); } catch (_) {}
+  }
+});
+
+test('removeRealDirIfEmpty logs a warning (does not throw) for a non-existent path', () => {
+  const missing = path.join(os.tmpdir(), 'shadow-test-nonexistent-xyz');
+  const logs: string[] = [];
+  ShadowDir.removeRealDirIfEmpty(missing, m => logs.push(m));
+  assert.ok(logs.some(m => m.includes('WARNING')), 'a warning must be logged for missing path');
+});
+
+// ---------------------------------------------------------------------------
+// disposeEtc — real etc/ structure never touched
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal fake fanHome with enough structure for ShadowDir.create().
+ * Returns { fanHome, podFile } where fanHome mimics a real Fantom installation.
+ */
+function makeFakeFanHome(podFileName: string): { fanHome: string; podFile: string } {
+  const fanHome = makeTmpDir();
+  // lib/fan — one pod file
+  const libFan = path.join(fanHome, 'lib', 'fan');
+  fs.mkdirSync(libFan, { recursive: true });
+  const podFile = path.join(libFan, podFileName);
+  writeFile(podFile, 'pod-bytes');
+  // lib/java — one jar file (so junction/symlink target is non-empty)
+  const libJava = path.join(fanHome, 'lib', 'java');
+  fs.mkdirSync(libJava, { recursive: true });
+  writeFile(path.join(libJava, 'sys.jar'), 'jar-bytes');
+  // etc/sys — required files
+  const etcSys = path.join(fanHome, 'etc', 'sys');
+  fs.mkdirSync(etcSys, { recursive: true });
+  writeFile(path.join(etcSys, 'config.props'), 'key=value\n');
+  writeFile(path.join(etcSys, 'units.txt'),    'units\n');
+  // etc/build — a second etc sub-directory (becomes a junction/symlink in shadow)
+  const etcBuild = path.join(fanHome, 'etc', 'build');
+  fs.mkdirSync(etcBuild, { recursive: true });
+  writeFile(path.join(etcBuild, 'props.txt'), 'build-props\n');
+  return { fanHome, podFile };
+}
+
+test('dispose: real fanHome etc/ contents survive after dispose', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const logs: string[] = [];
+  const shadow = ShadowDir.create('main.pod', fanHome, m => logs.push(m));
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    shadow!.dispose(m => logs.push(m));
+    // The real fanHome/etc and its contents must be completely untouched.
+    assert.ok(fs.existsSync(path.join(fanHome, 'etc', 'sys', 'config.props')),
+      'real etc/sys/config.props must survive dispose');
+    assert.ok(fs.existsSync(path.join(fanHome, 'etc', 'sys', 'units.txt')),
+      'real etc/sys/units.txt must survive dispose');
+    assert.ok(fs.existsSync(path.join(fanHome, 'etc', 'build', 'props.txt')),
+      'real etc/build/props.txt must survive dispose');
+    assert.ok(fs.existsSync(path.join(fanHome, 'etc')),
+      'real etc/ directory must survive dispose');
+  } finally {
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (shadow) { try { fs.rmSync(shadow.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('dispose: real fanHome lib/java contents survive after dispose', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const logs: string[] = [];
+  const shadow = ShadowDir.create('main.pod', fanHome, m => logs.push(m));
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    shadow!.dispose(m => logs.push(m));
+    assert.ok(fs.existsSync(path.join(fanHome, 'lib', 'java', 'sys.jar')),
+      'real lib/java/sys.jar must survive dispose');
+  } finally {
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (shadow) { try { fs.rmSync(shadow.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('dispose: real fanHome lib/fan pod file survives after dispose', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const logs: string[] = [];
+  const shadow = ShadowDir.create('main.pod', fanHome, m => logs.push(m));
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    shadow!.dispose(m => logs.push(m));
+    assert.ok(fs.existsSync(path.join(fanHome, 'lib', 'fan', 'main.pod')),
+      'real lib/fan/main.pod must survive dispose');
+    assert.strictEqual(fs.readFileSync(path.join(fanHome, 'lib', 'fan', 'main.pod'), 'utf8'),
+      'pod-bytes', 'pod file content must be unchanged');
+  } finally {
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (shadow) { try { fs.rmSync(shadow.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('dispose: shadow dir itself is removed after dispose', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const logs: string[] = [];
+  const shadow = ShadowDir.create('main.pod', fanHome, m => logs.push(m));
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    const shadowPath = shadow!.path;
+    shadow!.dispose(m => logs.push(m));
+    assert.ok(!fs.existsSync(shadowPath), 'shadow dir must be removed after dispose');
+  } finally {
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (shadow) { try { fs.rmSync(shadow.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('dispose: shadow config.props has java.options stripped', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  // Put a java.options line in config.props — it must be stripped in the shadow.
+  writeFile(
+    path.join(fanHome, 'etc', 'sys', 'config.props'),
+    'key=value\njava.options=-Xdebug -Xrunjdwp\nother=1\n'
+  );
+  const logs: string[] = [];
+  const shadow = ShadowDir.create('main.pod', fanHome, m => logs.push(m));
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    const shadowConfig = fs.readFileSync(
+      path.join(shadow!.path, 'etc', 'sys', 'config.props'), 'utf8'
+    );
+    assert.ok(!shadowConfig.includes('java.options'), 'java.options must be stripped in shadow');
+    assert.ok(shadowConfig.includes('key=value'),     'other keys must be preserved');
+    // Real file must be unchanged.
+    const realConfig = fs.readFileSync(
+      path.join(fanHome, 'etc', 'sys', 'config.props'), 'utf8'
+    );
+    assert.ok(realConfig.includes('java.options'), 'real config.props must be untouched');
+  } finally {
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (shadow) { try { fs.rmSync(shadow.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('create + dispose round-trip: no fanHome entries are deleted or modified', () => {
+  const { fanHome } = makeFakeFanHome('lsp.pod');
+  // Snapshot all fanHome paths and their content before the round-trip.
+  const before = new Map<string, string>();
+  function snapshot(dir: string): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { snapshot(full); }
+      else { before.set(full, fs.readFileSync(full, 'utf8')); }
+    }
+  }
+  snapshot(fanHome);
+
+  const logs: string[] = [];
+  const shadow = ShadowDir.create('lsp.pod', fanHome, m => logs.push(m));
+  if (shadow) { shadow.dispose(m => logs.push(m)); }
+
+  // Every file that existed before must still exist with identical content.
+  for (const [filePath, originalContent] of before.entries()) {
+    assert.ok(fs.existsSync(filePath),
+      `fanHome file was deleted: ${path.relative(fanHome, filePath)}`);
+    assert.strictEqual(fs.readFileSync(filePath, 'utf8'), originalContent,
+      `fanHome file content changed: ${path.relative(fanHome, filePath)}`);
+  }
+
+  try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+  if (shadow) { try { fs.rmSync(shadow.path, { recursive: true }); } catch (_) {} }
+});
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 
