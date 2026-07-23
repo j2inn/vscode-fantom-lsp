@@ -18,6 +18,7 @@ import {
 import { getPlatform } from './platform';
 import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
 import { ShadowDir } from './shadowDir';
+import { FantomFileDecorationProvider } from './fileDecorations';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel;
@@ -793,6 +794,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // --- Check Java, build debug adapter JAR if missing (non-blocking) ---
   checkJavaAndBuildAdapterAtStartup(context.extensionPath, getPlatform(), log);
+
+  // --- Explorer decorations: color .fan files by error/warning/edited state ---
+  {
+    const decorationProvider = new FantomFileDecorationProvider();
+    context.subscriptions.push(
+      decorationProvider,
+      vscode.window.registerFileDecorationProvider(decorationProvider)
+    );
+  }
 
   // --- Command: Rebuild Fantom debugger ---
   context.subscriptions.push(
