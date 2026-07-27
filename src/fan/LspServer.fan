@@ -23,6 +23,9 @@ class LspServer
   ** Type definition service
   private TypeDefinitionService typeDefinition
 
+  ** Inlay hint service
+  private InlayHintService inlayHintSvc
+
   ** Hover service
   private HoverService hoverService
 
@@ -54,6 +57,7 @@ class LspServer
     CompletionService completion,
     DefinitionService definition,
     TypeDefinitionService typeDefinition,
+    InlayHintService inlayHintSvc,
     HoverService hoverService,
     PodWatchService podWatcher,
     CodeActionService codeActionSvc,
@@ -67,6 +71,7 @@ class LspServer
     this.completion = completion
     this.definition = definition
     this.typeDefinition = typeDefinition
+    this.inlayHintSvc = inlayHintSvc
     this.hoverService = hoverService
     this.podWatcher = podWatcher
     this.codeActionSvc = codeActionSvc
@@ -124,6 +129,12 @@ class LspServer
 
   ** Whether to suppress the boot-time "warnings found" popup (from initializationOptions)
   private Bool suppressWarningPopup := false
+
+  ** Whether inlay hints (type + parameter-name) are enabled (from initializationOptions)
+  private Bool inlayHintsEnabled := true
+
+  ** Whether a call with only one parameter is skipped for parameter-name hints
+  private Bool inlayHintsSkipSingleParamCalls := true
 
   ** Platform-aware relative URI for fan executable (fan.bat on Windows, fan on Unix)
   private static const Uri fanBinUri := isWindows ? `bin/fan.bat` : `bin/fan`
@@ -313,6 +324,8 @@ class LspServer
         return handleDefinition(params)
       case "textDocument/typeDefinition":
         return handleTypeDefinition(params)
+      case "textDocument/inlayHint":
+        return handleInlayHint(params)
       case "textDocument/references":
         return handleReferences(params)
       case "textDocument/implementation":
@@ -392,6 +405,14 @@ class LspServer
       if (ui is Bool) enableUnusedImport = (Bool)ui
       sw := initOptions["suppressWarningPopup"]
       if (sw is Bool) suppressWarningPopup = (Bool)sw
+      inlayOpts := initOptions["inlayHints"] as Str:Obj?
+      if (inlayOpts != null)
+      {
+        ie := inlayOpts["enable"]
+        if (ie is Bool) inlayHintsEnabled = (Bool)ie
+        sp := inlayOpts["skipSingleParamCalls"]
+        if (sp is Bool) inlayHintsSkipSingleParamCalls = (Bool)sp
+      }
       fmtOpts := initOptions["formatterOptions"] as Str:Obj?
       if (fmtOpts != null)
       {
@@ -419,6 +440,7 @@ class LspServer
         "diagnosticProvider": [:],
         "definitionProvider": true,
         "typeDefinitionProvider": true,
+        "inlayHintProvider": inlayHintsEnabled,
         "referencesProvider": true,
         "implementationProvider": true,
         "renameProvider": ["prepareProvider": true],
@@ -1079,6 +1101,29 @@ class LspServer
     }
 
     return result["location"]
+  }
+
+  **
+  ** Handle textDocument/inlayHint request
+  **
+  private Obj? handleInlayHint(Str:Obj? params)
+  {
+    if (!inlayHintsEnabled) return [,]
+
+    textDocument := params["textDocument"] as Str:Obj?
+    rangeMap := params["range"] as Str:Obj?
+    if (textDocument == null || rangeMap == null) return [,]
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    startMap := rangeMap["start"] as Str:Obj?
+    endMap   := rangeMap["end"]   as Str:Obj?
+    if (startMap == null || endMap == null) return [,]
+
+    doc := docMgr.get(uri)
+    if (doc == null) return [,]
+
+    range := LspRange(LspPosition.fromMap(startMap), LspPosition.fromMap(endMap))
+    return inlayHintSvc.computeHints(uri, range, doc.text, projectIndex, inlayHintsSkipSingleParamCalls)
   }
 
   **

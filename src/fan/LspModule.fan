@@ -9,6 +9,7 @@ class LspModule
 	CompletionService completion := CompletionService()
 	DefinitionService definition := DefinitionService()
 	TypeDefinitionService typeDefinition := TypeDefinitionService()
+	InlayHintService inlayHintSvc := InlayHintService()
 	HoverService hoverService := HoverService()
 	PodWatchService podWatcher := PodWatchService()
 	CodeActionService codeActionSvc := CodeActionService()
@@ -20,6 +21,6 @@ class LspModule
 
 	new make()
 	{
-		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, typeDefinition, hoverService, podWatcher, codeActionSvc, formatterSvc, referencesSvc, renameSvc)
+		server = LspServer(docMgr, projectIndex, diagnostics, completion, definition, typeDefinition, inlayHintSvc, hoverService, podWatcher, codeActionSvc, formatterSvc, referencesSvc, renameSvc)
 	}
 }

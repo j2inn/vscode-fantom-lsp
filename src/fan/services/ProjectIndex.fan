@@ -374,6 +374,29 @@ class ProjectIndex
   }
 
   **
+  ** Get the parameter names of a project-local method, in declaration order.
+  ** Returns null if the method isn't found in the index (e.g. a pod/framework
+  ** method — look up parameter names via CompletionDefs.paramNamesFrom
+  ** instead for those).
+  **
+  Str[]? findMethodParamNames(Str typeName, Str methodName)
+  {
+    if (findMemberSymbol(typeName, methodName) == null) return null
+
+    params := IndexedSymbol[,]
+    symbolsByName.each |syms|
+    {
+      syms.each |sym|
+      {
+        if (sym.kind == SymbolKind.param && sym.typeName == typeName && sym.methodName == methodName)
+          params.add(sym)
+      }
+    }
+    params.sort |a, b| { a.line <=> b.line == 0 ? a.col <=> b.col : a.line <=> b.line }
+    return params.map |p| { p.name }
+  }
+
+  **
   ** Get all method and field symbols belonging to a type.
   **
   IndexedSymbol[] getTypeMembers(Str typeName)
@@ -754,6 +777,7 @@ class ProjectIndex
     currentTypeIsEnum := false
     currentMethod := null as Str
     currentMethodStartLine := -1
+    methodBodyStarted := false
     braceDepth := 0
     typeBraceDepth := -1
     methodBraceDepth := -1
@@ -839,6 +863,7 @@ class ProjectIndex
           currentMethod = methodMatch
           currentMethodStartLine = i
           methodBraceDepth = braceDepth
+          methodBodyStarted = false
           col := findIdentCol(line, methodMatch)
           idx.symbols.add(IndexedSymbol
           {
@@ -941,16 +966,25 @@ class ProjectIndex
       // Update brace depth
       braceDepth = braceDepth + lineOpenBraces - lineCloseBraces
 
+      // Track whether the method's own body has actually opened yet. A
+      // multi-line signature (parameter list spanning several lines before
+      // the opening '{') must not be mistaken for the method already having
+      // ended just because braceDepth hasn't risen past methodBraceDepth —
+      // it only rises once the real body brace is reached.
+      if (currentMethod != null && braceDepth > methodBraceDepth)
+        methodBodyStarted = true
+
       // Check if we exited the method scope.
       // Either on a later line, or on the same line if braces are balanced
       // (e.g., "Void foo() { doStuff() }")
       sameLineBalancedMethod := (i == currentMethodStartLine && lineOpenBraces > 0 && lineOpenBraces == lineCloseBraces)
-      if (currentMethod != null && braceDepth <= methodBraceDepth &&
+      if (currentMethod != null && methodBodyStarted && braceDepth <= methodBraceDepth &&
           (i > currentMethodStartLine || sameLineBalancedMethod))
       {
         currentMethod = null
         currentMethodStartLine = -1
         methodBraceDepth = -1
+        methodBodyStarted = false
       }
 
       // Check if we exited the type scope.
@@ -966,6 +1000,7 @@ class ProjectIndex
         typeBraceDepth = -1
         currentMethod = null
         methodBraceDepth = -1
+        methodBodyStarted = false
       }
     }
 
@@ -1511,6 +1546,16 @@ class ProjectIndex
       default:
         return 50
     }
+  }
+
+  **
+  ** Return all indexed symbols for a file, in declaration order. Returns an
+  ** empty list if the file is not indexed.
+  **
+  IndexedSymbol[] symbolsInFile(Str fileUri)
+  {
+    idx := fileIndexes[fileUri]
+    return idx?.symbols ?: IndexedSymbol[,]
   }
 
   **
