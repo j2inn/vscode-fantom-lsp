@@ -20,6 +20,9 @@ class LspServer
   ** Definition service
   private DefinitionService definition
 
+  ** Type definition service
+  private TypeDefinitionService typeDefinition
+
   ** Hover service
   private HoverService hoverService
 
@@ -50,6 +53,7 @@ class LspServer
     DiagnosticService diagnostics,
     CompletionService completion,
     DefinitionService definition,
+    TypeDefinitionService typeDefinition,
     HoverService hoverService,
     PodWatchService podWatcher,
     CodeActionService codeActionSvc,
@@ -62,6 +66,7 @@ class LspServer
     this.diagnostics = diagnostics
     this.completion = completion
     this.definition = definition
+    this.typeDefinition = typeDefinition
     this.hoverService = hoverService
     this.podWatcher = podWatcher
     this.codeActionSvc = codeActionSvc
@@ -306,6 +311,8 @@ class LspServer
         return handleCompletion(params)
       case "textDocument/definition":
         return handleDefinition(params)
+      case "textDocument/typeDefinition":
+        return handleTypeDefinition(params)
       case "textDocument/references":
         return handleReferences(params)
       case "textDocument/implementation":
@@ -411,6 +418,7 @@ class LspServer
         ],
         "diagnosticProvider": [:],
         "definitionProvider": true,
+        "typeDefinitionProvider": true,
         "referencesProvider": true,
         "implementationProvider": true,
         "renameProvider": ["prepareProvider": true],
@@ -1039,6 +1047,38 @@ class LspServer
     if (doc == null) return null
 
     return definition.findDefinition(uri, pos, doc.text, projectIndex)
+  }
+
+  **
+  ** Handle textDocument/typeDefinition request
+  **
+  private Obj? handleTypeDefinition(Str:Obj? params)
+  {
+    textDocument := params["textDocument"] as Str:Obj?
+    position := params["position"] as Str:Obj?
+    if (textDocument == null || position == null) return null
+
+    uri := LspUtil.normalizeFileUri(textDocument["uri"] as Str ?: "")
+    pos := LspPosition.fromMap(position)
+
+    doc := docMgr.get(uri)
+    if (doc == null) return null
+
+    result := typeDefinition.findTypeDefinition(uri, pos, doc.text, projectIndex)
+    if (result == null) return null
+
+    noSourceTypeName := result["noSourceTypeName"] as Str
+    if (noSourceTypeName != null)
+    {
+      pod := result["noSourcePod"] as Str
+      msg := pod != null
+        ? "Fantom: '$noSourceTypeName' is defined in pod '$pod' — no source available to navigate to."
+        : "Fantom: '$noSourceTypeName' is a built-in Fantom type — no source available to navigate to."
+      showMessage(msg, 3)
+      return null
+    }
+
+    return result["location"]
   }
 
   **
