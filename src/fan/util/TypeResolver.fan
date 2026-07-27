@@ -182,6 +182,45 @@ class TypeResolver
   }
 
   **
+  ** Extract a method's declared return type from its own declaration line,
+  ** e.g. "protected EntityReferenceable? entityReferenceable() {" -> "EntityReferenceable".
+  ** Used when a symbol's typeStr wasn't captured by the indexer (AST parse
+  ** failed for the file, so the text-scan fallback only recorded the name).
+  ** Returns null for Void/lowercase/generic-placeholder return types.
+  **
+  static Str? extractMethodReturnType(Str line, Str methodName)
+  {
+    idx := findWordInLine(line, methodName)
+    if (idx == null) return null
+
+    endIdx := idx + methodName.size
+    if (endIdx >= line.size || line[endIdx] != '(') return null
+
+    before := line[0..<idx].trim
+    modifiers := ["public", "private", "protected", "internal",
+                  "static", "const", "final", "abstract",
+                  "virtual", "override", "native", "once", "readonly", "new"]
+    modifiers.each |mod|
+    {
+      while (before.startsWith(mod + " ") || before.startsWith(mod + "\t"))
+        before = before[mod.size + 1 ..-1].trim
+    }
+
+    if (before.isEmpty) return null
+
+    typeName := before.endsWith("?") ? before[0..<before.size - 1] : before
+    if (typeName.isEmpty || !typeName[0].isUpper) return null
+    if (typeName == "Void" || typeName == "Obj") return null
+    if (typeName.contains(" ") || typeName.contains("(") || typeName.contains(")")) return null
+
+    angleIdx := typeName.index("<")
+    if (angleIdx != null) typeName = typeName[0..<angleIdx]
+    if (typeName.endsWith("[]")) return null // List-returning; not a simple type jump target
+
+    return typeName
+  }
+
+  **
   ** Infer type from RHS of an assignment: varName := expr
   ** source and lineNum are needed for resolving method call return types.
   **
@@ -365,7 +404,18 @@ class TypeResolver
     }
 
     methodName := beforeParen[dotIdx + 1..-1].trim
-    receiverExpr := beforeParen[0..<dotIdx].trim
+
+    // Walk back from the dot over identifier/'.' characters only, so the
+    // receiver expression doesn't swallow preceding operators (e.g. a ternary
+    // condition like "cond ? a : Type.method()" must yield receiver "Type",
+    // not "cond ? a : Type").
+    receiverStart := dotIdx
+    while (receiverStart > 0 &&
+           (beforeParen[receiverStart - 1].isAlphaNum ||
+            beforeParen[receiverStart - 1] == '_' ||
+            beforeParen[receiverStart - 1] == '.'))
+      receiverStart--
+    receiverExpr := beforeParen[receiverStart ..< dotIdx].trim
 
     if (methodName.isEmpty || !methodName[0].isLower) return null
 
@@ -389,11 +439,21 @@ class TypeResolver
     Str? indexTypeName := null
     if (receiverExpr.size > 0 && receiverExpr[0].isUpper)
       indexTypeName = receiverExpr
-    else
+    else if (isSimpleIdentifier(receiverExpr))
       indexTypeName = resolveExplicitDeclaredType(receiverExpr, source)
 
     if (indexTypeName != null && index.hasType(indexTypeName))
     {
+      // Compiler-synthesized enum methods (fromStr, vals) are never indexed as
+      // members since they don't appear in source. Handle them explicitly so
+      // resolution doesn't fall through to a global cross-pod method-name search,
+      // which can match an unrelated type's fromStr/vals in another pod.
+      if (index.isEnumType(indexTypeName))
+      {
+        if (methodName == "fromStr") return indexTypeName
+        if (methodName == "vals") return "sys::List"
+      }
+
       sym := index.findMemberSymbol(indexTypeName, methodName)
       if (sym != null && sym.typeStr != null &&
           sym.typeStr != "Void" && sym.typeStr != "Obj")
@@ -447,7 +507,7 @@ class TypeResolver
     Str? typeName := null
     if (receiverExpr.size > 0 && receiverExpr[0].isUpper)
       typeName = receiverExpr
-    else
+    else if (isSimpleIdentifier(receiverExpr))
       typeName = resolveExplicitDeclaredType(receiverExpr, source)
 
     if (typeName != null && index.hasType(typeName))
@@ -496,6 +556,7 @@ class TypeResolver
 
     // Lowercase: find the variable's explicit type declaration only
     // (we deliberately skip inferred assignments to avoid recursion)
+    if (!isSimpleIdentifier(varName)) return null
     typeName := resolveExplicitDeclaredType(varName, source)
     if (typeName == null) return null
 
@@ -539,7 +600,7 @@ class TypeResolver
     Str? receiverType := null
     if (receiverExpr.size > 0 && receiverExpr[0].isUpper)
       receiverType = defs.resolveAlias(receiverExpr) ?: receiverExpr
-    else
+    else if (isSimpleIdentifier(receiverExpr))
     {
       explicit := resolveExplicitDeclaredType(receiverExpr, source)
       if (explicit != null)
@@ -612,6 +673,17 @@ class TypeResolver
       }
     }
     return null
+  }
+
+  **
+  ** True if expr is a bare identifier (letters/digits/underscore only, not
+  ** starting with a digit). Guards resolveExplicitDeclaredType's full-file
+  ** scan from being invoked on non-identifier text.
+  **
+  private static Bool isSimpleIdentifier(Str expr)
+  {
+    if (expr.isEmpty || expr[0].isDigit) return false
+    return expr.all |ch| { ch.isAlphaNum || ch == '_' }
   }
 
   **

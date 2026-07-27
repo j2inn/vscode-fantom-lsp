@@ -103,6 +103,25 @@ const class CompletionDefs
     return null
   }
 
+  **
+  ** Parse parameter names from a YML detail string, in declaration order.
+  ** Detail strings have the form: "RetType methodName(param1, param2, ...)".
+  ** Returns an empty list when the detail string has no parameters or can't
+  ** be parsed.
+  **
+  static Str[] paramNamesFrom(Str? detail)
+  {
+    if (detail == null || detail.isEmpty) return Str[,]
+
+    parenIdx := detail.index("(")
+    if (parenIdx == null) return Str[,]
+    parenClose := detail.indexr(")")
+    if (parenClose == null || parenClose <= parenIdx) return Str[,]
+
+    paramListStr := detail[parenIdx + 1 ..< parenClose]
+    return ParamListParser.paramNames(paramListStr)
+  }
+
   // ---- Loading ----
 
   private static CompletionDefs load()

@@ -353,6 +353,10 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   // enableUnusedImport defaults to true when absent from fan.config.json
   const enableUnusedImport = finConfig.enableUnusedImport !== false;
   const suppressWarningPopup = config.get<boolean>('suppressWarningPopup') ?? false;
+  const inlayHints = {
+    enable: config.get<boolean>('inlayHints.enable') ?? true,
+    skipSingleParamCalls: config.get<boolean>('inlayHints.skipSingleParamCalls') ?? true,
+  };
   const formatterOptions = {
     enable:                  config.get<boolean>('format.enable')                  ?? true,
     indentSize:              config.get<number>('format.indentSize')              ?? 2,
@@ -379,6 +383,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
       pedanticMode: pedanticMode,
       enableUnusedImport: enableUnusedImport,
       suppressWarningPopup: suppressWarningPopup,
+      inlayHints: inlayHints,
       formatterOptions: formatterOptions,
     },
     outputChannelName: 'Fantom Language Server',

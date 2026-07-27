@@ -1060,4 +1060,65 @@ class ProjectIndexTest : Test
     verifyEq(varTypes["svc"], "Svc",
       "ctor-inferred type must resolve to 'Svc', got varTypes=$varTypes")
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Multi-Line Method Signature (Text Fallback)
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Regression: a method whose parameter list spans multiple lines (each
+  ** param on its own line, opening brace only after the closing paren) was
+  ** ending the text-fallback scanner's method scope one line after the
+  ** declaration line — since braceDepth had not yet risen past
+  ** methodBraceDepth (the body brace not reached yet). This caused every
+  ** param's default-value line to be misindexed as a class field, and every
+  ** local variable inside the method body to be missed entirely.
+  ** Forces text fallback via an unresolvable base type per this repo's
+  ** "always test the inheritance case" policy.
+  **
+  Void testMultiLineMethodSignatureTextFallback()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/Widget.fan",
+      "class Widget\n" +
+      "{\n" +
+      "}\n")
+
+    idx.indexFile("file:///test/Foo.fan",
+      "class Foo : UnresolvableBase\n" +
+      "{\n" +
+      "  static Widget? createDevice(\n" +
+      "        Str cx,\n" +
+      "        Str siteId,\n" +
+      "        Dict fields := emptyDict\n" +
+      "        ) {\n" +
+      "    result := getWidget(cx)\n" +
+      "    return result\n" +
+      "  }\n" +
+      "}\n")
+
+    // The default-value param on its own line must NOT be misindexed as a
+    // class field.
+    fieldsFieldSyms := idx.findSymbols("fields").findAll |s|
+    {
+      s.kind == SymbolKind.field && s.fileUri == "file:///test/Foo.fan"
+    }
+    verifyEq(fieldsFieldSyms.size, 0,
+      "multi-line param default value must not be indexed as a field")
+
+    // Note: the text-fallback parser only extracts params physically present
+    // on the method's declaration line, so a param on its own line (as here)
+    // isn't indexed as SymbolKind.param either — that's a separate, narrower
+    // gap than this regression test targets. The important fix verified here
+    // is that it's no longer misindexed as a field, and locals after it are
+    // no longer lost.
+
+    // The local variable inside the method body must be indexed.
+    resultSyms := idx.findSymbols("result").findAll |s|
+    {
+      s.kind == SymbolKind.localVar && s.fileUri == "file:///test/Foo.fan"
+    }
+    verify(resultSyms.size > 0, "local var declared after a multi-line signature must be indexed")
+    verifyEq(resultSyms.first.methodName, "createDevice")
+  }
 }

@@ -197,6 +197,30 @@ class TypeResolverTest : Test
     verifyEq(result, "Int", "static Int method on project type must infer Int")
   }
 
+  **
+  ** Regression: x := cond ? a : Type.method(args) must resolve the receiver
+  ** as "Type", not the whole ternary condition prefix. Found via FINT-48
+  ** (Go to Type Definition) misresolving IOModuleDeviceKind.fromStr(...) as an
+  ** unrelated pod's fromStr method because the receiver expression swallowed
+  ** everything back to the start of the RHS.
+  **
+  Void testStaticMethodOnProjectTypeInsideTernary()
+  {
+    kindSrc :=
+      "enum class Kind {\n" +
+      "  a, b\n" +
+      "}\n"
+    mainSrc :=
+      "class App {\n" +
+      "  Void run(Str? kindStr) {\n" +
+      "    kind := kindStr == null ? null : Kind.fromStr(kindStr, false)\n" +
+      "  }\n" +
+      "}\n"
+    idx := makeIndex(["file:///Kind.fan": kindSrc, "file:///App.fan": mainSrc])
+    result := TypeResolver.resolveVarType("kind", mainSrc, 2, idx)
+    verifyEq(result, "Kind", "ternary-guarded static call must resolve receiver as the type, not the whole condition")
+  }
+
   Void testInstanceMethodOnProjectType()
   {
     // x := parser.parse(src) where parser is explicit-typed Parser
