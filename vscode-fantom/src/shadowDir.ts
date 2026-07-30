@@ -27,9 +27,61 @@ const isWindows = process.platform === 'win32';
  *   - Each real directory created by this class is removed with fs.rmdirSync (non-recursive).
  *   - fs.rmSync is never called on any directory, so Windows cannot follow a junction
  *     into the real Fantom installation.
+ *
+ * dispose() only runs on a clean shutdown (deactivate(), or before creating a
+ * replacement). An abrupt kill of the extension host — e.g. VS Code force-
+ * restarting itself to apply an update — skips dispose() entirely and leaves
+ * the shadow dir orphaned in os.tmpdir(), junctions and all. sweepOrphaned()
+ * must be called near activation to clean up any such leftovers from a prior
+ * session before they can be swept up by an external recursive delete (disk
+ * cleanup, antivirus, a manual %TEMP% wipe) that follows the junctions into
+ * the real installation.
  */
+/** Prefix used for every shadow dir this class creates, under os.tmpdir(). */
+const SHADOW_DIR_PREFIX = 'fantom-lsp-shadow-';
+
 export class ShadowDir {
   private constructor(readonly path: string) {}
+
+  /**
+   * Finds and safely disposes shadow dirs left behind by a previous session
+   * that was killed before it could call dispose() (e.g. VS Code force-
+   * restarting itself to apply an update — deactivate() never runs on an
+   * abrupt process kill). Each match is torn down with the same leaf-only
+   * logic as dispose(), never a recursive delete, so a junction inside an
+   * orphaned dir can never be followed into the real Fantom installation.
+   *
+   * Without this sweep, orphaned shadow dirs accumulate under os.tmpdir()
+   * indefinitely — each one full of live junctions into the real
+   * installation's etc/ and lib/java/ — and remain a hazard for any external
+   * tool (Windows Disk Cleanup, Storage Sense, antivirus, manual %TEMP%
+   * wipe) that later recursively deletes the temp folder and follows those
+   * junctions into the real installation.
+   *
+   * Safe to call at any time, including while a current shadow dir is in
+   * use — currentDirPath is always skipped.
+   */
+  static sweepOrphaned(currentDirPath: string | undefined, log: (msg: string) => void): void {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(os.tmpdir(), { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith(SHADOW_DIR_PREFIX)) { continue; }
+      const full = path.join(os.tmpdir(), entry.name);
+      if (full === currentDirPath) { continue; }
+
+      log(`Found orphaned shadow dir from a previous session: ${full}`);
+      ShadowDir.disposeLibFan(full, log);
+      ShadowDir.disposeLibJava(full, log);
+      ShadowDir.disposeEtc(full, log);
+      ShadowDir.removeRealDirIfEmpty(path.join(full, 'lib'), log);
+      ShadowDir.removeRealDirIfEmpty(full, log);
+    }
+  }
 
   /**
    * Creates a shadow dir and returns a ShadowDir instance, or undefined on
@@ -40,7 +92,12 @@ export class ShadowDir {
     realFanHome: string,
     log: (msg: string) => void,
   ): ShadowDir | undefined {
-    const dir = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}`);
+    // mkdtempSync atomically creates a unique directory — unlike a
+    // Date.now()-suffixed name, it cannot collide with another shadow dir
+    // created within the same millisecond (e.g. two overlapping restarts).
+    // A collision there would make the second create() call tear down the
+    // first, still-in-use shadow dir out from under it.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), SHADOW_DIR_PREFIX));
     try {
       ShadowDir.buildLibFan(dir, mainPodFileName, realFanHome);
       ShadowDir.buildLibJava(dir, realFanHome, log);
