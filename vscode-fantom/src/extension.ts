@@ -783,6 +783,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
   log('Extension activating...');
 
+  // --- Clean up shadow dirs orphaned by a previous session that was killed
+  //     before it could call dispose() (e.g. VS Code force-restarting itself
+  //     to apply an update). Must run before any new shadow dir is created,
+  //     and does not depend on this being a Fantom project. ---
+  ShadowDir.sweepOrphaned(undefined, log);
+
   // --- Register debug adapter (always, even outside Fantom projects) ---
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory(
