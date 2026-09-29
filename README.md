@@ -230,8 +230,11 @@ The LSP server holds `vscodeFantomLsp.pod` open as long as it runs. Without a sh
 | `etc/sys/config.props` | Modified copy with `java.options` stripped to suppress JDWP output on the LSP stdout pipe |
 | `etc/sys/<other>` | Copies (Windows) or symlinks (Linux/Mac) of the remaining `etc/sys/` files |
 | `etc/<other>/` | Junction (Windows) or symlink (Linux/Mac) to each real `etc/` subdirectory |
+| `.fantom-lsp-owner` | Process ID of the VS Code extension host that owns the shadow dir |
 
 The shadow dir is created at LSP server startup and deleted when the server stops or restarts.
+
+On activation the extension also removes shadow dirs left behind by sessions that were killed before they could clean up (e.g. VS Code restarting to apply an update). A shadow dir is only removed when its owner process is no longer running, so several VS Code windows can use the extension at the same time without deleting each other's shadow dirs. Shadow dirs created by older versions of the extension have no owner file; they are only removed once they are more than 24 hours old.
 
 #### Safe deletion on Windows
 

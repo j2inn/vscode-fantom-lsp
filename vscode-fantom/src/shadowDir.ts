@@ -36,9 +36,25 @@ const isWindows = process.platform === 'win32';
  * session before they can be swept up by an external recursive delete (disk
  * cleanup, antivirus, a manual %TEMP% wipe) that follows the junctions into
  * the real installation.
+ *
+ * Several VS Code windows can run the extension at the same time, each with
+ * its own shadow dir in the same os.tmpdir(). Every shadow dir therefore
+ * records its owner (the PID of the extension host that created it) in
+ * OWNER_FILE, and sweepOrphaned() only removes a dir whose owner process is
+ * no longer running — never one still used by another window's server.
  */
 /** Prefix used for every shadow dir this class creates, under os.tmpdir(). */
 const SHADOW_DIR_PREFIX = 'fantom-lsp-shadow-';
+
+/** File inside a shadow dir holding the PID of the process that owns it. */
+const OWNER_FILE = '.fantom-lsp-owner';
+
+/**
+ * Shadow dirs created by older versions have no OWNER_FILE, so their owner
+ * cannot be checked. They are only treated as orphaned once older than this,
+ * so that a window still running an older version keeps its shadow dir.
+ */
+const LEGACY_ORPHAN_AGE_MS = 24 * 60 * 60 * 1000;
 
 export class ShadowDir {
   private constructor(readonly path: string) {}
@@ -59,7 +75,8 @@ export class ShadowDir {
    * junctions into the real installation.
    *
    * Safe to call at any time, including while a current shadow dir is in
-   * use — currentDirPath is always skipped.
+   * use — currentDirPath is always skipped, and so is every shadow dir whose
+   * owner process is still running (e.g. another VS Code window).
    */
   static sweepOrphaned(currentDirPath: string | undefined, log: (msg: string) => void): void {
     let entries: fs.Dirent[];
@@ -72,14 +89,29 @@ export class ShadowDir {
     for (const entry of entries) {
       if (!entry.isDirectory() || !entry.name.startsWith(SHADOW_DIR_PREFIX)) { continue; }
       const full = path.join(os.tmpdir(), entry.name);
-      if (full === currentDirPath) { continue; }
+      if (full === currentDirPath || !ShadowDir.isOrphaned(full)) { continue; }
 
       log(`Found orphaned shadow dir from a previous session: ${full}`);
-      ShadowDir.disposeLibFan(full, log);
-      ShadowDir.disposeLibJava(full, log);
-      ShadowDir.disposeEtc(full, log);
-      ShadowDir.removeRealDirIfEmpty(path.join(full, 'lib'), log);
-      ShadowDir.removeRealDirIfEmpty(full, log);
+      ShadowDir.teardown(full, log);
+    }
+  }
+
+  /**
+   * True if no running process owns the shadow dir: its owner PID is no
+   * longer alive, or (legacy dir without OWNER_FILE) it is older than
+   * LEGACY_ORPHAN_AGE_MS. A dir whose owner cannot be determined and that
+   * is recent is kept — leaking a temp dir is harmless, deleting one still
+   * in use breaks another window's language server.
+   */
+  static isOrphaned(shadowDir: string): boolean {
+    const ownerPid = ShadowDir.readOwnerPid(shadowDir);
+    if (ownerPid !== undefined) {
+      return !ShadowDir.isProcessAlive(ownerPid);
+    }
+    try {
+      return Date.now() - fs.statSync(shadowDir).mtimeMs > LEGACY_ORPHAN_AGE_MS;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -99,6 +131,9 @@ export class ShadowDir {
     // first, still-in-use shadow dir out from under it.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), SHADOW_DIR_PREFIX));
     try {
+      // Written first, so a dir left behind by a kill at any later point
+      // still identifies its (then dead) owner.
+      fs.writeFileSync(path.join(dir, OWNER_FILE), String(process.pid));
       ShadowDir.buildLibFan(dir, mainPodFileName, realFanHome);
       ShadowDir.buildLibJava(dir, realFanHome, log);
       ShadowDir.buildEtc(dir, realFanHome, log);
@@ -107,11 +142,7 @@ export class ShadowDir {
     } catch (e: any) {
       log(`WARNING: Could not create shadow dir: ${e.message}`);
       // Clean up whatever was partially built — same targeted approach as dispose().
-      ShadowDir.disposeLibFan(dir, log);
-      ShadowDir.disposeLibJava(dir, log);
-      ShadowDir.disposeEtc(dir, log);
-      ShadowDir.removeRealDirIfEmpty(path.join(dir, 'lib'), log);
-      ShadowDir.removeRealDirIfEmpty(dir, log);
+      ShadowDir.teardown(dir, log);
       return undefined;
     }
   }
@@ -123,12 +154,61 @@ export class ShadowDir {
    * junction, so Windows can never follow a junction into the real installation.
    */
   dispose(log: (msg: string) => void): void {
-    ShadowDir.disposeLibFan(this.path, log);
-    ShadowDir.disposeLibJava(this.path, log);
-    ShadowDir.disposeEtc(this.path, log);
-    ShadowDir.removeRealDirIfEmpty(path.join(this.path, 'lib'), log);
-    ShadowDir.removeRealDirIfEmpty(this.path, log);
+    ShadowDir.teardown(this.path, log);
     log(`Cleaned up shadow dir: ${this.path}`);
+  }
+
+  /**
+   * Removes a shadow dir entry by entry, in reverse build order (see
+   * dispose()). The owner file goes last, just before the dir itself, so an
+   * interrupted teardown still leaves the owner recorded.
+   */
+  private static teardown(shadowDir: string, log: (msg: string) => void): void {
+    ShadowDir.disposeLibFan(shadowDir, log);
+    ShadowDir.disposeLibJava(shadowDir, log);
+    ShadowDir.disposeEtc(shadowDir, log);
+    ShadowDir.removeRealDirIfEmpty(path.join(shadowDir, 'lib'), log);
+    ShadowDir.removeOwnerFile(shadowDir, log);
+    ShadowDir.removeRealDirIfEmpty(shadowDir, log);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ownership
+  // ---------------------------------------------------------------------------
+
+  /** PID recorded in the shadow dir's owner file, or undefined if none/invalid. */
+  private static readOwnerPid(shadowDir: string): number | undefined {
+    let content: string;
+    try {
+      content = fs.readFileSync(path.join(shadowDir, OWNER_FILE), 'utf8').trim();
+    } catch (_) {
+      return undefined;
+    }
+    const pid = Number(content);
+    return /^[0-9]+$/.test(content) && pid > 0 ? pid : undefined;
+  }
+
+  /**
+   * True if a process with this PID is running. Signal 0 performs only the
+   * existence/permission check, on every platform: ESRCH means no such
+   * process, EPERM means it exists but belongs to another user.
+   */
+  private static isProcessAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (e: any) {
+      return e.code === 'EPERM';
+    }
+  }
+
+  private static removeOwnerFile(shadowDir: string, log: (msg: string) => void): void {
+    const ownerFile = path.join(shadowDir, OWNER_FILE);
+    try {
+      if (fs.existsSync(ownerFile)) { fs.unlinkSync(ownerFile); }
+    } catch (e: any) {
+      log(`WARNING: could not remove ${ownerFile}: ${e.message}`);
+    }
   }
 
   // ---------------------------------------------------------------------------
