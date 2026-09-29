@@ -513,6 +513,7 @@ class LspServer
       LspProtocol.logInfo("lib/fan changed — re-indexing")
       showMessage("lib/fan changed. Re-indexing", 3)
       PodTypeCache.cur.evictStale
+      LspCompiler.resetNamespaces
       projectIndex.indexAll
     }
     catch (Err e)

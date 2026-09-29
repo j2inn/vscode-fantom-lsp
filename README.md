@@ -247,6 +247,11 @@ The same class is used by the debugger's launch-mode shadow dir.
 
 - **While typing** — changes are debounced (`debounceTime` ms). No analysis runs until typing pauses.
 - **After the debounce window** — single-file analysis runs immediately for fast feedback.
+  The file is compiled together with signature-only *stubs* of the other files of its pod
+  (method bodies removed), so types, constructors and slots declared in other files resolve
+  exactly as in a full pod build. Only the stubs reachable from the file are compiled; files
+  whose declarations cannot be resolved (e.g. they depend on a pod that is not installed) are
+  left out, and references to their types are relaxed instead.
 - **On save** — a full project re-index, cross-file validation, and `fan build.fan` all run together.
 
 ---
