@@ -28,6 +28,11 @@ class DiagnosticService
   ** Fingerprint of the using statements that produced usingPodIdx
   private Str? usingPodFingerprint := null
 
+  ** Project types compiled in the current analysis pass: types declared in
+  ** the analyzed file and in the stubs compiled alongside it. These resolve
+  ** to their real declarations, so preprocessing must not replace them.
+  private Str[] compiledTypes := Str[,]
+
   ** Validation collaborators (moved to dedicated files under services/diagnostic)
   private DiagnosticCrossFileValidator crossFileValidator := DiagnosticCrossFileValidator()
   private DiagnosticMethodParamValidator methodParamValidator := DiagnosticMethodParamValidator()
@@ -72,6 +77,12 @@ class DiagnosticService
     // Reset per-analysis state
     resolvedExternalBaseTypes = Str[,]
     typesWithExternalBase = Str[,]
+
+    // Stubs of the other pod files make project types resolvable
+    stubs := index.stubsFor(uri, source)
+    compiledTypes = index.typeNamesIn(LspUtil.normalizeFileUri(uri)).dup
+    stubs.keys.each |stubUri| { compiledTypes.addAll(index.typeNamesIn(stubUri)) }
+
     // Rebuild using-pod index only when the set of using pods has changed.
     fp := UsingPodIndex.fingerprintFor(source)
     if (fp != usingPodFingerprint)
@@ -105,7 +116,7 @@ class DiagnosticService
     // doesn't prevent cross-file and param validation from running.
     try
     {
-      compiler := LspCompiler.create(uri, preprocessed)
+      compiler := LspCompiler.create(uri, preprocessed, stubs)
       LspCompiler.analyze(compiler)
 
       lines := preprocessed.splitLines
@@ -543,6 +554,16 @@ class DiagnosticService
     return false
   }
 
+  **
+  ** Check if a name is a project type that is not compiled in this pass
+  ** (neither declared in the analyzed file nor in a usable stub), so the
+  ** single-file compiler cannot resolve it.
+  **
+  private Bool isUncompiledProjectType(Str name, ProjectIndex index)
+  {
+    return index.hasType(name) && !compiledTypes.contains(name)
+  }
+
   ** Check if a type name is known (sys type or in the project index)
   private Bool isKnownType(Str name, ProjectIndex index)
   {
@@ -631,7 +652,7 @@ class DiagnosticService
 
       typeName := nameStart < hashIdx ? line[nameStart ..< hashIdx] : ""
 
-      if (typeName.size > 0 && typeName[0].isUpper && index.hasType(typeName))
+      if (typeName.size > 0 && typeName[0].isUpper && isUncompiledProjectType(typeName, index))
       {
         // Append everything before the type name, then "Obj#"
         result.add(line[pos ..< nameStart])
@@ -954,7 +975,7 @@ class DiagnosticService
       isUnresolvableExternal := name.size > 0 && name[0].isUpper &&
                                 !knownSysTypes.contains(name) && !index.hasType(name) &&
                                 !usingPodIdx.hasType(name)
-      if (isProjectType || isUnresolvableExternal)
+      if ((isProjectType && !compiledTypes.contains(name)) || isUnresolvableExternal)
       {
         anyReplaced = true
         // For project types: look up the best resolvable ancestor
@@ -1128,7 +1149,7 @@ class DiagnosticService
         isUnresolvableExt := !isProjectTy && !usingPodIdx.hasType(name) &&
                              usingPodIdx.hasUnloadablePods
         if (!prevIsIdent && !isAllCaps && name.size > 1 && !knownSysTypes.contains(name) &&
-            (isProjectTy || isUnresolvableExt))
+            ((isProjectTy && !compiledTypes.contains(name)) || isUnresolvableExt))
         {
           result.add("Obj")
           anyReplaced = true

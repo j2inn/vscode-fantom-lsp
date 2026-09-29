@@ -2684,16 +2684,45 @@ class DiagnosticServiceTest : Test
   }
 
   **
-  ** fromStr and defVal are common static methods that should not be flagged
-  ** on any project type (not just enums).
+  ** A static slot that does not exist on a project type from another file
+  ** is a real error: the type is compiled from its stub, so the compiler
+  ** reports it exactly like a full pod build.
   **
-  Void testCrossFileFromStrOnRegularTypeNotFlagged()
+  Void testCrossFileMissingStaticSlotReported()
   {
     typeIdx := ProjectIndex()
     typeIdx.indexFile("file:///test/MyType.fan",
       "class MyType\n" +
       "{\n" +
       "  Str name := \"\"\n" +
+      "}")
+
+    source :=
+      "class Caller\n" +
+      "{\n" +
+      "  Obj run() { return MyType.fromStr(\"test\") }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Caller.fan", source, typeIdx)
+
+    missing := diags.findAll |d| { d.severity == 1 && d.message.contains("MyType.fromStr") }
+    verifyEq(missing.size, 1)
+  }
+
+  **
+  ** fromStr and defVal declared on a regular project type (not an enum)
+  ** should not be flagged when called from another file.
+  **
+  Void testCrossFileFromStrOnRegularTypeNotFlagged()
+  {
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/MyType.fan",
+      "const class MyType\n" +
+      "{\n" +
+      "  static const MyType defVal := MyType(\"\")\n" +
+      "  static MyType fromStr(Str s) { return MyType(s) }\n" +
+      "  new make(Str name) { this.name = name }\n" +
+      "  const Str name\n" +
       "}")
 
     source :=
@@ -3972,6 +4001,193 @@ class DiagnosticServiceTest : Test
 
     invalidArgs := diags.findAll |d| { d.message.contains("Invalid args make") }
     verifyEq(invalidArgs.size, 0)
+  }
+
+//////////////////////////////////////////////////////////////////////////
+// Explicit make() on Project Types (Regression)
+//////////////////////////////////////////////////////////////////////////
+
+  **
+  ** Explicit 'MyType.make(args)' on a type defined in the same file must
+  ** not report "Invalid args make()" or "Calling constructor on abstract class"
+  ** after the type name has been replaced with Obj during preprocessing.
+  **
+  Void testExplicitMakeWithArgsOnSameFileType()
+  {
+    source :=
+      "class MyRec\n" +
+      "{\n" +
+      "  const Int code\n" +
+      "  const Str label\n" +
+      "  new make(Int code, Str label) { this.code = code; this.label = label }\n" +
+      "  static MyRec defRec(Int code) { return MyRec.make(code, \"-\") }\n" +
+      "}"
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/MyRec.fan", source)
+
+    diags := svc.analyze("file:///test/MyRec.fan", source, idx)
+
+    verifyNoCtorFalsePositives(diags)
+  }
+
+  **
+  ** Explicit 'Other.make(args)' on a type from another project file.
+  **
+  Void testExplicitMakeWithArgsOnOtherFileType()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/MyCache.fan",
+      "const class MyCache\n" +
+      "{\n" +
+      "  new make(Str? name, Uri folder, Pod pod) {}\n" +
+      "}")
+    source :=
+      "const class MyCacheManager\n" +
+      "{\n" +
+      "  static MyCache create(Str? name, Uri folder, Pod pod)\n" +
+      "  {\n" +
+      "    inst := MyCache.make(name, folder, pod)\n" +
+      "    return inst\n" +
+      "  }\n" +
+      "}"
+    idx.indexFile("file:///test/MyCacheManager.fan", source)
+
+    diags := svc.analyze("file:///test/MyCacheManager.fan", source, idx)
+
+    verifyNoCtorFalsePositives(diags)
+  }
+
+  **
+  ** Private no-arg 'make()' called explicitly for a singleton instance.
+  **
+  Void testExplicitNoArgMakeSingleton()
+  {
+    source :=
+      "const class MySingleton\n" +
+      "{\n" +
+      "  static const MySingleton instance := MySingleton.make()\n" +
+      "  private new make() {}\n" +
+      "}"
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/MySingleton.fan", source)
+
+    diags := svc.analyze("file:///test/MySingleton.fan", source, idx)
+
+    verifyNoCtorFalsePositives(diags)
+  }
+
+  **
+  ** Explicit 'make()' on a class extending a project base type.
+  **
+  Void testExplicitMakeOnSubclassOfProjectBase()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/MyBase.fan",
+      "abstract const class MyBase\n" +
+      "{\n" +
+      "  new make(Str name) {}\n" +
+      "}")
+    source :=
+      "const class MyChild : MyBase\n" +
+      "{\n" +
+      "  static const MyChild instance := MyChild.make(\"x\")\n" +
+      "  private new make(Str name) : super(name) {}\n" +
+      "}"
+    idx.indexFile("file:///test/MyChild.fan", source)
+
+    diags := svc.analyze("file:///test/MyChild.fan", source, idx)
+
+    verifyNoCtorFalsePositives(diags)
+  }
+
+  **
+  ** A genuine 'Obj.make()' written by the user is still reported.
+  **
+  Void testExplicitObjMakeStillReported()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Obj bar() { return Obj.make() }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, ProjectIndex())
+
+    abstractErrs := diags.findAll |d| { d.message.contains("abstract class") }
+    verifyEq(abstractErrs.size, 1)
+  }
+
+  **
+  ** Comparing the result of 'MyEnum.fromStr' (enum from another file) with
+  ** a value of that enum must not report cascade errors such as
+  ** "Cannot resolve equals on sys::Error?": the enum is compiled from its
+  ** stub, so 'fromStr' resolves to the real enum type.
+  **
+  Void testEnumFromStrComparisonOnOtherFileType()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/MyKind.fan",
+      "enum class MyKind { a, b }")
+    source :=
+      "using haystack\n" +
+      "class MyUtils\n" +
+      "{\n" +
+      "  static Bool same(Str? s, MyKind kind)\n" +
+      "  {\n" +
+      "    existing := s == null ? null : MyKind.fromStr(s, false)\n" +
+      "    if (existing != null && existing == kind) return true\n" +
+      "    return false\n" +
+      "  }\n" +
+      "}"
+    idx.indexFile("file:///test/MyUtils.fan", source)
+
+    diags := svc.analyze("file:///test/MyUtils.fan", source, idx)
+
+    bad := diags.findAll |d| { d.severity == 1 && d.message.contains("sys::Error") }
+    verifyEq(bad.size, 0, bad.map |d| { d.message }.join("; "))
+  }
+
+  **
+  ** Diagnostics of a file must not depend on which files were analyzed
+  ** before it (per-analysis state must not leak into cached index data).
+  **
+  Void testDiagnosticsIndependentOfAnalysisOrder()
+  {
+    idx := ProjectIndex()
+    dataSrc :=
+      "class MyData\n" +
+      "{\n" +
+      "  Str name := \"\"\n" +
+      "}"
+    loaderSrc :=
+      "class MyLoader\n" +
+      "{\n" +
+      "  MyData[] load()\n" +
+      "  {\n" +
+      "    MyData[] data := [,]\n" +
+      "    data.add(MyData { name = \"x\" })\n" +
+      "    return data\n" +
+      "  }\n" +
+      "}"
+    idx.indexFile("file:///test/MyData.fan", dataSrc)
+    idx.indexFile("file:///test/MyLoader.fan", loaderSrc)
+
+    first := svc.analyze("file:///test/MyLoader.fan", loaderSrc, idx).map |d->Str| { d.message }
+    svc.analyze("file:///test/MyData.fan", dataSrc, idx)
+    again := svc.analyze("file:///test/MyLoader.fan", loaderSrc, idx).map |d->Str| { d.message }
+
+    verifyEq(first, Str[,])
+    verifyEq(again, first)
+  }
+
+  private Void verifyNoCtorFalsePositives(LspDiagnostic[] diags)
+  {
+    bad := diags.findAll |d|
+    {
+      d.severity == 1 &&
+      (d.message.contains("Invalid args make") || d.message.contains("abstract class"))
+    }
+    verifyEq(bad.size, 0, bad.map |d| { d.message }.join("; "))
   }
 
 //////////////////////////////////////////////////////////////////////////

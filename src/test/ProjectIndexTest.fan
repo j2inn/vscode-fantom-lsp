@@ -1121,4 +1121,129 @@ class ProjectIndexTest : Test
     verify(resultSyms.size > 0, "local var declared after a multi-line signature must be indexed")
     verifyEq(resultSyms.first.methodName, "createDevice")
   }
+
+//////////////////////////////////////////////////////////////////////////
+// Stubs for Diagnostics
+//////////////////////////////////////////////////////////////////////////
+
+  Void testStubsForIncludesOtherFilesButNotTarget()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/A.fan", "class A { Int x() { 1 } }")
+    idx.indexFile("file:///test/B.fan", "class B { A a() { A() } }")
+
+    stubs := idx.stubsFor("file:///test/B.fan")
+
+    verifyEq(stubs.keys, ["file:///test/A.fan"])
+    verifyEq(stubs["file:///test/A.fan"], "class A { Int x() ${SourceStubber.stubBody} }")
+  }
+
+  **
+  ** With the target source, only stubs reachable from it are compiled:
+  ** types named by the target, then types in the signatures of those
+  ** stubs; types used only in stub bodies or field initializers are not.
+  **
+  Void testStubsForKeepsOnlyReachableStubs()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/A.fan",
+      "class A\n" +
+      "{\n" +
+      "  static const Str name := OnlyInInit.label\n" +
+      "  B b() { OnlyInBody.run; return B() }\n" +
+      "}")
+    idx.indexFile("file:///test/B.fan", "class B {}")
+    idx.indexFile("file:///test/OnlyInInit.fan", "class OnlyInInit { static const Str label := \"x\" }")
+    idx.indexFile("file:///test/OnlyInBody.fan", "class OnlyInBody { static Void run() {} }")
+    idx.indexFile("file:///test/Unrelated.fan", "class Unrelated {}")
+    target := "class T { Void run() { echo(A().b) } }"
+
+    stubs := idx.stubsFor("file:///test/T.fan", target)
+
+    // Types not compiled are only declared as placeholders so that the
+    // field initializers and bodies of the stubs still parse
+    placeholders := stubs.remove(SourceStubber.placeholderUri)
+    verifyEq(stubs.keys.sort, ["file:///test/A.fan", "file:///test/B.fan"])
+    verifyEq(placeholders, "class OnlyInInit {}")
+  }
+
+  **
+  ** A stub referencing an unresolvable external type is excluded, and so
+  ** is every stub that depends on it; unrelated stubs are kept.
+  **
+  Void testStubsForExcludesUnresolvableAndDependents()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/Base.fan",
+      "class Base : UnknownExternalBase { }")
+    idx.indexFile("file:///test/UsesBase.fan",
+      "class UsesBase { Base base() { throw Err() } }")
+    idx.indexFile("file:///test/Plain.fan",
+      "class Plain { Str name() { \"x\" } }")
+
+    stubs := idx.stubsFor("file:///test/Target.fan")
+
+    verifyEq(stubs.keys, ["file:///test/Plain.fan"])
+  }
+
+  **
+  ** A stub whose compiled expressions do not resolve (here an ambiguous
+  ** constructor call in a parameter default) is excluded.
+  **
+  Void testStubsForExcludesStubWithUnresolvedExpr()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/Amb.fan",
+      "const class Amb\n" +
+      "{\n" +
+      "  static Void use(Amb a := Amb(\"\")) {}\n" +
+      "  static new fromStr(Str s) { make(s) }\n" +
+      "  new make(Str s) {}\n" +
+      "}")
+    idx.indexFile("file:///test/Plain.fan", "class Plain {}")
+
+    stubs := idx.stubsFor("file:///test/Target.fan")
+
+    verifyEq(stubs.keys, ["file:///test/Plain.fan"])
+  }
+
+  Void testStubsForExcludesFilesDeclaringTargetTypes()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/Old.fan", "class Dup {}")
+    idx.indexFile("file:///test/New.fan", "class Dup {}")
+    idx.indexFile("file:///test/Plain.fan", "class Plain {}")
+
+    stubs := idx.stubsFor("file:///test/New.fan")
+
+    verify(stubs.containsKey("file:///test/Plain.fan"))
+    verifyFalse(stubs.containsKey("file:///test/Old.fan"))
+    verifyFalse(stubs.containsKey("file:///test/New.fan"))
+  }
+
+  Void testTypeNamesInIsReadOnly()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/A.fan", "class A {}\nclass B {}")
+
+    verifyEq(idx.typeNamesIn("file:///test/A.fan").dup.sort, ["A", "B"])
+    verifyErr(ReadonlyErr#) { idx.typeNamesIn("file:///test/A.fan").add("C") }
+    verifyErr(ReadonlyErr#) { idx.typeNamesIn("file:///test/Missing.fan").add("C") }
+  }
+
+  **
+  ** While a file has a syntax error (e.g. mid-edit), its last good stub
+  ** keeps being used by the other files.
+  **
+  Void testStubsForKeepsLastGoodStubOnSyntaxError()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///test/A.fan", "class A { Int x() { 1 } }")
+    idx.stubsFor("file:///test/B.fan")
+
+    idx.indexFile("file:///test/A.fan", "class A { Int x( { 1 } }")
+    stubs := idx.stubsFor("file:///test/B.fan")
+
+    verifyEq(stubs["file:///test/A.fan"], "class A { Int x() ${SourceStubber.stubBody} }")
+  }
 }

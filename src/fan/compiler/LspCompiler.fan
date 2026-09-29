@@ -1,54 +1,55 @@
 
 using compiler
+using concurrent
 
 **
 ** LspCompiler - Factory for creating compiler instances for LSP analysis
 **
 class LspCompiler
 {
+  ** Actor.locals key of the namespace shared by the compiles of a thread
+  private static const Str namespaceKey := "vscodeFantomLsp.compilerNamespace"
+
+  ** Incremented to make every thread recreate its shared namespace
+  private static const AtomicInt namespaceGeneration := AtomicInt()
+
   **
-  ** Create a compiler instance for analyzing a source file
+  ** Create a compiler instance for analyzing a source file.
+  ** When 'stubs' (stub sources keyed by file URI, see 'SourceStubber') are
+  ** given, they are compiled alongside the file so project types resolve.
   **
-  static Compiler create(Str uri, Str source)
+  static Compiler create(Str uri, Str source, Str:Str stubs := Str:Str[:])
+  {
+    in := input(uri, source)
+    c := stubs.isEmpty ? Compiler(in) : StubbedCompiler(in, stubs)
+    sharedNamespace.lastCompiler = c
+    return c
+  }
+
+  **
+  ** Make every thread use a new compiler namespace for its next compile,
+  ** so that pods changed on disk are reloaded.
+  **
+  static Void resetNamespaces()
+  {
+    namespaceGeneration.increment
+  }
+
+  **
+  ** Build the single-file (script mode) compiler input for a source file.
+  **
+  static CompilerInput input(Str uri, Str source)
   {
     // Create a compiler log that writes to file instead of stdout
     logFile := LspUtil.tempDir + `fantom-lsp-compiler.log`
     log := CompilerLog(logFile.out(true))
 
-    // Try to get project info (pod name and source directories)
-    projectInfo := getProjectInfo(uri)
-    podName := projectInfo["podName"] as Str
-    srcDirs := projectInfo["srcDirs"] as Uri[]
-    baseDir := projectInfo["baseDir"] as File
-
-    // Decide pod name based on whether the file is inside srcDirs
-    // If file is inside srcDirs -> use the pod name (types within same pod visible)
-    // If file is outside srcDirs -> use lsp_temp (so "using podName" can resolve)
-    tempPodName := "lsp_temp"
-    if (podName != null && baseDir != null && srcDirs != null)
-    {
-      if (isFileInSrcDirs(uri, baseDir, srcDirs))
-      {
-        tempPodName = podName
-        LspProtocol.logInfo("File is inside srcDirs, compiling as pod: $podName")
-      }
-      else
-      {
-        LspProtocol.logInfo("File is outside srcDirs, compiling as lsp_temp")
-      }
-    }
-    else if (podName != null)
-    {
-      tempPodName = podName
-    }
-
+    tempPodName := podNameFor(uri)
     LspProtocol.logInfo("Compiling as pod: $tempPodName")
 
     // Use single file compilation with pod name for script mode type resolution
     // This preserves correct line numbers for Go to Definition
-    LspProtocol.logInfo("Compiling single file with pod context")
-
-    input := CompilerInput
+    return CompilerInput
     {
       it.mode = CompilerInputMode.str
       it.srcStr = source
@@ -60,9 +61,47 @@ class LspCompiler
       it.output = CompilerOutputMode.transientPod
       it.log = log
       it.includeDoc = true
+      it.ns = sharedNamespace.ns
     }
+  }
 
-    return Compiler(input)
+  **
+  ** Compiler namespace shared by the compiles of the current thread.
+  ** A namespace caches the reflected types of the installed pods it loads;
+  ** building them costs tens of milliseconds for large pods, so a new
+  ** namespace per compile makes every analysis pay that cost. The types
+  ** being compiled are never cached in the namespace. It is recreated after
+  ** 'resetNamespaces', and after a compile that imported a Java FFI package,
+  ** because FFI bridges are cached in the namespace but bound to the
+  ** compiler that created them.
+  **
+  private static SharedNamespace sharedNamespace()
+  {
+    shared := Actor.locals[namespaceKey] as SharedNamespace
+    generation := namespaceGeneration.val
+    if (shared == null || shared.generation != generation || shared.lastCompilerUsedFfi)
+    {
+      shared = SharedNamespace(ReflectNamespace(), generation)
+      Actor.locals[namespaceKey] = shared
+    }
+    return shared
+  }
+
+  **
+  ** Pod name a file is compiled under: the pod name from build.fan when the
+  ** file is inside the pod's srcDirs (types within the same pod visible),
+  ** otherwise "lsp_temp" (so "using podName" can resolve).
+  **
+  static Str podNameFor(Str uri)
+  {
+    projectInfo := getProjectInfo(uri)
+    podName := projectInfo["podName"] as Str
+    srcDirs := projectInfo["srcDirs"] as Uri[]
+    baseDir := projectInfo["baseDir"] as File
+
+    if (podName == null) return "lsp_temp"
+    if (baseDir == null || srcDirs == null) return podName
+    return isFileInSrcDirs(uri, baseDir, srcDirs) ? podName : "lsp_temp"
   }
 
   **
@@ -305,3 +344,36 @@ class LspCompiler
   }
 }
 
+**************************************************************************
+** SharedNamespace
+**************************************************************************
+
+**
+** A compiler namespace reused by the compiles of one thread
+** (see 'LspCompiler.sharedNamespace').
+**
+internal class SharedNamespace
+{
+  ** The shared namespace
+  CNamespace ns
+
+  ** Value of the namespace generation when 'ns' was created
+  Int generation
+
+  ** Last compiler created with 'ns'
+  Compiler? lastCompiler
+
+  new make(CNamespace ns, Int generation)
+  {
+    this.ns = ns
+    this.generation = generation
+  }
+
+  ** True if the last compiler imported a Java FFI package ('using [java]...')
+  Bool lastCompilerUsedFfi()
+  {
+    units := lastCompiler?.pod?.units
+    if (units == null) return false
+    return units.any |unit| { unit.usings.any |u| { u.podName.startsWith("[") } }
+  }
+}

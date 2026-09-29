@@ -43,6 +43,10 @@ class ProjectIndex
   ** Lookup map: podName -> PodInfo
   private Str:PodInfo podsByName := Str:PodInfo[:]
 
+  ** Signature-only stubs of project files, compiled alongside a file
+  ** during diagnostics (see 'stubsFor')
+  private ProjectStubs projectStubs := ProjectStubs()
+
   **
   ** Initialize the index from a workspace root URI.
   ** Discovers build.fan, parses project info, indexes all source files.
@@ -305,6 +309,85 @@ class ProjectIndex
     {
       pod.sourceFiles.any |f| { LspUtil.fileToUri(f) == normalized }
     }
+  }
+
+  **
+  ** Stub sources (keyed by file URI) to compile alongside 'targetUri' during
+  ** diagnostics: the usable stubs of the other files of its pod, excluding
+  ** files that declare a type also declared by the target. A file outside
+  ** any pod gets all indexed files when no pods were discovered (in-memory
+  ** index), and no stubs otherwise.
+  **
+  ** When 'targetSource' is given, only the stubs reachable from it are
+  ** returned: the files declaring a project type named by an identifier
+  ** token of the target, then the files declaring a type referenced by
+  ** the compiled part of those stubs, transitively. A type can only enter
+  ** the compilation through such a reference, so no needed stub is left
+  ** out. The other project types are declared as placeholders (see
+  ** 'SourceStubber.placeholders') so that the stubs can be parsed.
+  **
+  Str:Str stubsFor(Str targetUri, Str? targetSource := null)
+  {
+    target := LspUtil.normalizeFileUri(targetUri)
+    targetTypes := typeNamesIn(target)
+    sources := Str:Str[:]
+    typeNamesByUri := Str:Str[][:]
+    stubCandidateUris(target).each |uri|
+    {
+      idx := fileIndexes[uri]
+      if (idx == null) return
+      sources[uri] = idx.source
+      typeNamesByUri[uri] = typeNamesIn(uri)
+    }
+    usable := projectStubs.usableStubs(sources, typeNamesByUri, target)
+    usable = usable.exclude |stub, uri|
+    {
+      uri == target || typeNamesIn(uri).any |name| { targetTypes.contains(name) }
+    }
+    if (targetSource == null) return usable
+    reached := reachableStubs(usable, SourceStubber.identifiers(target, targetSource))
+    return projectStubs.withPlaceholders(reached, typeNamesByUri, targetTypes)
+  }
+
+  **
+  ** Subset of 'stubs' reachable from the target 'identifiers' (see 'stubsFor').
+  **
+  private Str:Str reachableStubs(Str:Str stubs, Str[] identifiers)
+  {
+    uriByTypeName := Str:Str[:]
+    stubs.each |stub, uri| { typeNamesIn(uri).each |name| { uriByTypeName[name] = uri } }
+
+    reached := Str:Str[:]
+    pending := identifiers.dup
+    while (!pending.isEmpty)
+    {
+      uri := uriByTypeName[pending.pop]
+      if (uri == null || reached.containsKey(uri)) continue
+      reached[uri] = stubs[uri]
+      pending.addAll(projectStubs.stubReferencedTypes(uri))
+    }
+    return reached
+  }
+
+  **
+  ** Names of the types declared in an indexed file (read-only list).
+  **
+  Str[] typeNamesIn(Str fileUri)
+  {
+    idx := fileIndexes[fileUri]
+    if (idx == null) return Str#.emptyList
+    if (idx.typeNames == null)
+      idx.typeNames = idx.symbols.findAll |s| { s.kind == SymbolKind.type }.map |s->Str| { s.name }.ro
+    return idx.typeNames
+  }
+
+  ** URIs of the files whose stubs may be compiled alongside 'targetUri'
+  private Str[] stubCandidateUris(Str targetUri)
+  {
+    pod := getPodForFile(targetUri)
+    if (pod != null)
+      return pod.sourceFiles.findAll |f| { f.name != "build.fan" }.map |f| { LspUtil.fileToUri(f) }
+    return pods.isEmpty ? fileIndexes.keys : Str[,]
   }
 
   **
@@ -2145,6 +2228,9 @@ class FileIndex
   Str source := ""
   IndexedSymbol[] symbols := IndexedSymbol[,]
   Str[] usingPods := Str[,]
+
+  ** Names of the types declared in the file (computed on first use)
+  Str[]? typeNames
 }
 
 **************************************************************************
