@@ -6,6 +6,7 @@
  */
 
 import * as assert from 'assert';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -52,6 +53,29 @@ function makeTmpDir(): string {
 function writeFile(p: string, content = 'x'): void {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, content);
+}
+
+/** Owner file ShadowDir writes into every shadow dir it creates. */
+const OWNER_FILE = '.fantom-lsp-owner';
+
+/** PID of a process that has already exited (a finished child process). */
+function exitedPid(): number {
+  return spawnSync(process.execPath, ['-e', '']).pid!;
+}
+
+/**
+ * Record a shadow dir as owned by a process that is no longer running —
+ * the state a killed session leaves behind (create() writes the owner file
+ * before building anything, so every partial state has one).
+ */
+function markOwnerExited(dir: string): void {
+  fs.writeFileSync(path.join(dir, OWNER_FILE), String(exitedPid()));
+}
+
+/** Backdate a directory's modification time by the given number of hours. */
+function backdate(dir: string, hours: number): void {
+  const t = new Date(Date.now() - hours * 60 * 60 * 1000);
+  fs.utimesSync(dir, t, t);
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +523,7 @@ test('sweepOrphaned removes an orphaned shadow dir and its junctions, real fanHo
   try {
     assert.ok(orphan !== undefined, 'create must succeed');
     assert.ok(fs.existsSync(orphan!.path), 'orphaned shadow dir must exist before sweep');
+    markOwnerExited(orphan!.path);
 
     ShadowDir.sweepOrphaned(undefined, m => logs.push(m));
 
@@ -582,6 +607,7 @@ testWindowsOnly('sweepOrphaned unlinks a real junction as a leaf without followi
   const orphan = ShadowDir.create('main.pod', fanHome, m => logs.push(m));
   try {
     assert.ok(orphan !== undefined, 'create must succeed');
+    markOwnerExited(orphan!.path);
     // etc/build is created as a real junction into fanHome/etc/build on win32
     // (see buildEtc). Confirm it really is one before relying on the sweep.
     const junctionPath = path.join(orphan!.path, 'etc', 'build');
@@ -637,6 +663,7 @@ test('sweepOrphaned cleans up a shadow dir killed before any junction was create
   // before the for-loop even starts — the most minimal partial state possible.
   const dir = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}-partial1`);
   fs.mkdirSync(path.join(dir, 'etc'), { recursive: true });
+  markOwnerExited(dir);
   try {
     assert.ok(fs.existsSync(dir), 'partial shadow dir must exist before sweep');
     ShadowDir.sweepOrphaned(undefined, m => logs.push(m));
@@ -663,6 +690,7 @@ test('sweepOrphaned cleans up a shadow dir killed mid-etc-loop (some junctions b
   const libFan = path.join(dir, 'lib', 'fan');
   fs.mkdirSync(libFan, { recursive: true });
   fs.writeFileSync(path.join(libFan, 'main.pod'), 'pod-bytes');
+  markOwnerExited(dir);
   // No lib/java at all — kill happened before buildLibJava ran.
   try {
     ShadowDir.sweepOrphaned(undefined, m => logs.push(m));
@@ -686,6 +714,8 @@ test('sweepOrphaned does not crash and cleans remaining orphans when one dir is 
   const good2 = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}-good2`);
   fs.mkdirSync(path.join(good1, 'etc'), { recursive: true });
   fs.mkdirSync(path.join(good2, 'etc'), { recursive: true });
+  markOwnerExited(good1);
+  markOwnerExited(good2);
   // Booby-trap good1's etc/ dir with a nested real subdirectory containing a
   // file — removeLeafEntries is intentionally shallow and will never delete
   // it, so removeRealDirIfEmpty on etc/ must fail with ENOTEMPTY (logged as
@@ -762,17 +792,17 @@ test('sweepOrphaned does not touch a directory whose name only partially overlap
 });
 
 test('sweepOrphaned on a name-collision directory only ever touches lib/fan, lib/java, etc/sys, etc/ — never the top level', () => {
-  // Anyone or anything creating a directory literally named
-  // "fantom-lsp-shadow-<anything>" under os.tmpdir() is matched by name
-  // alone — there is no marker file distinguishing a dir this extension
-  // actually built from a coincidental collision. This test proves the
-  // blast radius is still safe on a collision: disposeLibFan/disposeLibJava
-  // /disposeEtc only ever touch the four specific sub-paths a real shadow
-  // dir would have. A top-level file sitting directly in the matched
-  // directory (not inside one of those sub-paths) is never reached.
+  // A directory literally named "fantom-lsp-shadow-<anything>" under
+  // os.tmpdir() without an owner file is treated like a shadow dir from an
+  // older version, and swept once it is old enough. This test proves the
+  // blast radius is still safe on such a collision: disposeLibFan/
+  // disposeLibJava/disposeEtc only ever touch the four specific sub-paths a
+  // real shadow dir would have. A top-level file sitting directly in the
+  // matched directory (not inside one of those sub-paths) is never reached.
   const collision = path.join(os.tmpdir(), 'fantom-lsp-shadow-not-actually-ours');
   fs.mkdirSync(collision, { recursive: true });
   writeFile(path.join(collision, 'someones-file.txt'), 'irrelevant to this extension');
+  backdate(collision, 48);
   try {
     ShadowDir.sweepOrphaned(undefined, () => {});
     // A file at the collision dir's own top level is outside every path
@@ -788,9 +818,9 @@ test('sweepOrphaned on a name-collision directory only ever touches lib/fan, lib
   }
 });
 
-test('sweepOrphaned DOES remove a file placed inside a collision dir at one of the real sub-paths (lib/fan)', () => {
-  // The flip side of the previous test: if the collision happens to also
-  // contain a lib/fan/ subdirectory (e.g. a coincidentally-named dir that
+test('sweepOrphaned DOES remove a file placed inside an old collision dir at one of the real sub-paths (lib/fan)', () => {
+  // The flip side of the previous test: if an old ownerless collision also
+  // contains a lib/fan/ subdirectory (e.g. a coincidentally-named dir that
   // itself has that structure for unrelated reasons), a file sitting there
   // IS removed as a leaf — this is the honest, documented blast radius,
   // not a false sense of safety from the previous test alone.
@@ -798,19 +828,131 @@ test('sweepOrphaned DOES remove a file placed inside a collision dir at one of t
   const libFan = path.join(collision, 'lib', 'fan');
   fs.mkdirSync(libFan, { recursive: true });
   writeFile(path.join(libFan, 'someone-elses-file.pod'), 'not ours, but sits at a path we do clean');
+  backdate(collision, 48);
   try {
     ShadowDir.sweepOrphaned(undefined, () => {});
     assert.ok(!fs.existsSync(path.join(libFan, 'someone-elses-file.pod')),
-      'a file at lib/fan/ inside a name-matched directory is removed — the match is name-based only, ' +
-      'with no way to distinguish a real orphan from a coincidental collision at this sub-path');
+      'a file at lib/fan/ inside an old ownerless name-matched directory is removed — without an owner file ' +
+      'there is no way to distinguish a real orphan from a coincidental collision at this sub-path');
   } finally {
     try { fs.rmSync(collision, { recursive: true }); } catch (_) {}
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ownership — several VS Code windows share os.tmpdir()
+// ---------------------------------------------------------------------------
+
+test('create writes the owner file with the current process id', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const shadow = ShadowDir.create('main.pod', fanHome, () => {});
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    assert.strictEqual(fs.readFileSync(path.join(shadow!.path, OWNER_FILE), 'utf8'), String(process.pid));
+  } finally {
+    shadow?.dispose(() => {});
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+  }
+});
+
+test('dispose removes the owner file and the shadow dir itself', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const shadow = ShadowDir.create('main.pod', fanHome, () => {});
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    shadow!.dispose(() => {});
+    assert.ok(!fs.existsSync(path.join(shadow!.path, OWNER_FILE)), 'owner file must be removed');
+    assert.ok(!fs.existsSync(shadow!.path), 'shadow dir must be removed');
+  } finally {
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (shadow) { try { fs.rmSync(shadow.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('sweepOrphaned keeps a shadow dir whose owner is still running (another VS Code window)', () => {
+  // Regression: activating the extension in a second window swept the
+  // first window's shadow dir, deleting the pods its language server was
+  // using ("Pod not found" for haystack, axon, ...). The shadow dir created
+  // here is owned by this test process, which is alive — exactly like the
+  // extension host of another open window.
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const otherWindow = ShadowDir.create('main.pod', fanHome, () => {});
+  try {
+    assert.ok(otherWindow !== undefined, 'create must succeed');
+    ShadowDir.sweepOrphaned(undefined, () => {});
+    assert.ok(fs.existsSync(path.join(otherWindow!.path, 'lib', 'fan', 'main.pod')),
+      'the pods of a shadow dir owned by a running process must not be deleted');
+    assert.ok(fs.existsSync(path.join(otherWindow!.path, 'etc', 'sys', 'config.props')),
+      'the etc/ of a shadow dir owned by a running process must not be deleted');
+  } finally {
+    otherWindow?.dispose(() => {});
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+  }
+});
+
+test('sweepOrphaned removes a shadow dir whose owner has exited, and keeps one whose owner is running', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const dead = ShadowDir.create('main.pod', fanHome, () => {});
+  const alive = ShadowDir.create('main.pod', fanHome, () => {});
+  try {
+    assert.ok(dead !== undefined && alive !== undefined, 'create must succeed');
+    markOwnerExited(dead!.path);
+    ShadowDir.sweepOrphaned(undefined, () => {});
+    assert.ok(!fs.existsSync(dead!.path), 'shadow dir of an exited owner must be removed');
+    assert.ok(fs.existsSync(alive!.path), 'shadow dir of a running owner must be kept');
+  } finally {
+    alive?.dispose(() => {});
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (dead) { try { fs.rmSync(dead.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('sweepOrphaned keeps a recent shadow dir without owner file (older version still running)', () => {
+  const dir = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}-legacy-recent`);
+  writeFile(path.join(dir, 'lib', 'fan', 'main.pod'), 'pod-bytes');
+  try {
+    ShadowDir.sweepOrphaned(undefined, () => {});
+    assert.ok(fs.existsSync(path.join(dir, 'lib', 'fan', 'main.pod')),
+      'a recent ownerless shadow dir may belong to a running older version and must be kept');
+  } finally {
+    try { fs.rmSync(dir, { recursive: true }); } catch (_) {}
+  }
+});
+
+test('sweepOrphaned removes an old shadow dir without owner file (left by an older version)', () => {
+  const dir = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}-legacy-old`);
+  writeFile(path.join(dir, 'lib', 'fan', 'main.pod'), 'pod-bytes');
+  backdate(path.join(dir, 'lib', 'fan'), 48);
+  backdate(path.join(dir, 'lib'), 48);
+  backdate(dir, 48);
+  try {
+    ShadowDir.sweepOrphaned(undefined, () => {});
+    assert.ok(!fs.existsSync(dir), 'an old ownerless shadow dir must be removed');
+  } finally {
+    try { fs.rmSync(dir, { recursive: true }); } catch (_) {}
+  }
+});
+
+test('sweepOrphaned treats an unreadable owner file like a missing one', () => {
+  const recent = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}-bad-owner-recent`);
+  const old = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}-bad-owner-old`);
+  writeFile(path.join(recent, OWNER_FILE), 'not-a-pid');
+  writeFile(path.join(old, OWNER_FILE), '-1');
+  backdate(old, 48);
+  try {
+    ShadowDir.sweepOrphaned(undefined, () => {});
+    assert.ok(fs.existsSync(recent), 'a recent dir with an invalid owner file must be kept');
+    assert.ok(!fs.existsSync(old), 'an old dir with an invalid owner file must be removed');
+  } finally {
+    try { fs.rmSync(recent, { recursive: true }); } catch (_) {}
+    try { fs.rmSync(old, { recursive: true }); } catch (_) {}
   }
 });
 
 test('sweepOrphaned handles a shadow dir with lib/ but no lib/fan or lib/java at all', () => {
   const dir = path.join(os.tmpdir(), `fantom-lsp-shadow-${Date.now()}-empty-lib`);
   fs.mkdirSync(path.join(dir, 'lib'), { recursive: true });
+  markOwnerExited(dir);
   try {
     ShadowDir.sweepOrphaned(undefined, () => {});
     assert.ok(!fs.existsSync(dir), 'an orphan with an empty lib/ and nothing else must still be fully removed');
@@ -825,6 +967,7 @@ test('sweepOrphaned is idempotent: running it twice in a row on the same state i
   const orphan = ShadowDir.create('main.pod', fanHome, m => logs.push(m));
   try {
     assert.ok(orphan !== undefined, 'create must succeed');
+    markOwnerExited(orphan!.path);
     ShadowDir.sweepOrphaned(undefined, m => logs.push(m));
     assert.ok(!fs.existsSync(orphan!.path), 'first sweep must remove the orphan');
     // Second sweep: nothing left to find. Must not throw.
@@ -847,6 +990,7 @@ test('sweepOrphaned handles many orphans in one pass without touching the real i
       orphans.push(ShadowDir.create('main.pod', fanHome, m => logs.push(m)));
     }
     assert.ok(orphans.every(o => o !== undefined), 'all 8 orphans must be created successfully');
+    orphans.forEach(o => markOwnerExited(o!.path));
 
     ShadowDir.sweepOrphaned(undefined, m => logs.push(m));
 
@@ -882,6 +1026,7 @@ test('sweepOrphaned never calls fs.rmSync — asserted by monkey-patching it to 
   const originalRmSync = realFs.rmSync;
   try {
     assert.ok(orphan !== undefined, 'create must succeed');
+    markOwnerExited(orphan!.path);
     // If sweepOrphaned (or anything it calls) ever calls fs.rmSync on a real
     // directory, this makes the test fail loudly instead of relying on the
     // survival assertions alone to catch a regression.
