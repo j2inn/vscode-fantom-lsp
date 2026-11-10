@@ -1639,6 +1639,29 @@ class DiagnosticServiceTest : Test
 // Method Parameter Validation
 //////////////////////////////////////////////////////////////////////////
 
+  Void testListJoinWithSeparatorAndTrailingClosureNotReported()
+  {
+    // List.join(Str sep := "", |V item, Int index->Str|? c := null):
+    // separator plus trailing closure is 2 valid arguments.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Str bar()\n" +
+      "  {\n" +
+      "    a := [\"x\", \"y\"]\n" +
+      "    return a.join(\", \") { \"'\$it'\" }\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+
+    paramErrs := diags.findAll |d|
+    {
+      d.message.contains("'join'") && d.message.contains("argument")
+    }
+    verifyEq(paramErrs.size, 0)
+  }
+
   Void testMethodCallTooFewArgs()
   {
     // List.add requires 1 argument. Calling with 0 should error.
