@@ -154,7 +154,7 @@ sys::List:
       detail: Int? indexSame(V val, Int offset := 0)
       snippet: indexSame(${1:val})
     join:
-      detail: Str join(Str separator := "")
+      detail: Str join(Str separator := "", |V item, Int index->Str|? c := null)
       snippet: join(${1:separator})
     toStr:
       detail: Str toStr()

@@ -17,6 +17,7 @@ import {
 } from 'vscode';
 import { getPlatform } from './platform';
 import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
+import { SerialQueue } from './serialQueue';
 import { ShadowDir } from './shadowDir';
 import { FantomFileDecorationProvider } from './fileDecorations';
 
@@ -73,6 +74,10 @@ function log(msg: string): void {
 
 // Current shadow dir instance, if any.  Disposed on deactivation or restart.
 let currentShadowDir: ShadowDir | undefined;
+
+// Serializes fan.config.json-triggered restarts so overlapping watcher events
+// (create + change on a single save) never run two restarts concurrently.
+const configRestartQueue = new SerialQueue();
 
 
 /**
@@ -1413,7 +1418,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       new vscode.RelativePattern(folders[0], 'fan.config.json')
     );
 
-    const onFinConfigChanged = async () => {
+    const restartForConfigChange = async () => {
       log('fan.config.json changed, restarting LSP');
       vscode.window.showInformationMessage('Fantom: New configuration detected, restarting LSP...');
 
@@ -1427,6 +1432,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await startLspClient(context, newConfig);
       }
     };
+
+    const onFinConfigChanged = () => configRestartQueue.enqueue(restartForConfigChange)
+      .catch((e: any) => log(`ERROR restarting LSP after fan.config.json change: ${e?.message ?? e}`));
 
     finConfigWatcher.onDidChange(onFinConfigChanged);
     finConfigWatcher.onDidCreate(onFinConfigChanged);

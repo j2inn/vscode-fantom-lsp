@@ -1249,6 +1249,52 @@ class DiagnosticServiceTest : Test
     verifyEq(hostDiags.size, 0)
   }
 
+  Void testCrossFileForeignPodQualifiedTypeNotReported()
+  {
+    // `otherPod::Main.findMods` refers to a type in another pod. The project
+    // declares its own `Main` without `findMods`; must not be flagged.
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Main.fan",
+      "class Main\n" +
+      "{\n" +
+      "  static Void run() {}\n" +
+      "}")
+
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    x := otherPod::Main.findMods\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    verifyEq(diags.findAll |d| { d.message.contains("is not a member of") }.size, 0)
+  }
+
+  Void testCrossFileUnqualifiedMissingMemberStillReportedWithSameNamedType()
+  {
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Main.fan",
+      "class Main\n" +
+      "{\n" +
+      "  static Void run() {}\n" +
+      "}")
+
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    x := Main.findMods\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    verifyEq(diags.findAll |d| { d.message.contains("'findMods' is not a member of 'Main'") }.size, 1)
+  }
+
   Void testCrossFileExistingMemberNotReported()
   {
     // When both the type and member exist in the index,
@@ -1592,6 +1638,29 @@ class DiagnosticServiceTest : Test
 //////////////////////////////////////////////////////////////////////////
 // Method Parameter Validation
 //////////////////////////////////////////////////////////////////////////
+
+  Void testListJoinWithSeparatorAndTrailingClosureNotReported()
+  {
+    // List.join(Str sep := "", |V item, Int index->Str|? c := null):
+    // separator plus trailing closure is 2 valid arguments.
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Str bar()\n" +
+      "  {\n" +
+      "    a := [\"x\", \"y\"]\n" +
+      "    return a.join(\", \") { \"'\$it'\" }\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+
+    paramErrs := diags.findAll |d|
+    {
+      d.message.contains("'join'") && d.message.contains("argument")
+    }
+    verifyEq(paramErrs.size, 0)
+  }
 
   Void testMethodCallTooFewArgs()
   {

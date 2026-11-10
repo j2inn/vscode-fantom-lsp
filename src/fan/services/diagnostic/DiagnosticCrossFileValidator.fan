@@ -17,6 +17,20 @@ class DiagnosticCrossFileValidator
 
   private Bool isBuiltinSlot(Str name) { builtinSlots.contains(name) }
 
+  **
+  ** True if the type name starting at `nameStart` is qualified as `pod::Type`
+  ** and `pod` is not the project's own pod.
+  **
+  private Bool isForeignQualified(Str line, Int nameStart, ProjectIndex index)
+  {
+    if (nameStart < 2 || line[nameStart - 1] != ':' || line[nameStart - 2] != ':') return false
+    podEnd := nameStart - 2
+    podStart := podEnd
+    while (podStart > 0 && (line[podStart - 1].isAlphaNum || line[podStart - 1] == '_'))
+      podStart--
+    return line[podStart ..< podEnd] != index.podName
+  }
+
   private Bool isEnumBuiltinSlot(Str name) { enumBuiltinSlots.contains(name) }
 
   **
@@ -97,7 +111,10 @@ class DiagnosticCrossFileValidator
               memberName := line[memberStart ..< pos]
 
               // Check: is typeName a project type with the member missing?
-              if (index.hasType(typeName) && !index.hasMember(typeName, memberName))
+              // A type qualified with another pod (podName::Type) is not a project type,
+              // even if the project declares a type with the same simple name.
+              if (!isForeignQualified(line, nameStart, index) &&
+                  index.hasType(typeName) && !index.hasMember(typeName, memberName))
               {
                 if (!isBuiltinSlot(memberName) &&
                     !(index.isEnumType(typeName) && isEnumBuiltinSlot(memberName)))
