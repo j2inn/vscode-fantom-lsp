@@ -49,7 +49,10 @@ function makeFakeFanHome(root, bundledPod) {
   write(path.join(home, 'lib', 'java', 'sys.jar'), 'jar');
   write(path.join(home, 'lib', 'java', 'ext', 'x.jar'), 'jar');
   write(path.join(home, 'lib', 'fan', 'sys.pod'), 'pod');
-  fs.copyFileSync(bundledPod, path.join(home, 'lib', 'fan', 'vscodeFantomLsp.pod'));
+  // The bundled pod is a build output and absent on a fresh CI checkout; any
+  // file will do, the repro only needs the extension to create a shadow dir.
+  const podDest = path.join(home, 'lib', 'fan', 'vscodeFantomLsp.pod');
+  if (fs.existsSync(bundledPod)) { fs.copyFileSync(bundledPod, podDest); } else { fs.writeFileSync(podDest, 'placeholder-pod'); }
   write(path.join(home, 'bin', 'fan.bat'), '@echo off\r\nping -n 600 127.0.0.1 >nul\r\n');
   write(path.join(home, 'bin', 'fan'), '');
   return home;
