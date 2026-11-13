@@ -8,15 +8,19 @@
  *   - Auto-compiling the debug-adapter JAR from bundled sources when missing
  */
 import * as cp   from 'child_process';
+import * as crypto from 'crypto';
 import * as fs   from 'fs';
-import * as https from 'https';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { downloadFile } from './download';
 import type { Platform } from './platform';
 import { which } from './which';
 
 const GSON_URL =
   'https://repo1.maven.org/maven2/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar';
+
+/** SHA-256 of gson-2.10.1.jar (its SHA-1 matches the one Maven Central publishes). */
+const GSON_SHA256 = '4241c14a7727c34feea6507ec801318a3d4a90f070e4525681079fb94ee4c593';
 
 // ---------------------------------------------------------------------------
 // Java resolution
@@ -67,24 +71,9 @@ export function isJavaAvailable(javaCmd: string): Promise<boolean> {
 // JAR auto-build
 // ---------------------------------------------------------------------------
 
-/** Download a URL to a local file, following HTTP redirects. */
-function downloadFile(url: string, dest: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    https.get(url, res => {
-      if (res.statusCode === 301 || res.statusCode === 302) {
-        file.close();
-        try { fs.unlinkSync(dest); } catch { /* ignore */ }
-        downloadFile(res.headers.location!, dest).then(resolve).catch(reject);
-        return;
-      }
-      res.pipe(file);
-      file.on('finish', () => file.close(() => resolve()));
-    }).on('error', err => {
-      try { fs.unlinkSync(dest); } catch { /* ignore */ }
-      reject(err);
-    });
-  });
+/** SHA-256 of a file as lowercase hex. */
+function sha256OfFile(file: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
 /** Spawn a process and return its exit code and stderr text. */
@@ -143,11 +132,14 @@ export async function buildDebugAdapterJar(
       fs.mkdirSync(libDir,     { recursive: true });
       fs.mkdirSync(classesDir, { recursive: true });
 
-      // Step 1: Gson
+      // Step 1: Gson. A file left by an earlier failed download must not be trusted.
+      if (fs.existsSync(gsonJar) && sha256OfFile(gsonJar) !== GSON_SHA256) {
+        try { fs.unlinkSync(gsonJar); } catch { /* re-download below overwrites it */ }
+      }
       if (!fs.existsSync(gsonJar)) {
         progress.report({ message: 'Downloading Gson library…' });
         try {
-          await downloadFile(GSON_URL, gsonJar);
+          await downloadFile(GSON_URL, gsonJar, { sha256: GSON_SHA256 });
         } catch (e: any) {
           vscode.window.showErrorMessage(
             `Fantom: Failed to download Gson: ${e.message}. ` +

@@ -611,8 +611,8 @@ testWindowsOnly('sweepOrphaned unlinks a real junction as a leaf without followi
     // etc/build is created as a real junction into fanHome/etc/build on win32
     // (see buildEtc). Confirm it really is one before relying on the sweep.
     const junctionPath = path.join(orphan!.path, 'etc', 'build');
-    assert.ok(fs.lstatSync(junctionPath).isSymbolicLink(),
-      'etc/build must be a real junction on win32 before the sweep runs');
+    assert.ok(!fs.lstatSync(junctionPath).isSymbolicLink(),
+      'etc/build must be a mirrored real directory on win32 (no junction)');
 
     ShadowDir.sweepOrphaned(undefined, m => logs.push(m));
 
@@ -625,6 +625,45 @@ testWindowsOnly('sweepOrphaned unlinks a real junction as a leaf without followi
   } finally {
     try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
     if (orphan) { try { fs.rmSync(orphan.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('an external recursive delete of an orphaned shadow dir never touches fanHome (disk cleanup, update, antivirus)', () => {
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const shadow = ShadowDir.create('main.pod', fanHome, () => {});
+  try {
+    assert.ok(shadow !== undefined, 'create must succeed');
+    // Simulates the extension host killed without dispose(), then something
+    // else wiping the temp dir with a plain recursive delete.
+    fs.rmSync(shadow!.path, { recursive: true, force: true });
+    for (const rel of ['etc/sys/config.props', 'etc/sys/units.txt', 'etc/build/props.txt',
+                       'lib/java/sys.jar', 'lib/fan/main.pod']) {
+      assert.ok(fs.existsSync(path.join(fanHome, ...rel.split('/'))),
+        `real ${rel} must survive an external recursive delete of the shadow dir`);
+    }
+  } finally {
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
+    if (shadow) { try { fs.rmSync(shadow.path, { recursive: true, force: true }); } catch (_) {} }
+  }
+});
+
+test('the shadow dir contains no directory links on any platform that mirrors dirs (win32)', () => {
+  if (process.platform !== 'win32') { return; }
+  const { fanHome } = makeFakeFanHome('main.pod');
+  const shadow = ShadowDir.create('main.pod', fanHome, () => {});
+  try {
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        assert.ok(!(e.isSymbolicLink() && fs.statSync(full).isDirectory()),
+          `${full} must not be a directory link`);
+        if (e.isDirectory()) { walk(full); }
+      }
+    };
+    walk(shadow!.path);
+  } finally {
+    shadow?.dispose(() => {});
+    try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
   }
 });
 
@@ -718,8 +757,7 @@ test('sweepOrphaned does not crash and cleans remaining orphans when one dir is 
   markOwnerExited(good2);
   // Booby-trap good1's etc/ dir with a nested real subdirectory containing a
   // file — removeLeafEntries is intentionally shallow and will never delete
-  // it, so removeRealDirIfEmpty on etc/ must fail with ENOTEMPTY (logged as
-  // a warning, not thrown) while good2 still gets fully cleaned up.
+  // it, while good2 still gets fully cleaned up.
   const trap = path.join(good1, 'etc', 'unexpected-subdir');
   fs.mkdirSync(trap, { recursive: true });
   fs.writeFileSync(path.join(trap, 'leftover.txt'), 'should not be deleted by this shallow sweep');
@@ -729,13 +767,10 @@ test('sweepOrphaned does not crash and cleans remaining orphans when one dir is 
     // good2 has no surprises — must be fully removed.
     assert.ok(!fs.existsSync(good2), 'good2 (no surprises) must be fully removed');
 
-    // good1's booby-trapped subdirectory must survive untouched — this proves
-    // the shallow-by-design removeLeafEntries never recurses into an
-    // unexpected real subdirectory, even one it doesn't recognize.
-    assert.ok(fs.existsSync(path.join(trap, 'leftover.txt')),
-      'an unexpected real subdirectory inside an orphan must survive — proves no recursive delete occurred');
-    assert.ok(logs.some(m => m.includes('WARNING')),
-      'a warning must be logged for the unremovable etc/ directory, not a thrown error');
+    // Real subdirectories of etc/ are mirrored copies on win32, so they are
+    // removed entry by entry (links unlinked, never followed). The sweep must
+    // not throw, and the orphan with the unexpected subdirectory is cleaned.
+    assert.ok(!fs.existsSync(trap), 'unexpected real subdirectory inside the orphan is removed entry by entry');
 
     // Real installation is always untouched regardless of the trap.
     assert.ok(fs.existsSync(path.join(fanHome, 'etc', 'sys', 'config.props')),
@@ -1040,6 +1075,52 @@ test('sweepOrphaned never calls fs.rmSync — asserted by monkey-patching it to 
     realFs.rmSync = originalRmSync;
     try { fs.rmSync(fanHome, { recursive: true }); } catch (_) {}
     if (orphan) { try { fs.rmSync(orphan.path, { recursive: true }); } catch (_) {} }
+  }
+});
+
+test('safeRemove refuses a dir that is not directly under os.tmpdir()', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shadow-test-'));
+  const nested = path.join(base, 'fantom-lsp-shadow-nested');
+  fs.mkdirSync(path.join(nested, 'lib', 'fan'), { recursive: true });
+  const marker = path.join(nested, 'lib', 'fan', 'a.pod');
+  fs.writeFileSync(marker, 'x');
+  const logs: string[] = [];
+  try {
+    ShadowDir.safeRemove(nested, m => logs.push(m));
+    assert.ok(fs.existsSync(marker), 'nothing may be removed outside the tmpdir root');
+    assert.ok(logs.some(l => l.includes('refusing')), 'a refusal must be logged');
+  } finally {
+    fs.rmSync(base, { recursive: true });
+  }
+});
+
+test('safeRemove refuses a dir without the shadow prefix', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'not-a-shadow-'));
+  fs.writeFileSync(path.join(dir, 'keep.txt'), 'x');
+  try {
+    ShadowDir.safeRemove(dir, () => {});
+    assert.ok(fs.existsSync(path.join(dir, 'keep.txt')));
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
+});
+
+test('sweepOrphaned does not follow a symlinked etc into another directory', () => {
+  const victim = fs.mkdtempSync(path.join(os.tmpdir(), 'shadow-test-victim-'));
+  fs.writeFileSync(path.join(victim, 'precious.txt'), 'x');
+  fs.mkdirSync(path.join(victim, 'sys'));
+  fs.writeFileSync(path.join(victim, 'sys', 'precious2.txt'), 'x');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fantom-lsp-shadow-'));
+  fs.writeFileSync(path.join(dir, '.fantom-lsp-owner'), '2147483646'); // dead PID
+  try {
+    fs.symlinkSync(victim, path.join(dir, 'etc'), 'junction');
+    ShadowDir.sweepOrphaned(undefined, () => {});
+    assert.ok(fs.existsSync(path.join(victim, 'precious.txt')), 'files behind a symlinked etc must survive');
+    assert.ok(fs.existsSync(path.join(victim, 'sys', 'precious2.txt')), 'files behind a symlinked etc/sys must survive');
+  } finally {
+    try { fs.unlinkSync(path.join(dir, 'etc')); } catch (_) {}
+    try { fs.rmSync(dir, { recursive: true }); } catch (_) {}
+    fs.rmSync(victim, { recursive: true });
   }
 });
 

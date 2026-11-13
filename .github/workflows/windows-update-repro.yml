@@ -1,0 +1,83 @@
+name: Windows update repro
+
+# Reproduces what a VS Code update does to a running extension host (abrupt
+# kill, orphaned shadow dir in %TEMP%, external recursive delete) and fails if
+# the Fantom installation (fanPath) loses any file.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'vscode-fantom/src/**'
+      - 'vscode-fantom/scripts/windows-update-repro.js'
+      - '.github/workflows/windows-update-repro.yml'
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  repro:
+    name: Kill + wipe shadow dir (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: vscode-fantom/package.json
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: vscode-fantom/.nvmrc
+          cache: pnpm
+          cache-dependency-path: vscode-fantom/pnpm-lock.yaml
+
+      - name: Install Node.js dependencies
+        working-directory: vscode-fantom
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile TypeScript
+        working-directory: vscode-fantom
+        run: pnpm run compile
+
+      # Control: shows whether each Windows deletion tool follows a junction.
+      # Informational only; the extension no longer creates junctions.
+      - name: Control - which tools follow a junction
+        shell: pwsh
+        run: |
+          foreach ($tool in 'cmd','powershell','node') {
+            $root = Join-Path $env:RUNNER_TEMP "junction-$tool"
+            New-Item -ItemType Directory -Force "$root\target" | Out-Null
+            Set-Content "$root\target\precious.txt" 'x'
+            New-Item -ItemType Directory -Force "$root\shadow" | Out-Null
+            cmd /c mklink /J "$root\shadow\link" "$root\target" | Out-Null
+            switch ($tool) {
+              'cmd'        { cmd /c rd /s /q "$root\shadow" }
+              'powershell' { powershell -NoProfile -Command "Remove-Item -LiteralPath '$root\shadow' -Recurse -Force" }
+              'node'       { node -e "require('fs').rmSync(process.argv[1],{recursive:true,force:true})" "$root\shadow" }
+            }
+            $survived = Test-Path "$root\target\precious.txt"
+            Write-Host "$tool followed junction and deleted target: $(-not $survived)"
+          }
+
+      - name: Run ShadowDir and audit unit tests
+        working-directory: vscode-fantom
+        run: pnpm run test:extension
+
+      - name: Reproduce update (kill + external wipe)
+        working-directory: vscode-fantom
+        run: node scripts/windows-update-repro.js "$env:RUNNER_TEMP\update-repro"
+
+      - name: Upload forensic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-repro-forensics
+          path: ${{ runner.temp }}/update-repro/artifacts
+          if-no-files-found: warn

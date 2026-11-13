@@ -565,7 +565,7 @@ class ProjectIndex
   ** a type from a 'using' pod (resolvable by the compiler in script mode).
   ** Returns null if no resolvable ancestor is found.
   **
-  ** E.g., NAProjTest → FinProjTest (from finStackHost pod) → returns "FinProjTest"
+  ** E.g., MyProjTest → BaseProjTest (from a base pod) → returns "BaseProjTest"
   **
   Str? findResolvableBaseType(Str typeName)
   {
@@ -638,35 +638,43 @@ class ProjectIndex
           source = idxFile.source
       }
       if (source == null) return null
-      lines := source.splitLines
-
-      for (i := 0; i < lines.size; i++)
-      {
-        line := lines[i].trim
-        // Look for "class TypeName :" or "mixin TypeName :"
-        classIdx := line.index("class ")
-        mixinIdx := line.index("mixin ")
-        if (classIdx == null && mixinIdx == null) continue
-
-        // Check if this line declares the type we're looking for
-        if (!line.contains(typeName)) continue
-
-        // Find the colon
-        colonIdx := line.index(":")
-        if (colonIdx == null) continue
-        // Skip := (walrus operator)
-        if (colonIdx + 1 < line.size && line[colonIdx + 1] == '=') continue
-
-        // Extract the first identifier after the colon
-        afterColon := line[colonIdx + 1 ..-1].trim
-        nameEnd := 0
-        while (nameEnd < afterColon.size && LspUtil.isIdentifierChar(afterColon[nameEnd])) nameEnd++
-        if (nameEnd > 0 && afterColon[0].isUpper)
-          return afterColon[0..<nameEnd]
-
-      }
+      return baseTypeFromHeader(source, typeName)
     }
-    catch (Err e) {}
+    catch (Err e)
+    {
+      LspProtocol.logInfo("Base type lookup failed for ${typeName}: $e")
+    }
+    return null
+  }
+
+  **
+  ** Read the first base type from the `class TypeName : Base` or
+  ** `mixin TypeName : Base` header using lexer tokens, so comments, string
+  ** literals and longer names such as `TypeNameExt` are never matched.
+  ** A `pod::Base` qualifier is skipped. Returns null when there is no base.
+  **
+  private Str? baseTypeFromHeader(Str source, Str typeName)
+  {
+    toks := FantomLexer.tokenize(source).findAll |t|
+    {
+      t.kind != TokenKind.whitespace && t.kind != TokenKind.lineComment &&
+      t.kind != TokenKind.blockComment
+    }
+    for (i := 0; i + 2 < toks.size; i++)
+    {
+      isDecl := toks[i].kind == TokenKind.identifier &&
+                (toks[i].text == "class" || toks[i].text == "mixin")
+      if (!isDecl || toks[i + 1].text != typeName) continue
+      if (toks[i + 2].text != ":") return null
+
+      first := i + 3
+      // Skip a "pod::" qualifier
+      if (first + 2 < toks.size && toks[first + 1].text == ":" && toks[first + 2].text == ":")
+        first += 3
+      if (first >= toks.size) return null
+      base := toks[first]
+      return (base.kind == TokenKind.identifier && base.text[0].isUpper) ? base.text : null
+    }
     return null
   }
 
@@ -854,6 +862,9 @@ class ProjectIndex
 
     // Fallback: text-based line-by-line scanning
     lines := source.splitLines
+    // Braces are counted on masked lines so that '{', "}" and braces in
+    // comments or backtick literals never change the nesting depth.
+    maskedLines := SourceMask.mask(source).splitLines
 
     currentType := null as Str
     currentTypeStartLine := -1
@@ -884,8 +895,8 @@ class ProjectIndex
       }
 
       // Track brace depth changes for this line
-      lineOpenBraces := countChar(line, '{')
-      lineCloseBraces := countChar(line, '}')
+      lineOpenBraces := countChar(maskedLines[i], '{')
+      lineCloseBraces := countChar(maskedLines[i], '}')
 
       // Detect type declarations: class Foo, mixin Foo, enum class Foo
       typeMatch := matchTypeDecl(trimmed)
@@ -1335,7 +1346,7 @@ class ProjectIndex
   }
 
   ** Match an enum value: a bare lowercase identifier, optionally followed by comma or parens.
-  ** E.g. "heating," or "dxIntesis64" or "red(0xFF0000)"
+  ** E.g. "heating," or "myValue64" or "red(0xFF0000)"
   private Str? matchEnumValue(Str trimmed)
   {
     // Skip comments, annotations, keywords
@@ -1648,11 +1659,69 @@ class ProjectIndex
   **
   Str:Str getVarTypesForFile(Str fileUri)
   {
+    return varTypesInScope(fileUri, null)
+  }
+
+  **
+  ** Like getVarTypesForFile, but only for the locals and params of the method
+  ** that encloses `line`, so same-named variables in other methods or types
+  ** never leak into the result.
+  **
+  Str:Str getVarTypesAtLine(Str fileUri, Int line)
+  {
+    scopeType := findEnclosingType(fileUri, line)
+    scopeMethod := findEnclosingMethod(fileUri, line)
+    return varTypesInScope(fileUri, |IndexedSymbol sym->Bool|
+    {
+      sym.typeName == scopeType && sym.methodName == scopeMethod
+    })
+  }
+
+  **
+  ** True if `name` is a local variable or parameter of the method enclosing
+  ** `line`, i.e. a bare use of `name` there does not refer to a field.
+  **
+  Bool isLocalNameAtLine(Str fileUri, Int line, Str name)
+  {
+    idx := fileIndexes[fileUri]
+    if (idx == null) return false
+    scopeType := findEnclosingType(fileUri, line)
+    scopeMethod := findEnclosingMethod(fileUri, line)
+    return idx.symbols.any |sym|
+    {
+      sym.name == name &&
+      (sym.kind == SymbolKind.localVar || sym.kind == SymbolKind.param) &&
+      sym.typeName == scopeType && sym.methodName == scopeMethod
+    }
+  }
+
+  **
+  ** Locals and params named `name` that belong to the method enclosing `line`
+  ** of the given file. Same-named variables in other methods or types are
+  ** not returned.
+  **
+  IndexedSymbol[] scopedLocals(Str fileUri, Int line, Str name)
+  {
+    idx := fileIndexes[fileUri]
+    if (idx == null) return IndexedSymbol[,]
+    scopeType := findEnclosingType(fileUri, line)
+    scopeMethod := findEnclosingMethod(fileUri, line)
+    return idx.symbols.findAll |sym|
+    {
+      sym.name == name &&
+      (sym.kind == SymbolKind.localVar || sym.kind == SymbolKind.param) &&
+      sym.typeName == scopeType && sym.methodName == scopeMethod
+    }
+  }
+
+  private Str:Str varTypesInScope(Str fileUri, |IndexedSymbol->Bool|? inScope)
+  {
     result := Str:Str[:]
     idx := fileIndexes[fileUri]
     if (idx == null) return result
     idx.symbols.each |sym|
     {
+      if (inScope != null && !inScope(sym)) return
       if ((sym.kind == SymbolKind.localVar || sym.kind == SymbolKind.param) &&
           sym.typeStr != null && sym.typeStr != "Obj" && sym.typeStr != "Error")
         result[sym.name] = sym.typeStr
@@ -1662,6 +1731,7 @@ class ProjectIndex
     // using extractLocalVarType.
     idx.symbols.each |sym|
     {
+      if (inScope != null && !inScope(sym)) return
       if (sym.kind == SymbolKind.localVar && !result.containsKey(sym.name))
       {
         srcLines := idx.source.splitLines
@@ -1704,18 +1774,21 @@ class ProjectIndex
     return best
   }
 
-  ** Find the enclosing method name at a given line in a file
+  ** Find the enclosing method name at a given line in a file. Only methods of
+  ** the type that encloses the line are considered.
   private Str? findEnclosingMethod(Str fileUri, Int line)
   {
     idx := fileIndexes[fileUri]
     if (idx == null) return null
 
+    enclosingType := findEnclosingType(fileUri, line)
     best := null as Str
     bestLine := -1
 
     idx.symbols.each |sym|
     {
-      if (sym.kind == SymbolKind.method && sym.line <= line && sym.line > bestLine)
+      if (sym.kind == SymbolKind.method && sym.typeName == enclosingType &&
+          sym.line <= line && sym.line > bestLine)
       {
         best = sym.name
         bestLine = sym.line
@@ -1729,29 +1802,34 @@ class ProjectIndex
   ** given file, as determined from indexed symbols — no text heuristics.
   ** startLine is the method declaration line; endLine is the line before the
   ** next method/type declaration, or the last line of the file.
+  ** When `typeName` is given, only a method of that type matches, so
+  ** same-named methods in other types of the file are not mistaken for it.
   ** Returns null if the method is not found in the index.
   **
-  Int[]? getMethodBounds(Str fileUri, Str methodName)
+  Int[]? getMethodBounds(Str fileUri, Str methodName, Str? typeName := null)
   {
     idx := fileIndexes[fileUri]
     if (idx == null) return null
 
-    // Collect all method symbols for this file, sorted by line
-    methods := idx.symbols.findAll |s| { s.kind == SymbolKind.method }
-    if (methods.isEmpty) return null
-    methods = methods.dup
-    methods.sort |a, b| { a.line <=> b.line }
+    // Method and type declarations, sorted by line: each one ends the previous
+    decls := idx.symbols.findAll |s| { s.kind == SymbolKind.method || s.kind == SymbolKind.type }
+    decls = decls.dup
+    decls.sort |a, b| { a.line <=> b.line }
 
     // Find the target method
-    targetIdx := methods.findIndex |s| { s.name == methodName }
+    targetIdx := decls.findIndex |s|
+    {
+      s.kind == SymbolKind.method && s.name == methodName &&
+      (typeName == null || s.typeName == typeName)
+    }
     if (targetIdx == null) return null
 
-    startLine := methods[targetIdx].line
+    startLine := decls[targetIdx].line
 
-    // End line = line before next method, or last source line
+    // End line = line before next declaration, or last source line
     endLine := idx.source.splitLines.size - 1
-    if (targetIdx + 1 < methods.size)
-      endLine = methods[targetIdx + 1].line - 1
+    if (targetIdx + 1 < decls.size)
+      endLine = decls[targetIdx + 1].line - 1
 
     return [startLine, endLine]
   }

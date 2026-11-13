@@ -47,7 +47,7 @@ class DiagnosticUnusedVarValidator
 
         if (!isNameUsedInFile(lines, fieldName, i))
         {
-          col := findIdentifierPos(line, fieldName) ?: 0
+          col := LspUtil.findWord(line, fieldName) ?: 0
           range := LspRange(LspPosition(i, col), LspPosition(i, col + fieldName.size))
           diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
             "'${fieldName}' is declared but never used", "fantom"))
@@ -79,7 +79,7 @@ class DiagnosticUnusedVarValidator
 
         if (!isNameUsedAfterLine(lines, varName, i))
         {
-          col := findIdentifierPos(line, varName) ?: 0
+          col := LspUtil.findWord(line, varName) ?: 0
           range := LspRange(LspPosition(i, col), LspPosition(i, col + varName.size))
           diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
             "'${varName}' is declared but never used", "fantom"))
@@ -90,22 +90,6 @@ class DiagnosticUnusedVarValidator
     return diagnostics
   }
 
-  private Int? findIdentifierPos(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return null
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return found
-      idx = found + 1
-    }
-    return null
-  }
-
   private Bool isNameUsedInFile(Str[] lines, Str name, Int excludeLine)
   {
     for (i := 0; i < lines.size; i++)
@@ -113,7 +97,7 @@ class DiagnosticUnusedVarValidator
       if (i == excludeLine) continue
       ln := lines[i].trim
       if (ln.startsWith("//") || ln.startsWith("**") || ln.startsWith("*")) continue
-      if (containsIdentifier(lines[i], name)) return true
+      if (LspUtil.containsWord(lines[i], name)) return true
     }
     return false
   }
@@ -124,24 +108,9 @@ class DiagnosticUnusedVarValidator
     {
       ln := lines[i].trim
       if (ln.startsWith("//") || ln.startsWith("**") || ln.startsWith("*")) continue
-      if (containsIdentifier(lines[i], name)) return true
+      if (LspUtil.containsWord(lines[i], name)) return true
     }
     return false
   }
 
-  private Bool containsIdentifier(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return false
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return true
-      idx = found + 1
-    }
-    return false
-  }
 }

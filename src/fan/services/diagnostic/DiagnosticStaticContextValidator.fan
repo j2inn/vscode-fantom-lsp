@@ -17,7 +17,8 @@ class DiagnosticStaticContextValidator
 {
   LspDiagnostic[] checkStaticContext(Str source, Str[] baseTypes, ProjectIndex index)
   {
-    lines := source.splitLines
+    // Scan masked lines so literals and comments are never read as code.
+    lines := SourceMask.mask(source).splitLines
 
     ast := AstIndex.parse("file:///static-check.fan", source)
     if (ast != null)
@@ -72,7 +73,7 @@ class DiagnosticStaticContextValidator
         astType.fields.each |f| { if (!f.isStatic) ownInstanceFields[f.name] = true }
 
         scanLinesForStaticViolations(lines, startLine, endLine,
-          localNames, ownInstanceFields, baseTypes, index, diagnostics)
+          localNames, ownInstanceFields, baseTypes, index, ItBlockTracker(), diagnostics)
       }
     }
 
@@ -92,6 +93,7 @@ class DiagnosticStaticContextValidator
     inBlockComment := Bool[false]
     // Local names collected while scanning the current static method body
     localNames := Str:Bool[:]
+    itTracker := ItBlockTracker()
 
     for (li := 0; li < lines.size; li++)
     {
@@ -112,6 +114,7 @@ class DiagnosticStaticContextValidator
         inStaticMethod = true
         methodEntryDepth = depth
         localNames = Str:Bool[:]
+        itTracker = ItBlockTracker()
         collectParamsFromDecl(trimmed, localNames)
         depth += countBraces(effective)
         continue
@@ -125,7 +128,7 @@ class DiagnosticStaticContextValidator
         collectLocalVarDecl(trimmed, localNames)
 
         scanLinesForStaticViolations(lines, li, li,
-          localNames, Str:Bool[:], baseTypes, index, diagnostics)
+          localNames, Str:Bool[:], baseTypes, index, itTracker, diagnostics)
 
         if (depth <= methodEntryDepth)
         {
@@ -152,12 +155,13 @@ class DiagnosticStaticContextValidator
     Str[] lines, Int startLine, Int endLine,
     Str:Bool localNames, Str:Bool ownInstanceFields,
     Str[] baseTypes, ProjectIndex index,
-    LspDiagnostic[] out)
+    ItBlockTracker itTracker, LspDiagnostic[] out)
   {
     inBlockComment := Bool[false]
     for (li := startLine; li <= endLine && li < lines.size; li++)
     {
       line := stripBlockComments(lines[li], inBlockComment)
+      inItBlock := itTracker.scan(line)
 
       // --- 'this' tokens ---
       findThisColumnsInLine(line).each |col|
@@ -173,7 +177,7 @@ class DiagnosticStaticContextValidator
       // --- bare instance field accesses ---
       fieldCols  := Int[,]
       fieldNames := Str[,]
-      findBareInstanceFieldAccesses(line, localNames, ownInstanceFields, baseTypes, index,
+      findBareInstanceFieldAccesses(line, inItBlock, localNames, ownInstanceFields, baseTypes, index,
         fieldCols, fieldNames)
       for (fi := 0; fi < fieldCols.size; fi++)
       {
@@ -196,6 +200,7 @@ class DiagnosticStaticContextValidator
   **
   private Void findBareInstanceFieldAccesses(
     Str line,
+    Bool[] inItBlock,
     Str:Bool localNames,
     Str:Bool ownInstanceFields,
     Str[] baseTypes,
@@ -222,6 +227,13 @@ class DiagnosticStaticContextValidator
 
       // Skip if preceded by a dot (already qualified: obj.field)
       if (col > 0 && line[col - 1] == '.') continue
+
+      // Skip slot literals (Foo#name) and dynamic calls (obj->name)
+      if (col > 0 && line[col - 1] == '#') continue
+      if (col > 1 && line[col - 2] == '-' && line[col - 1] == '>') continue
+
+      // Skip names inside an it-block: they refer to the object being built
+      if (inItBlock[col]) continue
 
       // Skip if followed by '(' — it's a method call, not a field
       endCol := col + name.size
@@ -280,7 +292,7 @@ class DiagnosticStaticContextValidator
   private Bool isStaticMethodLine(Str trimmed)
   {
     if (trimmed.contains(":=")) return false
-    if (!containsIdentifier(trimmed, "static")) return false
+    if (!LspUtil.containsWord(trimmed, "static")) return false
     return trimmed.contains("(")
   }
 
@@ -418,22 +430,6 @@ class DiagnosticStaticContextValidator
       i++
     }
     return cols
-  }
-
-  private Bool containsIdentifier(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return false
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return true
-      idx = found + 1
-    }
-    return false
   }
 
   private Bool isKeyword(Str name)

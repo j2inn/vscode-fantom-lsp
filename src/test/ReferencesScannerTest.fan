@@ -331,6 +331,93 @@ class ReferencesScannerTest : Test
     verify(locs.any |l| { lineOf([l]) == 1 })
   }
 
+  Void testScanLocalSameMethodNameInTwoTypesScopedToTargetType()
+  {
+    // 'make' and 'x' exist in two types of one file: only the target type counts
+    source :=
+      "class A {\n" +
+      "  Void make() { x := 1 }\n" +
+      "}\n" +
+      "class B {\n" +
+      "  Void make() { x := 2 }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile(uri, source)
+    t := ReferencesTarget.forLocal("x", "make", uri, "B")
+    locs := s.scan(uri, source, t, idx)
+    verifyEq(locs.size, 1)
+    verifyEq(lineOf(locs), 4)
+  }
+
+  Void testScanMemberBareNameShadowedByLocalIsSkipped()
+  {
+    // Renaming field 'tag': the local 'tag' in other() is a different symbol
+    source :=
+      "class A {\n" +
+      "  Str tag := \"a\"\n" +
+      "  Void use() { echo(tag) }\n" +
+      "  Void other() { tag := 1; echo(tag) }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile(uri, source)
+    t := ReferencesTarget.forMember("tag", "A", ["A"])
+    locs := s.scan(uri, source, t, idx)
+    lines := locs.map |l| { lineOf([l]) }
+    verify(lines.contains(1), "field declaration found")
+    verify(lines.contains(2), "bare field use found")
+    verifyFalse(lines.contains(3), "shadowing local must not be found, got: $lines")
+  }
+
+  Void testScanMemberReceiverTypeIsScopedToMethod()
+  {
+    // 'item' is an A in first() but a B in second(): only the A receiver matches
+    source :=
+      "class A { Void run() {} }\n" +
+      "class B { Void run() {} }\n" +
+      "class C {\n" +
+      "  Void first() { A item := A(); item.run() }\n" +
+      "  Void second() { B item := B(); item.run() }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile(uri, source)
+    t := ReferencesTarget.forMember("run", "A", ["A"])
+    locs := s.scan(uri, source, t, idx)
+    lines := locs.map |l| { lineOf([l]) }
+    verify(lines.contains(3), "item.run() in first() must be found")
+    verifyFalse(lines.contains(4), "item.run() in second() must not be found, got: $lines")
+  }
+
+  Void testScanTypeSkipsForeignPodQualifiedName()
+  {
+    source :=
+      "class Foo {\n" +
+      "  Void run() {\n" +
+      "    a := otherPod::Main.find\n" +
+      "    b := Main.find\n" +
+      "  }\n" +
+      "}\n"
+    idx := ProjectIndex()
+    idx.indexFile(uri, source)
+    t := ReferencesTarget.forType("Main")
+    locs := s.scan(uri, source, t, idx)
+    verifyEq(locs.size, 1)
+    verifyEq(lineOf(locs), 3)
+  }
+
+  Void testScanTypeSkipsBlockCommentsAndBackticks()
+  {
+    source :=
+      "class Foo {\n" +
+      "  /* Main is described here */\n" +
+      "  Uri u := `Main.txt`\n" +
+      "  Main m\n" +
+      "}\n"
+    t := ReferencesTarget.forType("Main")
+    locs := scan(source, t)
+    verifyEq(locs.size, 1)
+    verifyEq(lineOf(locs), 3)
+  }
+
 //////////////////////////////////////////////////////////////////////////
 // Implementations
 //////////////////////////////////////////////////////////////////////////

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const isWindows = process.platform === 'win32';
+import { getPlatform } from './platform';
 
 /**
  * Owns the lifecycle of a temporary shadow copy of a Fantom installation tree.
@@ -92,7 +92,7 @@ export class ShadowDir {
       if (full === currentDirPath || !ShadowDir.isOrphaned(full)) { continue; }
 
       log(`Found orphaned shadow dir from a previous session: ${full}`);
-      ShadowDir.teardown(full, log);
+      ShadowDir.safeRemove(full, log);
     }
   }
 
@@ -142,7 +142,7 @@ export class ShadowDir {
     } catch (e: any) {
       log(`WARNING: Could not create shadow dir: ${e.message}`);
       // Clean up whatever was partially built — same targeted approach as dispose().
-      ShadowDir.teardown(dir, log);
+      ShadowDir.safeRemove(dir, log);
       return undefined;
     }
   }
@@ -154,8 +154,57 @@ export class ShadowDir {
    * junction, so Windows can never follow a junction into the real installation.
    */
   dispose(log: (msg: string) => void): void {
-    ShadowDir.teardown(this.path, log);
+    ShadowDir.safeRemove(this.path, log);
     log(`Cleaned up shadow dir: ${this.path}`);
+  }
+
+  /**
+   * The only path by which a shadow dir is ever removed. Refuses anything that
+   * is not a shadow dir this user created directly under os.tmpdir(): on a
+   * shared temp folder another user could plant a look-alike directory (with a
+   * dead owner PID) whose `lib` or `etc` is a symlink into someone else's files.
+   */
+  static safeRemove(shadowDir: string, log: (msg: string) => void): void {
+    if (!ShadowDir.isOwnShadowDir(shadowDir)) {
+      log(`WARNING: refusing to remove "${shadowDir}": not a shadow dir created by this user under ${os.tmpdir()}`);
+      return;
+    }
+    log(`Removing shadow dir ${shadowDir} (pid ${process.pid})`);
+    ShadowDir.teardown(shadowDir, log);
+  }
+
+  /**
+   * True if `dir` is a real directory (not a symlink or junction), sits directly
+   * under os.tmpdir(), has the shadow dir prefix and, where the platform
+   * reports owners, belongs to the current user.
+   */
+  private static isOwnShadowDir(dir: string): boolean {
+    const resolved = path.resolve(dir);
+    if (path.dirname(resolved) !== path.resolve(os.tmpdir())) { return false; }
+    if (!path.basename(resolved).startsWith(SHADOW_DIR_PREFIX)) { return false; }
+    try {
+      const stat = fs.lstatSync(resolved);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) { return false; }
+      return typeof process.getuid !== 'function' || stat.uid === process.getuid();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * True if `p` is a real directory (not a symlink or junction) and no part of
+   * its path below `root` is a link either, so it really lives inside `root`.
+   * lstat alone is not enough: it follows links in the parent components.
+   */
+  private static isRealDirUnder(p: string, root: string): boolean {
+    try {
+      const stat = fs.lstatSync(p);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) { return false; }
+      const expected = path.join(fs.realpathSync(root), path.relative(root, p));
+      return fs.realpathSync(p) === expected;
+    } catch (_) {
+      return false;
+    }
   }
 
   /**
@@ -235,7 +284,7 @@ export class ShadowDir {
         // Hard link (Windows): shares the inode; deleting the shadow entry
         // never touches the original file in realFanHome.
         // Symlink (Linux/Mac): rmSync does not follow file symlinks.
-        isWindows ? fs.linkSync(src, dest) : fs.symlinkSync(src, dest);
+        getPlatform().linkFile(src, dest);
       }
     }
   }
@@ -254,7 +303,7 @@ export class ShadowDir {
     // SeCreateSymbolicLink privilege) — the copy is inside %TEMP% so it is
     // always safe to delete later without touching the real installation.
     try {
-      fs.symlinkSync(realLibJava, shadowLibJava, 'junction');
+      getPlatform().linkDirectory(realLibJava, shadowLibJava);
     } catch (_) {
       log('lib/java junction failed — copying lib/java into shadow dir as fallback');
       ShadowDir.copyDirRecursive(realLibJava, shadowLibJava);
@@ -291,18 +340,16 @@ export class ShadowDir {
             log('Shadow config.props: stripped java.options (JDWP suppressed)');
           } else {
             // File symlinks require Developer Mode on Windows — copy instead.
-            isWindows
-              ? fs.copyFileSync(realSysPath, shadowSysPath)
-              : fs.symlinkSync(realSysPath, shadowSysPath);
+            getPlatform().linkOrCopyFile(realSysPath, shadowSysPath);
           }
         }
       } else {
         // Every other etc/ entry: junction (Windows dirs) or symlink (Linux/Mac).
         const stat = fs.statSync(realEtcPath);
-        if (isWindows && stat.isDirectory()) {
-          fs.symlinkSync(realEtcPath, shadowEtcPath, 'junction');
+        if (stat.isDirectory()) {
+          getPlatform().linkDirectory(realEtcPath, shadowEtcPath);
         } else {
-          fs.symlinkSync(realEtcPath, shadowEtcPath);
+          getPlatform().linkOrCopyFile(realEtcPath, shadowEtcPath);
         }
       }
     }
@@ -319,7 +366,7 @@ export class ShadowDir {
    */
   private static disposeLibFan(shadowDir: string, log: (msg: string) => void): void {
     const libFan = path.join(shadowDir, 'lib', 'fan');
-    ShadowDir.removeLeafEntries(libFan, log);
+    ShadowDir.removeLeafEntries(libFan, log, shadowDir);
     ShadowDir.removeRealDirIfEmpty(libFan, log);
   }
 
@@ -328,18 +375,29 @@ export class ShadowDir {
    * deletion of the copied directory, never a recursive rmSync on a junction.
    */
   private static disposeLibJava(shadowDir: string, log: (msg: string) => void): void {
-    const libJava = path.join(shadowDir, 'lib', 'java');
-    try {
-      const stat = fs.lstatSync(libJava);
-      if (stat.isSymbolicLink()) {
-        // Junction or symlink — unlink the leaf entry only, never recurse.
-        fs.unlinkSync(libJava);
-      } else if (stat.isDirectory()) {
-        // Copied fallback — only real files inside, safe to delete entry-by-entry.
-        ShadowDir.removeLeafEntries(libJava, log);
-        ShadowDir.removeRealDirIfEmpty(libJava, log);
+    ShadowDir.removeTree(path.join(shadowDir, 'lib', 'java'), log, shadowDir);
+  }
+
+  /**
+   * Removes `p` without ever recursing through a link: a symlink/junction or
+   * file is unlinked as a leaf; a real directory is emptied entry by entry
+   * (each entry re-checked) and then rmdir'd. Mirrored dirs on Windows hold
+   * hard links, so removing them never touches the real installation.
+   */
+  private static removeTree(p: string, log: (msg: string) => void, root: string): void {
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(p); } catch (_) { return; }
+    if (stat.isSymbolicLink() || stat.isFile()) {
+      try { fs.unlinkSync(p); } catch (e: any) {
+        log(`WARNING: could not remove shadow entry "${p}": ${e.message}`);
       }
-    } catch (_) {}
+      return;
+    }
+    if (!ShadowDir.isRealDirUnder(p, root)) { return; }
+    for (const name of fs.readdirSync(p)) {
+      ShadowDir.removeTree(path.join(p, name), log, root);
+    }
+    ShadowDir.removeRealDirIfEmpty(p, log);
   }
 
   /**
@@ -352,11 +410,18 @@ export class ShadowDir {
     const etcSysDir = path.join(etcDir, 'sys');
 
     // etc/sys/ — only real files (copies); remove individually then rmdir.
-    ShadowDir.removeLeafEntries(etcSysDir, log);
+    ShadowDir.removeLeafEntries(etcSysDir, log, shadowDir);
     ShadowDir.removeRealDirIfEmpty(etcSysDir, log);
 
-    // etc/<other>/ — each is a junction or symlink leaf; unlink directly.
-    ShadowDir.removeLeafEntries(etcDir, log);
+    // etc/<other> — a symlink leaf (Linux/Mac) or a mirrored real dir (Windows).
+    // Skipped entirely when etc itself is a link: readdir would list the target.
+    if (ShadowDir.isRealDirUnder(etcDir, shadowDir)) {
+      try {
+        for (const name of fs.readdirSync(etcDir)) {
+          ShadowDir.removeTree(path.join(etcDir, name), log, shadowDir);
+        }
+      } catch (_) {}
+    }
     ShadowDir.removeRealDirIfEmpty(etcDir, log);
   }
 
@@ -369,7 +434,9 @@ export class ShadowDir {
    * Real subdirectories must be emptied by a dedicated helper before calling
    * removeRealDirIfEmpty on them.
    */
-  private static removeLeafEntries(dir: string, log: (msg: string) => void): void {
+  private static removeLeafEntries(dir: string, log: (msg: string) => void, root: string): void {
+    // A symlinked or junctioned dir would make this delete files elsewhere.
+    if (!ShadowDir.isRealDirUnder(dir, root)) { return; }
     let entries: fs.Dirent[];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
     for (const entry of entries) {

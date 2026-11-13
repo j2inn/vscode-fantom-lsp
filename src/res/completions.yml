@@ -105,7 +105,7 @@ sys::List:
     trim:
       detail: L trim()
     fill:
-      detail: L fill(V val, Range? range := null)
+      detail: L fill(V val, Int times)
       snippet: fill(${1:val})
     reverse:
       detail: L reverse()
@@ -437,7 +437,7 @@ sys::Str:
     toBuf:
       detail: Buf toBuf(Charset charset := Charset.utf8)
     in:
-      detail: InStream in(Int capacity := 256)
+      detail: InStream in()
     toStr:
       detail: Str toStr()
     toLocale:
@@ -528,7 +528,7 @@ sys::Int:
     toDecimal:
       detail: Decimal toDecimal()
     toLocale:
-      detail: Str toLocale(Str? pattern := null)
+      detail: Str toLocale(Str? pattern := null, Locale locale := Locale.cur)
     isAlpha:
       detail: Bool isAlpha()
     isAlphaNum:
@@ -538,7 +538,7 @@ sys::Int:
     isLower:
       detail: Bool isLower()
     isDigit:
-      detail: Bool isDigit()
+      detail: Bool isDigit(Int radix := 10)
     isSpace:
       detail: Bool isSpace()
     upper:
@@ -604,7 +604,7 @@ sys::Float:
     toDecimal:
       detail: Decimal toDecimal()
     toLocale:
-      detail: Str toLocale(Str? pattern := null)
+      detail: Str toLocale(Str? pattern := null, Locale locale := Locale.cur)
     isNaN:
       detail: Bool isNaN()
     isNegZero:
@@ -711,11 +711,11 @@ sys::File:
     parent:
       detail: File? parent()
     list:
-      detail: File[] list()
+      detail: File[] list(Regex? pattern := null)
     listDirs:
-      detail: File[] listDirs()
+      detail: File[] listDirs(Regex? pattern := null)
     listFiles:
-      detail: File[] listFiles()
+      detail: File[] listFiles(Regex? pattern := null)
     walk:
       detail: Void walk(|File f| c)
       snippet: walk |${1:f}| {\n\t${0}\n}
@@ -775,7 +775,7 @@ sys::Uri:
     encode:
       detail: Str encode()
     get:
-      detail: Obj? get(Str name, Bool checked := true)
+      detail: Obj? get(Obj? base := null, Bool checked := true)
     plus:
       detail: Uri plus(Uri path)
       snippet: plus(${1:path})
@@ -971,7 +971,7 @@ sys::Buf:
       detail: Buf writeBuf(Buf buf, Int n := buf.remaining)
       snippet: writeBuf(${1:buf})
     readAllStr:
-      detail: Str readAllStr()
+      detail: Str readAllStr(Bool normalizeNewlines := true)
     readAllLines:
       detail: Str[] readAllLines()
     print:
@@ -1130,7 +1130,7 @@ sys::Err:
     toStr:
       detail: Str toStr()
     trace:
-      detail: Void trace(OutStream out := Env.cur.err)
+      detail: This trace(OutStream out := Env.cur.err, [Str:Obj]? options := null)
     traceToStr:
       detail: Str traceToStr()
     typeof:
@@ -1211,7 +1211,7 @@ sys::OutStream:
       detail: OutStream writeObj(Obj? obj, Map? options := null)
       snippet: writeObj(${1:obj})
     writeProps:
-      detail: OutStream writeProps(Str:Str props)
+      detail: This writeProps(Str:Str props, Bool close := true)
       snippet: writeProps(${1:props})
     flush:
       detail: OutStream flush()

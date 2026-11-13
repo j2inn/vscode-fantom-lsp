@@ -75,7 +75,7 @@ class InlayHintService
   ** not after the type).
   private Int? findNameEndCol(Str line, Str varName)
   {
-    idx := TypeResolver.findWordInLine(line, varName)
+    idx := LspUtil.findWord(line, varName)
     if (idx == null) return null
     return idx + varName.size
   }

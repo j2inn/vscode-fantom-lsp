@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { getDeclarationEndLine } from './declarationRange';
+import { hasShellMetacharacters, isSafeBuildTarget } from './configSafety';
+import { isUnusedImportLineSafeToDelete, isUnusedVariableSafeToDelete, unusedVariableName } from './removalSafety';
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -19,6 +21,8 @@ import { getPlatform } from './platform';
 import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
 import { SerialQueue } from './serialQueue';
 import { ShadowDir } from './shadowDir';
+import { RotatingLog } from './rotatingLog';
+import { auditFanHome, FanHomeSnapshot } from './fanHomeAudit';
 import { FantomFileDecorationProvider } from './fileDecorations';
 
 let client: LanguageClient | undefined;
@@ -65,10 +69,18 @@ function updateDiagnosticStatusItems(): void {
   }
 }
 
-const isWindows = process.platform === 'win32';
+
+/** Persistent forensic log (survives restarts and updates); set at activation. */
+let forensicLog: RotatingLog | undefined;
+
+/** Key under which the last known FAN_HOME snapshot is kept across sessions. */
+const FAN_HOME_SNAPSHOT_KEY = 'fantom.lastFanHomeSnapshot';
+
+let extensionContext: vscode.ExtensionContext | undefined;
 
 function log(msg: string): void {
   outputChannel.appendLine(`[Fantom] ${msg}`);
+  forensicLog?.append(`${new Date().toISOString()} pid=${process.pid} ${msg}`);
   console.log(`[Fantom] ${msg}`);
 }
 
@@ -109,21 +121,22 @@ function isFantomProject(): boolean {
  */
 function resolveScriptExe(rawPath: string): string {
   if (fs.existsSync(rawPath)) return rawPath;
-  if (isWindows && !rawPath.match(/\.(bat|exe|cmd)$/i)) {
-    const batPath = rawPath + '.bat';
-    if (fs.existsSync(batPath)) return batPath;
-  }
-  return rawPath;
+  const alternative = getPlatform().scriptPathAlternatives(rawPath).find(p => fs.existsSync(p));
+  return alternative ?? rawPath;
 }
 
 /** Resolve the fan executable from FAN_HOME. */
 function resolveFanExecutable(fanHome: string): string | undefined {
-  const fanBin = isWindows ? 'fan.bat' : 'fan';
-  const fanExePath = path.join(fanHome, 'bin', fanBin);
-  if (fs.existsSync(fanExePath)) { return fanExePath; }
-  if (isWindows) {
-    const alt = path.join(fanHome, 'bin', 'fan.exe');
-    if (fs.existsSync(alt)) { return alt; }
+  return findLauncher(fanHome, ['fan']);
+}
+
+/** First existing launcher in `<home>/bin` for the given base names, in order. */
+function findLauncher(home: string, names: string[]): string | undefined {
+  for (const name of names) {
+    for (const file of getPlatform().launcherNames(name)) {
+      const candidate = path.join(home, 'bin', file);
+      if (fs.existsSync(candidate)) { return candidate; }
+    }
   }
   return undefined;
 }
@@ -148,6 +161,23 @@ function getFinConfigPath(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) { return undefined; }
   return path.join(folders[0].uri.fsPath, 'fan.config.json');
+}
+
+/**
+ * Drops values that would be passed to a command line unsafely. fan.config.json
+ * lives in the workspace, so its content is not trusted to be shell-safe.
+ */
+function sanitizeFinConfig(config: FinConfig): FinConfig {
+  const target = (config.fanTargetBuild || '').trim();
+  if (target && !isSafeBuildTarget(target)) {
+    log(`WARNING: ignoring fanTargetBuild "${target}": only letters, digits and _ . : - are allowed`);
+    vscode.window.showWarningMessage(
+      `Fantom: "fanTargetBuild" in fan.config.json ("${target}") is ignored. ` +
+      'Use a single target name such as "compile" or "test".'
+    );
+    return { ...config, fanTargetBuild: '' };
+  }
+  return config;
 }
 
 /**
@@ -204,7 +234,7 @@ async function readFinConfig(): Promise<FinConfig | undefined> {
     const content = fs.readFileSync(configPath, 'utf8');
     const parsed = JSON.parse(content) as FinConfig;
     log(`Loaded fan.config.json: fanPath="${parsed.fanPath ?? '(not set, FAN_HOME will be used)'}", fanTargetBuild="${parsed.fanTargetBuild ?? ''}", debounceTime=${parsed.debounceTime ?? 2000}, enableUnusedImport=${parsed.enableUnusedImport ?? true}`);
-    return parsed;
+    return sanitizeFinConfig(parsed);
   } catch (e: any) {
     log(`ERROR parsing fan.config.json: ${e.message}`);
     vscode.window.showErrorMessage(
@@ -247,6 +277,16 @@ function resolveFanPath(finConfig: FinConfig): string | undefined {
     vscode.window.showWarningMessage(
       'Fantom: Set "fanPath" in fan.config.json or the FAN_HOME environment variable ' +
       'to your Fantom installation directory (the folder containing bin/fan).'
+    );
+    return undefined;
+  }
+
+  // The fan launcher may be spawned through cmd.exe: refuse paths it would interpret.
+  if (hasShellMetacharacters(fanHome)) {
+    log(`ERROR: fanHome contains shell metacharacters: ${fanHome}`);
+    vscode.window.showErrorMessage(
+      'Fantom: The Fantom installation path contains characters that are not allowed ' +
+      '(& | < > ^ % "). Check "fanPath" in fan.config.json or the FAN_HOME environment variable.'
     );
     return undefined;
   }
@@ -306,6 +346,53 @@ function showLspStartupError(errorMessage: string, fanHome: string): void {
   }
 }
 
+/** Result of re-checking diagnostics against the current document text. */
+interface RemovableDiagnostics {
+  removable: vscode.Diagnostic[];
+  skipped: number;
+}
+
+/** Keeps only unused-import diagnostics whose line is still a `using` line. */
+function filterRemovableImports(doc: vscode.TextDocument, diags: vscode.Diagnostic[]): RemovableDiagnostics {
+  const removable = diags.filter(d =>
+    d.range.start.line < doc.lineCount &&
+    isUnusedImportLineSafeToDelete(doc.lineAt(d.range.start.line).text));
+  return { removable, skipped: diags.length - removable.length };
+}
+
+/**
+ * Keeps only unused-variable diagnostics whose declaration, as it is now, is a
+ * local variable without side effects in its initializer.
+ */
+function filterRemovableVariables(doc: vscode.TextDocument, diags: vscode.Diagnostic[]): RemovableDiagnostics {
+  const removable = diags.filter(d => {
+    const name = unusedVariableName(d.message);
+    if (!name || d.range.start.line >= doc.lineCount) { return false; }
+    const start = d.range.start.line;
+    const end = getDeclarationEndLine(i => doc.lineAt(i).text, doc.lineCount, start);
+    const declText = doc.getText(new vscode.Range(start, 0, end, doc.lineAt(end).text.length));
+    return isUnusedVariableSafeToDelete(declText, name);
+  });
+  return { removable, skipped: diags.length - removable.length };
+}
+
+/** Opens a document, or returns undefined if it cannot be opened or has unsaved changes. */
+async function openCleanDocument(uri: vscode.Uri): Promise<vscode.TextDocument | undefined> {
+  try {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    return doc.isDirty ? undefined : doc;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+/** Appends a note about skipped diagnostics to a result message. */
+function withSkippedNote(message: string, skipped: number): string {
+  return skipped > 0
+    ? `${message} Skipped ${skipped} that changed or may have side effects.`
+    : message;
+}
+
 /**
  * Start (or restart) the LSP client with the given configuration.
  * The caller is responsible for stopping any existing client first.
@@ -323,6 +410,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   currentShadowDir?.dispose(log);
   currentShadowDir = undefined;
   const fanHome = path.dirname(path.dirname(fanExe));
+  auditFanHomeAndRemember('before-shadow-create', fanHome, true);
   const podDir = path.join(fanHome, 'lib', 'fan');
   const newPodSrc = path.join(podDir, POD_FILE_NEW);
   const legacyPodSrc = path.join(podDir, POD_FILE_LEGACY);
@@ -335,13 +423,14 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
 
   if (fs.existsSync(mainPodSrc)) {
     currentShadowDir = ShadowDir.create(mainPodFileName, fanHome, log);
+    auditFanHomeAndRemember('after-shadow-create', fanHome, false);
   }
 
   const serverOptions: ServerOptions = {
     command: fanExe,
     args: [serverScript],
     options: {
-      shell: isWindows,
+      shell: getPlatform().spawnThroughShell,
       env: {
         ...process.env,
         FAN_JAVA: actualJavaPath,
@@ -435,7 +524,9 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
 
   log('Starting Fantom Language Server...');
 
-  client.start().then(() => {
+  // Awaited, so a queued restart never stops a client that is still starting.
+  try {
+    await client.start();
     log('Language Server started successfully');
 
     if (!fanBuildTarget) {
@@ -443,11 +534,23 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
         'Fantom: Consider setting "fanTargetBuild" in fan.config.json for project builds.'
       );
     }
-  }).catch((error) => {
+  } catch (error: any) {
     const msg: string = error?.message ?? String(error);
     log(`ERROR starting Language Server: ${msg}`);
     showLspStartupError(msg, fanHome);
-  });
+  }
+}
+
+/** Stops the current client, if any. A failed stop is logged, never thrown. */
+async function stopClient(): Promise<void> {
+  if (!client) { return; }
+  const stopping = client;
+  client = undefined;
+  try {
+    await stopping.stop();
+  } catch (e: any) {
+    log(`WARNING: stopping the language client failed: ${e?.message ?? e}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -508,10 +611,7 @@ class FantomDebugConfigurationProvider implements vscode.DebugConfigurationProvi
           if (json.finPath) {
             config.fanExe = resolveScriptExe(json.finPath);
           } else if (json.fanPath) {
-            for (const bin of (isWindows ? ['fin.bat', 'fan.bat'] : ['fin', 'fan'])) {
-              const exe = path.join(json.fanPath, 'bin', bin);
-              if (fs.existsSync(exe)) { config.fanExe = exe; break; }
-            }
+            config.fanExe = findLauncher(json.fanPath, ['fin', 'fan']) ?? config.fanExe;
           }
         } catch (_e) { /* ignore malformed config */ }
       }
@@ -540,10 +640,7 @@ function buildLaunchJson(folder: vscode.WorkspaceFolder): string {
       if (json.finPath) {
         fanExe = resolveScriptExe(json.finPath);
       } else if (json.fanPath) {
-        for (const bin of (isWindows ? ['fan.bat', 'fin.bat'] : ['fan', 'fin'])) {
-          const exe = path.join(json.fanPath, 'bin', bin);
-          if (fs.existsSync(exe)) { fanExe = exe; break; }
-        }
+        fanExe = findLauncher(json.fanPath, ['fan', 'fin']) ?? fanExe;
       }
     } catch (_) { /* ignore malformed config */ }
   }
@@ -635,14 +732,7 @@ function fanHomeFromExe(fanExe: string): string {
 
 /** Resolve the fant test-runner executable from FAN_HOME. */
 function resolveFantExe(fanHome: string): string | undefined {
-  const bin = isWindows ? 'fant.bat' : 'fant';
-  const p = path.join(fanHome, 'bin', bin);
-  if (fs.existsSync(p)) { return p; }
-  if (isWindows) {
-    const alt = path.join(fanHome, 'bin', 'fant.exe');
-    if (fs.existsSync(alt)) { return alt; }
-  }
-  return undefined;
+  return findLauncher(fanHome, ['fant']);
 }
 
 /**
@@ -659,7 +749,7 @@ function spawnFan(
   const env = { ...process.env, FAN_HOME: fanHome };
   channel.appendLine(`> ${[fanExe, ...args].join(' ')}`);
   return new Promise((resolve) => {
-    const child = cp.spawn(fanExe, args, { cwd, env, shell: isWindows });
+    const child = cp.spawn(fanExe, args, { cwd, env, shell: getPlatform().spawnThroughShell });
     child.stdout?.on('data', (d: Buffer) => channel.append(d.toString()));
     child.stderr?.on('data', (d: Buffer) => channel.append(d.toString()));
     child.on('close', (code) => resolve(code ?? 1));
@@ -786,13 +876,23 @@ function parseTestMethods(filePath: string): string[] {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
-  log('Extension activating...');
+  extensionContext = context;
+  try {
+    fs.mkdirSync(context.globalStorageUri.fsPath, { recursive: true });
+    forensicLog = new RotatingLog(path.join(context.globalStorageUri.fsPath, 'fantom-forensics.log'));
+  } catch (_) { forensicLog = undefined; }
+  log(`Extension activating... version=${context.extension.packageJSON.version} ` +
+    `vscode=${vscode.version} platform=${process.platform} ` +
+    `ppid=${process.ppid} forensicLog=${forensicLog?.filePath ?? 'unavailable'}`);
 
   // --- Clean up shadow dirs orphaned by a previous session that was killed
   //     before it could call dispose() (e.g. VS Code force-restarting itself
   //     to apply an update). Must run before any new shadow dir is created,
   //     and does not depend on this being a Fantom project. ---
+  const snapBeforeSweep = context.globalState.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY);
+  if (snapBeforeSweep) { auditFanHome('activation-before-sweep', snapBeforeSweep.fanHome, log, snapBeforeSweep); }
   ShadowDir.sweepOrphaned(undefined, log);
+  if (snapBeforeSweep) { auditFanHome('activation-after-sweep', snapBeforeSweep.fanHome, log, snapBeforeSweep); }
 
   // --- Register debug adapter (always, even outside Fantom projects) ---
   context.subscriptions.push(
@@ -905,11 +1005,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
+      // Diagnostics can lag behind the buffer: re-check each line before deleting.
+      const { removable, skipped } = filterRemovableImports(editor.document, unusedImportDiags);
+      if (removable.length === 0) {
+        vscode.window.showInformationMessage(withSkippedNote('Fantom: No unused imports to remove.', skipped));
+        return;
+      }
+
       // Sort descending by line so deletions don't shift subsequent line numbers
-      unusedImportDiags.sort((a, b) => b.range.start.line - a.range.start.line);
+      removable.sort((a, b) => b.range.start.line - a.range.start.line);
 
       const edit = new vscode.WorkspaceEdit();
-      for (const d of unusedImportDiags) {
+      for (const d of removable) {
         const line = d.range.start.line;
         edit.delete(uri, new vscode.Range(line, 0, line + 1, 0));
       }
@@ -924,10 +1031,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // and clears the stale diagnostics.
       await editor.document.save();
 
-      const count = unusedImportDiags.length;
-      vscode.window.showInformationMessage(
-        `Fantom: Removed ${count} unused import${count !== 1 ? 's' : ''}.`
-      );
+      const count = removable.length;
+      vscode.window.showInformationMessage(withSkippedNote(
+        `Fantom: Removed ${count} unused import${count !== 1 ? 's' : ''}.`, skipped));
     })
   );
 
@@ -939,6 +1045,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const edit = new vscode.WorkspaceEdit();
       const modifiedUris: vscode.Uri[] = [];
       let totalCount = 0;
+      let totalSkipped = 0;
+      let skippedFiles = 0;
 
       for (const [uri, diags] of allDiagnostics) {
         if (!uri.path.endsWith('.fan')) { continue; }
@@ -951,20 +1059,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         if (unusedImportDiags.length === 0) { continue; }
 
-        // Sort descending by line so deletions don't shift subsequent line numbers
-        unusedImportDiags.sort((a, b) => b.range.start.line - a.range.start.line);
+        // Never touch (or save) a document with unsaved changes the user may not want written.
+        const doc = await openCleanDocument(uri);
+        if (!doc) { skippedFiles++; continue; }
 
-        for (const d of unusedImportDiags) {
+        const { removable, skipped } = filterRemovableImports(doc, unusedImportDiags);
+        totalSkipped += skipped;
+        if (removable.length === 0) { continue; }
+
+        // Sort descending by line so deletions don't shift subsequent line numbers
+        removable.sort((a, b) => b.range.start.line - a.range.start.line);
+
+        for (const d of removable) {
           const line = d.range.start.line;
           edit.delete(uri, new vscode.Range(line, 0, line + 1, 0));
         }
 
         modifiedUris.push(uri);
-        totalCount += unusedImportDiags.length;
+        totalCount += removable.length;
       }
 
       if (totalCount === 0) {
-        vscode.window.showInformationMessage('Fantom: No unused imports found in project.');
+        vscode.window.showInformationMessage(withSkippedNote(
+          'Fantom: No unused imports to remove in project.', totalSkipped + skippedFiles));
         return;
       }
 
@@ -985,9 +1102,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }));
 
       const fileCount = modifiedUris.length;
-      vscode.window.showInformationMessage(
-        `Fantom: Removed ${totalCount} unused import${totalCount !== 1 ? 's' : ''} across ${fileCount} file${fileCount !== 1 ? 's' : ''}.`
-      );
+      vscode.window.showInformationMessage(withSkippedNote(
+        `Fantom: Removed ${totalCount} unused import${totalCount !== 1 ? 's' : ''} across ${fileCount} file${fileCount !== 1 ? 's' : ''}.`,
+        totalSkipped + skippedFiles));
     })
   );
 
@@ -1014,12 +1131,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Sort descending by start line so deletions don't shift subsequent line numbers.
-      unusedVarDiags.sort((a, b) => b.range.start.line - a.range.start.line);
-
+      // Diagnostics can lag behind the buffer and are heuristic: re-check each declaration.
       const document = editor.document;
+      const { removable, skipped } = filterRemovableVariables(document, unusedVarDiags);
+      if (removable.length === 0) {
+        vscode.window.showInformationMessage(withSkippedNote('Fantom: No unused variables to remove.', skipped));
+        return;
+      }
+
+      // Sort descending by start line so deletions don't shift subsequent line numbers.
+      removable.sort((a, b) => b.range.start.line - a.range.start.line);
+
       const edit = new vscode.WorkspaceEdit();
-      for (const d of unusedVarDiags) {
+      for (const d of removable) {
         const startLine = d.range.start.line;
         const endLine = getDeclarationEndLine(
           i => document.lineAt(i).text,
@@ -1037,10 +1161,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       await editor.document.save();
 
-      const count = unusedVarDiags.length;
-      vscode.window.showInformationMessage(
-        `Fantom: Removed ${count} unused variable${count !== 1 ? 's' : ''}.`
-      );
+      const count = removable.length;
+      vscode.window.showInformationMessage(withSkippedNote(
+        `Fantom: Removed ${count} unused variable${count !== 1 ? 's' : ''}.`, skipped));
     })
   );
 
@@ -1052,6 +1175,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const edit = new vscode.WorkspaceEdit();
       const docsToSave: vscode.TextDocument[] = [];
       let totalCount = 0;
+      let totalSkipped = 0;
+      let skippedFiles = 0;
 
       for (const [uri, diags] of allDiagnostics) {
         if (!uri.path.endsWith('.fan')) { continue; }
@@ -1064,16 +1189,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         if (unusedVarDiags.length === 0) { continue; }
 
-        // Open the document to read line content for multi-line detection.
-        let doc: vscode.TextDocument;
-        try {
-          doc = await vscode.workspace.openTextDocument(uri);
-        } catch (_) { continue; }
+        // Open the document to read line content; never touch (or save) one
+        // with unsaved changes the user may not want written.
+        const doc = await openCleanDocument(uri);
+        if (!doc) { skippedFiles++; continue; }
+
+        const { removable, skipped } = filterRemovableVariables(doc, unusedVarDiags);
+        totalSkipped += skipped;
+        if (removable.length === 0) { continue; }
 
         // Sort descending by start line so deletions don't shift subsequent line numbers.
-        unusedVarDiags.sort((a, b) => b.range.start.line - a.range.start.line);
+        removable.sort((a, b) => b.range.start.line - a.range.start.line);
 
-        for (const d of unusedVarDiags) {
+        for (const d of removable) {
           const startLine = d.range.start.line;
           const endLine = getDeclarationEndLine(
             i => doc.lineAt(i).text,
@@ -1084,11 +1212,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         docsToSave.push(doc);
-        totalCount += unusedVarDiags.length;
+        totalCount += removable.length;
       }
 
       if (totalCount === 0) {
-        vscode.window.showInformationMessage('Fantom: No unused variables found in project.');
+        vscode.window.showInformationMessage(withSkippedNote(
+          'Fantom: No unused variables to remove in project.', totalSkipped + skippedFiles));
         return;
       }
 
@@ -1103,9 +1232,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }));
 
       const fileCount = docsToSave.length;
-      vscode.window.showInformationMessage(
-        `Fantom: Removed ${totalCount} unused variable${totalCount !== 1 ? 's' : ''} across ${fileCount} file${fileCount !== 1 ? 's' : ''}.`
-      );
+      vscode.window.showInformationMessage(withSkippedNote(
+        `Fantom: Removed ${totalCount} unused variable${totalCount !== 1 ? 's' : ''} across ${fileCount} file${fileCount !== 1 ? 's' : ''}.`,
+        totalSkipped + skippedFiles));
     })
   );
 
@@ -1422,10 +1551,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       log('fan.config.json changed, restarting LSP');
       vscode.window.showInformationMessage('Fantom: New configuration detected, restarting LSP...');
 
-      if (client) {
-        await client.stop();
-        client = undefined;
-      }
+      await stopClient();
 
       const newConfig = await readFinConfig();
       if (newConfig) {
@@ -1526,20 +1652,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // --- Step 3: Suggest launch.json if missing ---
+  // Not awaited: the prompt waits for the user, and the language server must
+  // not stay stopped until a notification is dismissed.
   if (folders && folders.length > 0) {
-    await suggestLaunchJson(context, folders[0]);
+    suggestLaunchJson(context, folders[0]).catch(e => log(`ERROR in launch.json suggestion: ${e.message}`));
   }
 
-  // --- Step 4: Start LSP server ---
-  await startLspClient(context, finConfig);
+  // --- Step 4: Start LSP server (queued so a config change during startup waits) ---
+  await configRestartQueue.enqueue(() => startLspClient(context, finConfig));
 }
 
-export function deactivate(): Thenable<void> | undefined {
+/**
+ * Audits the real FAN_HOME and stores the snapshot. When `compare` is set the
+ * snapshot is compared with the one stored by the previous phase or session,
+ * and a loss is reported to the user: it means something deleted installation
+ * files while this extension was not looking (e.g. during an update).
+ */
+function auditFanHomeAndRemember(phase: string, fanHome: string, compare: boolean): void {
+  const state = extensionContext?.globalState;
+  const previous = compare ? state?.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY) : undefined;
+  const { snapshot, losses } = auditFanHome(phase, fanHome, log, previous);
+  if (losses.length === 0) { state?.update(FAN_HOME_SNAPSHOT_KEY, snapshot); }
+  if (losses.length > 0) {
+    vscode.window.showErrorMessage(
+      `Fantom: the installation at ${fanHome} lost files since the last session ` +
+      `(${losses.join('; ')}). Please send "${forensicLog?.filePath ?? 'the Fantom Extension output'}" to the maintainers.`);
+  }
+}
+
+export async function deactivate(): Promise<void> {
+  log('Deactivating extension');
+  if (extensionContext && currentShadowDir) {
+    const last = extensionContext.globalState.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY);
+    if (last) { auditFanHome('before-dispose', last.fanHome, log, last); }
+  }
+  // Stop the server first: it still reads from the shadow dir until it exits.
+  await configRestartQueue.enqueue(stopClient);
   currentShadowDir?.dispose(log);
   currentShadowDir = undefined;
-  if (!client) {
-    return undefined;
-  }
-  log('Deactivating extension');
-  return client.stop();
+  const lastSnap = extensionContext?.globalState.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY);
+  if (lastSnap) { auditFanHome('after-dispose', lastSnap.fanHome, log, lastSnap); }
+  log('Deactivation complete');
 }

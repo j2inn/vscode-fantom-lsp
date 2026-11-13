@@ -17,6 +17,75 @@ class TypeResolverTest : Test
   }
 
 //////////////////////////////////////////////////////////////////////////
+// Literal typing and variable scoping (regression)
+//////////////////////////////////////////////////////////////////////////
+
+  private Str? typeOfRhs(Str rhs)
+  {
+    src := "class Svc {\n  Void run() {\n    x := ${rhs}\n    echo(x)\n  }\n}\n"
+    return TypeResolver.resolveVarType("x", src, 3, ProjectIndex())
+  }
+
+  Void testLiteralMemberCallIsTypedByTheCall()
+  {
+    // Not typed as the literal's own type (Str) just because it starts with one
+    verifyNotEq(typeOfRhs("\"42\".toInt"), "sys::Str")
+    verifyNotEq(typeOfRhs("[\"a\", \"b\"].size()"), "sys::List")
+  }
+
+  Void testPlainLiteralsKeepTheirType()
+  {
+    verifyEq(typeOfRhs("\"x\""), "sys::Str")
+    verifyEq(typeOfRhs("[1, 2]"), "sys::List")
+    verifyEq(typeOfRhs("true"), "sys::Bool")
+    verifyEq(typeOfRhs("42"), "sys::Int")
+    verifyEq(typeOfRhs("1.5"), "sys::Float")
+  }
+
+  Void testNumericLiteralKinds()
+  {
+    verifyEq(typeOfRhs("0xff"), "sys::Int")
+    verifyEq(typeOfRhs("2f"), "sys::Float")
+    verifyEq(typeOfRhs("5sec"), "sys::Duration")
+  }
+
+  Void testNumberMemberCallIsNotTypedAsNumber()
+  {
+    verifyNotEq(typeOfRhs("5.toStr"), "sys::Int")
+  }
+
+  Void testVarTypeIsScopedToEnclosingMethod()
+  {
+    // 'item' is a Str in first() and an Int in second()
+    src :=
+      "class Svc {\n" +
+      "  Void first() {\n" +
+      "    Str item := \"a\"\n" +
+      "    echo(item)\n" +
+      "  }\n" +
+      "  Void second() {\n" +
+      "    Int item := 1\n" +
+      "    echo(item)\n" +
+      "  }\n" +
+      "}\n"
+    idx := makeIndex(["file:///Svc.fan": src])
+    verifyEq(TypeResolver.resolveVarType("item", src, 3, idx), "sys::Str")
+    verifyEq(TypeResolver.resolveVarType("item", src, 7, idx), "sys::Int")
+  }
+
+  Void testParamFallbackNeedsWholeWordMatch()
+  {
+    // 'set' must not match the parameter 'Int offset'
+    src :=
+      "class Svc {\n" +
+      "  Void run(Int offset) {\n" +
+      "    set.add(1)\n" +
+      "  }\n" +
+      "}\n"
+    verifyNull(TypeResolver.resolveVarType("set", src, 2, ProjectIndex()))
+  }
+
+//////////////////////////////////////////////////////////////////////////
 // Explicit type declaration (sanity checks for existing behaviour)
 //////////////////////////////////////////////////////////////////////////
 

@@ -4560,6 +4560,24 @@ class DiagnosticServiceTest : Test
     verify(bWarns.any |d| { d.message.contains("Duplicate") }, "B.fan should get a duplicate-value warning")
   }
 
+  ** Equal values in different pods are not duplicates; same pod still is
+  Void testDuplicateConstAcrossPodsNotFlagged()
+  {
+    sources := Str:Str[:]
+    sources["file:///main/A.fan"] = "class A { static const Str KEY := \"shared-constant-value\" }"
+    sources["file:///examples/B.fan"] = "class B { static const Str KEY := \"shared-constant-value\" }"
+    sources["file:///main/C.fan"] = "class C { static const Str KEY := \"shared-constant-value\" }"
+
+    result := svc.checkDuplicateConstValues(sources) |Str uri->Str?|
+    {
+      uri.startsWith("file:///main/") ? "mainPod" : "examplesPod"
+    }
+    verifyEq((result["file:///examples/B.fan"] ?: LspDiagnostic[,]).size, 0,
+      "Other pod must not be flagged")
+    verifyEq((result["file:///main/A.fan"] ?: LspDiagnostic[,]).size, 1)
+    verifyEq((result["file:///main/C.fan"] ?: LspDiagnostic[,]).size, 1)
+  }
+
   ** Short string (< 5 chars) is NOT flagged even if duplicated
   Void testDuplicateConstShortValueNoWarn()
   {
@@ -4883,7 +4901,15 @@ class DiagnosticServiceTest : Test
       "  const static Str v2 := A.v1\n" +
       "}"
 
-    diags := svc.analyze("file:///test/B.fan", source, idx)
+    // A is a project type declared in another file
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/A.fan",
+      "class A\n" +
+      "{\n" +
+      "  const static Str v1 := \"x\"\n" +
+      "}")
+
+    diags := svc.analyze("file:///test/B.fan", source, typeIdx)
     constDiags := diags.findAll |d| { d.message.contains("A.v1") }
     verify(constDiags.size >= 1,
       "Expected a warning about 'A.v1' cross-class const initializer")
@@ -5158,6 +5184,188 @@ class DiagnosticServiceTest : Test
     verifyEq(fieldDiags[0].range.start.line, 4)
   }
 
+  **
+  ** Static-context false positives: it-block setters, slot literals and
+  ** dynamic calls in a static method must not be read as bare field access.
+  **
+  Void testStaticMethodItBlockSlotLiteralAndDynamicCallNotFlagged()
+  {
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Base.fan",
+      "class Base\n" +
+      "{\n" +
+      "  Str name := \"base\"\n" +
+      "}")
+
+    source :=
+      "class Foo : Base\n" +
+      "{\n" +
+      "  static Void bar(Str n, Obj o)\n" +
+      "  {\n" +
+      "    a := Other { name = n }\n" +
+      "    b := Other#name\n" +
+      "    c := o->name\n" +
+      "    d := `name.txt`\n" +
+      "    e := '{'\n" +
+      "  }\n" +
+      "\n" +
+      "  Void inst() { echo(name) }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    fieldDiags := diags.findAll |d|
+    {
+      d.message.contains("Cannot access instance field") || d.message.contains("Cannot access 'this'")
+    }
+    verifyEq(fieldDiags.size, 0)
+  }
+
+  Void testStaticMethodBareFieldAfterItBlockStillFlagged()
+  {
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Base.fan",
+      "class Base\n" +
+      "{\n" +
+      "  Str name := \"base\"\n" +
+      "}")
+
+    source :=
+      "class Foo : Base\n" +
+      "{\n" +
+      "  static Void bar(Str n)\n" +
+      "  {\n" +
+      "    a := Other { name = n }\n" +
+      "    x := name\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    fieldDiags := diags.findAll |d| { d.message.contains("Cannot access instance field 'name'") }
+    verifyEq(fieldDiags.size, 1)
+    verifyEq(fieldDiags[0].range.start.line, 5)
+  }
+
+  **
+  ** Const-init false positives: literal text and sys types are not cross-class refs.
+  **
+  Void testConstInitLiteralAndSysTypeNotFlagged()
+  {
+    source :=
+      "class B\n" +
+      "{\n" +
+      "  const static Str f := \"Config.json\"\n" +
+      "  const static Uri u := `Foo.txt`\n" +
+      "  const static Int m := Int.maxVal\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/B.fan", source, idx)
+    constDiags := diags.findAll |d| { d.message.contains("const static initializer") }
+    verifyEq(constDiags.size, 0)
+  }
+
+  **
+  ** `using pod::Foo as Bar` is used when the file refers to `Bar`.
+  **
+  Void testUnusedUsingAliasUsedNotReported()
+  {
+    source :=
+      "using sys::Str as Text\n" +
+      "class Foo\n" +
+      "{\n" +
+      "  Text? t\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    unusedDiags := diags.findAll |d| { d.message.contains("Unused import") }
+    verifyEq(unusedDiags.size, 0)
+  }
+
+  Void testUnusedUsingAliasUnusedReportedOnce()
+  {
+    source :=
+      "using sys::Str as Text\n" +
+      "class Foo\n" +
+      "{\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    unusedDiags := diags.findAll |d| { d.message.contains("Unused import 'Str'") }
+    verifyEq(unusedDiags.size, 1)
+  }
+
+  **
+  ** Cross-file / param checks must not scan block comments, multi-line
+  ** strings, or backtick arguments.
+  **
+  Void testCrossFileAndParamIgnoreBlockCommentsAndMultiLineStrings()
+  {
+    typeIdx := ProjectIndex()
+    typeIdx.indexFile("file:///test/Main.fan",
+      "class Main\n" +
+      "{\n" +
+      "  static Void run() {}\n" +
+      "}")
+
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    /*\n" +
+      "     Main.findMods\n" +
+      "     */\n" +
+      "    s := \"line one\n" +
+      "      Main.findMods\n" +
+      "      a.add()\"\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, typeIdx)
+    bad := diags.findAll |d| { d.message.contains("is not a member of") || d.message.contains("argument(s)") }
+    verifyEq(bad.size, 0)
+  }
+
+  Void testMethodParamBacktickArgumentCountsAsOne()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar()\n" +
+      "  {\n" +
+      "    a := [1, 2]\n" +
+      "    a.add(`x,y`)\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    bad := diags.findAll |d| { d.message.contains("'add'") && d.message.contains("argument") }
+    verifyEq(bad.size, 0)
+  }
+
+  **
+  ** Signatures in completions.yml must allow every optional parameter.
+  **
+  Void testSysSignaturesAllowOptionalParams()
+  {
+    source :=
+      "class Foo\n" +
+      "{\n" +
+      "  Void bar(File f, Buf b, OutStream out, Err err)\n" +
+      "  {\n" +
+      "    a := f.list(Regex(\"x\"))\n" +
+      "    c := 'f'.isDigit(16)\n" +
+      "    d := b.readAllStr(false)\n" +
+      "    e := err.trace(out, null)\n" +
+      "    g := out.writeProps([\"a\":\"b\"], false)\n" +
+      "    h := [0, 0].fill(1, 3)\n" +
+      "  }\n" +
+      "}"
+
+    diags := svc.analyze("file:///test/Foo.fan", source, idx)
+    bad := diags.findAll |d| { d.message.contains("argument(s)") }
+    verifyEq(bad.size, 0)
+  }
+
   Void testBareLocalVarShadowingFieldNotFlagged()
   {
     // A local variable that happens to share a name with an inherited field
@@ -5340,8 +5548,8 @@ internal class DiagnosticServiceBuilderFacade
     return service.validateCrossFileReferences(source, index)
   }
 
-  [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources)
+  [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources, |Str->Str?|? podOf := null)
   {
-    return service.checkDuplicateConstValues(sources)
+    return service.checkDuplicateConstValues(sources, podOf)
   }
 }

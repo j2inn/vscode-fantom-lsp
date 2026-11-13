@@ -106,6 +106,16 @@ class LspServer
     return null
   }
 
+  **
+  ** Guards the project index and the diagnostic service state. Both are
+  ** mutable, non-const objects used from the main thread and from actor
+  ** threads (debounce timer, background init, pod watcher): an index rebuild
+  ** or a compile running while another thread reads them gives spurious
+  ** "Unknown type" errors. Every index mutation and every analysis therefore
+  ** runs under this lock. It is not reentrant: never nest these calls.
+  **
+  private const AtomicBool indexLock := AtomicBool(false)
+
   ** Server initialized flag
   private Bool initialized := false
 
@@ -158,7 +168,6 @@ class LspServer
   ** Pod watcher started flag
   private Bool podWatchStarted := false
 
-
   **
   ** Handle an incoming message.
   ** Before dispatching, flush any pending debounced diagnostics whose
@@ -208,16 +217,38 @@ class LspServer
     doFlush(pending[0], pending[1])
   }
 
+  ** Run `f` while holding indexLock (see its doc).
+  private Obj? underIndexLock(|->Obj?| f)
+  {
+    while (!indexLock.compareAndSet(false, true)) Actor.sleep(1ms)
+    try { return f() }
+    finally { indexLock.val = false }
+  }
+
+  ** Single-file analysis under indexLock.
+  private LspDiagnostic[] analyzeLocked(Str uri, Str text)
+  {
+    return (LspDiagnostic[]) underIndexLock |->Obj?|
+    {
+      diagnostics.analyze(uri, text, projectIndex, pedanticMode, enableUnusedImport)
+    }
+  }
+
+  ** Rebuild the whole project index under indexLock.
+  private Void indexAllLocked()
+  {
+    underIndexLock |->Obj?| { projectIndex.indexAll; return null }
+  }
+
   **
   ** Run single-file analysis for the given URI/text and publish diagnostics.
   ** Called from both the main message loop and the background timer actor.
-  ** Does NOT modify the project index — that happens only on the main thread
-  ** (handleDidSave/handleDidOpen/backgroundInit) to avoid concurrent map
-  ** mutation that would corrupt completions.
+  ** Does NOT modify the project index. Analysis runs under indexLock, so it
+  ** never overlaps with an index rebuild on another thread.
   **
   private Void doFlush(Str uri, Str text)
   {
-    singleFileDiags := diagnostics.analyze(uri, text, projectIndex, pedanticMode, enableUnusedImport)
+    singleFileDiags := analyzeLocked(uri, text)
     analysisDiags[uri] = singleFileDiags
     publishDiagnosticsList(uri, singleFileDiags)
   }
@@ -514,7 +545,7 @@ class LspServer
       showMessage("lib/fan changed. Re-indexing", 3)
       PodTypeCache.cur.evictStale
       LspCompiler.resetNamespaces
-      projectIndex.indexAll
+      indexAllLocked
     }
     catch (Err e)
     {
@@ -533,7 +564,7 @@ class LspServer
       sendProgress("begin", "Indexing project sources\u2026")
 
       LspProtocol.logInfo("backgroundInit: indexing project...")
-      projectIndex.indexAll
+      indexAllLocked
 
       // Advance to 25% and stream per-pod messages while loading
       sendProgress("report", "Loading pod types\u2026", 25)
@@ -615,7 +646,7 @@ class LspServer
     item.uri = LspUtil.normalizeFileUri(item.uri)
 
     docMgr.open(item)
-    changedTypes := projectIndex.indexFile(item.uri, item.text)
+    changedTypes := (Str[]) underIndexLock |->Obj?| { projectIndex.indexFile(item.uri, item.text) }
     publishDiagnostics(item.uri, item.text)
 
     // Warn if the file is not part of the indexed project
@@ -695,9 +726,9 @@ class LspServer
     {
       // Index this saved file only when it is syntactically/semantically valid.
       // New files are included in project metadata via indexSavedFile refresh.
-      saveDiags := diagnostics.analyze(uri, doc.text, projectIndex, pedanticMode, enableUnusedImport)
+      saveDiags := analyzeLocked(uri, doc.text)
       hasSaveErrors := saveDiags.any |d| { d.severity == DiagnosticSeverity.error }
-      projectIndex.indexSavedFile(uri, doc.text, hasSaveErrors)
+      underIndexLock |->Obj?| { projectIndex.indexSavedFile(uri, doc.text, hasSaveErrors) }
 
       // Re-run diagnostics for all files to update cross-file errors.
       analyzeAndValidateAllFiles
@@ -728,17 +759,15 @@ class LspServer
         sources[fileUri] = source
 
         // Single-file analysis
-        diags := diagnostics.analyze(fileUri, source, projectIndex, pedanticMode, enableUnusedImport)
+        diags := analyzeLocked(fileUri, source)
 
-        // Cross-file reference validation
-        crossDiags := diagnostics.validateCrossFileReferences(source, projectIndex)
-        if (!crossDiags.isEmpty)
+        // analyze() already runs cross-file validation; running it again
+        // here would publish every cross-file diagnostic twice.
+        if (diags.any |d| { d.severity == DiagnosticSeverity.error })
           errorFiles.add(file.name)
 
-        // Merge and publish all diagnostics together
-        allDiags := LspDiagnostic[,].addAll(diags).addAll(crossDiags)
-        analysisDiags[fileUri] = allDiags
-        publishDiagnosticsList(fileUri, allDiags)
+        analysisDiags[fileUri] = diags
+        publishDiagnosticsList(fileUri, diags)
       }
       catch (Err e)
       {
@@ -749,7 +778,10 @@ class LspServer
     // Project-wide check: warn on static const fields with duplicate string values
     try
     {
-      dupDiags := diagnostics.checkDuplicateConstValues(sources)
+      dupDiags := diagnostics.checkDuplicateConstValues(sources) |Str fileUri->Str?|
+      {
+        projectIndex.getPodForFile(fileUri)?.podName
+      }
       dupDiags.each |fileDiags, fileUri|
       {
         existing := analysisDiags[fileUri] ?: LspDiagnostic[,]
@@ -1027,7 +1059,7 @@ class LspServer
     LspProtocol.logInfo("File structure changed (${summary}) — re-indexing project")
     showMessage("\uD83D\uDC7B Fantom LSP: File changes detected (${summary}) \u2014 reindexing project...", 3)
 
-    projectIndex.indexAll
+    indexAllLocked
     analyzeAndValidateAllFiles
   }
 
@@ -1341,7 +1373,7 @@ class LspServer
   **
   private Void publishDiagnostics(Str uri, Str? text)
   {
-    diags := text == null ? LspDiagnostic[,] : diagnostics.analyze(uri, text, projectIndex, pedanticMode, enableUnusedImport)
+    diags := text == null ? LspDiagnostic[,] : analyzeLocked(uri, text)
     publishDiagnosticsList(uri, diags)
   }
 

@@ -13,10 +13,17 @@
 **
 class DiagnosticConstInitValidator
 {
-  LspDiagnostic[] checkCrossClassConstInit(Str source)
+  **
+  ** Check `source` for const static initializers that reference another
+  ** class's field. Only classes declared in `source` or known to `index` are
+  ** considered; sys types such as `Int.maxVal` are always safe. Literals and
+  ** comments are ignored.
+  **
+  LspDiagnostic[] checkCrossClassConstInit(Str source, ProjectIndex index)
   {
     diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
+    lines := SourceMask.mask(source).splitLines
+    declared := declaredTypes(lines)
     curClass := ""
 
     for (i := 0; i < lines.size; i++)
@@ -32,14 +39,14 @@ class DiagnosticConstInitValidator
       if (detected != null) curClass = detected
 
       // Only inspect lines that declare a const static field with an initializer
-      if (!containsIdentifier(trimmed, "const")) continue
-      if (!containsIdentifier(trimmed, "static")) continue
+      if (!LspUtil.containsWord(trimmed, "const")) continue
+      if (!LspUtil.containsWord(trimmed, "static")) continue
       walrusIdx := trimmed.index(":=")
       if (walrusIdx == null) continue
 
       rhs := trimmed[walrusIdx + 2 ..-1].trim
 
-      crossRef := findCrossClassRef(rhs, curClass)
+      crossRef := findCrossClassRef(rhs, curClass, declared, index)
       if (crossRef == null) continue
 
       // Locate the cross-class reference in the original (non-trimmed) line,
@@ -71,6 +78,18 @@ class DiagnosticConstInitValidator
   // Private helpers
   // ---------------------------------------------------------------------------
 
+  ** Names of all classes and mixins declared on the given lines.
+  private Str[] declaredTypes(Str[] lines)
+  {
+    names := Str[,]
+    lines.each |line|
+    {
+      name := parseClassName(line.trim)
+      if (name != null) names.add(name)
+    }
+    return names
+  }
+
   **
   ** Return the class/mixin name declared on the given trimmed line, or null.
   **
@@ -99,7 +118,7 @@ class DiagnosticConstInitValidator
   ** Method calls (identifier immediately followed by '(') are skipped —
   ** they load the target class on entry and are not subject to this issue.
   **
-  private Str? findCrossClassRef(Str rhs, Str curClass)
+  private Str? findCrossClassRef(Str rhs, Str curClass, Str[] declared, ProjectIndex index)
   {
     idx := 0
     while (idx < rhs.size)
@@ -120,8 +139,9 @@ class DiagnosticConstInitValidator
         continue
       }
 
-      // Same class reference — not a cross-class issue
-      if (className == curClass)
+      // Same class reference — not a cross-class issue. A type that is neither
+      // declared here nor in the project (e.g. a sys type) is always loaded.
+      if (className == curClass || !(declared.contains(className) || index.hasType(className)))
       {
         idx = dotPos + 1
         continue
@@ -150,23 +170,4 @@ class DiagnosticConstInitValidator
     return null
   }
 
-  **
-  ** Return true if 'word' appears in 'line' as a standalone identifier
-  ** (not a substring of a longer identifier).
-  **
-  private Bool containsIdentifier(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return false
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return true
-      idx = found + 1
-    }
-    return false
-  }
 }

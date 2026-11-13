@@ -14,7 +14,9 @@ class DiagnosticMethodParamValidator
   LspDiagnostic[] validateMethodParams(Str source, ProjectIndex index)
   {
     diagnostics := LspDiagnostic[,]
-    lines := source.splitLines
+    // Masked lines: literals and comments (incl. block comments) are not code.
+    // `source` itself is still used to resolve variable types.
+    lines := SourceMask.mask(source).splitLines
 
     for (i := 0; i < lines.size; i++)
     {
@@ -146,7 +148,7 @@ class DiagnosticMethodParamValidator
               if (restPos < line.size && line[restPos] == '(')
               {
                 parenStart := restPos
-                parenEnd := findMatchingParen(line, parenStart)
+                parenEnd := LspUtil.findMatchingParen(line, parenStart)
                 if (parenEnd != null)
                 {
                   argStr := line[parenStart + 1 ..< parenEnd].trim
@@ -191,45 +193,6 @@ class DiagnosticMethodParamValidator
     }
 
     return calls
-  }
-
-  **
-  ** Find the matching closing parenthesis, handling nesting.
-  **
-  private Int? findMatchingParen(Str line, Int openPos)
-  {
-    depth := 0
-    inStr := false
-    i := openPos
-    while (i < line.size)
-    {
-      ch := line[i]
-      // Block comment: /* ... */
-      if (!inStr && ch == '/' && i + 1 < line.size && line[i + 1] == '*')
-      {
-        i += 2
-        while (i + 1 < line.size && !(line[i] == '*' && line[i + 1] == '/')) i++
-        i++
-        continue
-      }
-      // Double-quoted string literal
-      if (ch == '"') { inStr = !inStr; i++; continue }
-      if (ch == '\\' && inStr) { i += 2; continue }
-      // Single-quoted character literal: 'x' or '\n' etc.
-      if (ch == '\'' && !inStr)
-      {
-        i++
-        if (i < line.size && line[i] == '\\') i++
-        while (i < line.size && line[i] != '\'') i++
-        i++
-        continue
-      }
-      if (inStr) { i++; continue }
-      if (ch == '(' || ch == '[') depth++
-      else if (ch == ')' || ch == ']') { depth--; if (depth == 0) return i }
-      i++
-    }
-    return null
   }
 
   **
