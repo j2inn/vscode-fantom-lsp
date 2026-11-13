@@ -1043,6 +1043,52 @@ test('sweepOrphaned never calls fs.rmSync — asserted by monkey-patching it to 
   }
 });
 
+test('safeRemove refuses a dir that is not directly under os.tmpdir()', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shadow-test-'));
+  const nested = path.join(base, 'fantom-lsp-shadow-nested');
+  fs.mkdirSync(path.join(nested, 'lib', 'fan'), { recursive: true });
+  const marker = path.join(nested, 'lib', 'fan', 'a.pod');
+  fs.writeFileSync(marker, 'x');
+  const logs: string[] = [];
+  try {
+    ShadowDir.safeRemove(nested, m => logs.push(m));
+    assert.ok(fs.existsSync(marker), 'nothing may be removed outside the tmpdir root');
+    assert.ok(logs.some(l => l.includes('refusing')), 'a refusal must be logged');
+  } finally {
+    fs.rmSync(base, { recursive: true });
+  }
+});
+
+test('safeRemove refuses a dir without the shadow prefix', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'not-a-shadow-'));
+  fs.writeFileSync(path.join(dir, 'keep.txt'), 'x');
+  try {
+    ShadowDir.safeRemove(dir, () => {});
+    assert.ok(fs.existsSync(path.join(dir, 'keep.txt')));
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
+});
+
+test('sweepOrphaned does not follow a symlinked etc into another directory', () => {
+  const victim = fs.mkdtempSync(path.join(os.tmpdir(), 'shadow-test-victim-'));
+  fs.writeFileSync(path.join(victim, 'precious.txt'), 'x');
+  fs.mkdirSync(path.join(victim, 'sys'));
+  fs.writeFileSync(path.join(victim, 'sys', 'precious2.txt'), 'x');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fantom-lsp-shadow-'));
+  fs.writeFileSync(path.join(dir, '.fantom-lsp-owner'), '2147483646'); // dead PID
+  try {
+    fs.symlinkSync(victim, path.join(dir, 'etc'), 'junction');
+    ShadowDir.sweepOrphaned(undefined, () => {});
+    assert.ok(fs.existsSync(path.join(victim, 'precious.txt')), 'files behind a symlinked etc must survive');
+    assert.ok(fs.existsSync(path.join(victim, 'sys', 'precious2.txt')), 'files behind a symlinked etc/sys must survive');
+  } finally {
+    try { fs.unlinkSync(path.join(dir, 'etc')); } catch (_) {}
+    try { fs.rmSync(dir, { recursive: true }); } catch (_) {}
+    fs.rmSync(victim, { recursive: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------

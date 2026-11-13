@@ -56,10 +56,7 @@ class TypeResolver
 
       paramStr := line[parenOpen + 1 ..< parenClose]
       params := paramStr.split(',')
-      param := params.find |p|
-      {
-        p.trim.endsWith(varName) || p.trim.endsWith("${varName})")
-      }
+      param := params.find |p| { paramName(p) == varName }
       if (param != null)
       {
         words := param.trim.split(' ').findAll |w| { !w.isEmpty }
@@ -96,12 +93,11 @@ class TypeResolver
     fileUri := index.findFileUriForSource(source)
     if (fileUri == null) return null
 
-    syms := index.findSymbols(varName)
+    // Only variables of the method that contains currentLine are candidates.
+    syms := index.scopedLocals(fileUri, currentLine, varName)
     best := null as IndexedSymbol
     syms.each |sym|
     {
-      if (sym.fileUri != fileUri) return
-      if (sym.kind != SymbolKind.localVar && sym.kind != SymbolKind.param) return
       if (sym.typeStr == null) return
       // Skip compiler placeholder types that convey no real information
       t := sym.typeStr
@@ -129,7 +125,7 @@ class TypeResolver
   **
   static Str? extractDeclaredType(Str line, Str varName)
   {
-    idx := findWordInLine(line, varName)
+    idx := LspUtil.findWord(line, varName)
     if (idx == null) return null
 
     // Verify varName is in a declaration context, not just used in an
@@ -183,14 +179,14 @@ class TypeResolver
 
   **
   ** Extract a method's declared return type from its own declaration line,
-  ** e.g. "protected EntityReferenceable? entityReferenceable() {" -> "EntityReferenceable".
+  ** e.g. "protected MyEntity? myEntity() {" -> "MyEntity".
   ** Used when a symbol's typeStr wasn't captured by the indexer (AST parse
   ** failed for the file, so the text-scan fallback only recorded the name).
   ** Returns null for Void/lowercase/generic-placeholder return types.
   **
   static Str? extractMethodReturnType(Str line, Str methodName)
   {
-    idx := findWordInLine(line, methodName)
+    idx := LspUtil.findWord(line, methodName)
     if (idx == null) return null
 
     endIdx := idx + methodName.size
@@ -221,12 +217,122 @@ class TypeResolver
   }
 
   **
+  ** Name of a parameter in a "Type name" or "Type name := default" fragment.
+  **
+  private static Str paramName(Str param)
+  {
+    decl := param.contains(":=") ? param[0 ..< param.index(":=")] : param
+    words := decl.trim.split(' ').findAll |w| { !w.isEmpty }
+    return words.isEmpty ? "" : words.last
+  }
+
+  **
+  ** True if `rhs` starts with a string, list, number or Bool literal that is
+  ** immediately followed by a member access (`.name`, `?.name` or `->name`),
+  ** e.g. `"42".toInt` or `5.toStr`.
+  **
+  private static Bool isLiteralFollowedByMember(Str rhs)
+  {
+    masked := SourceMask.mask(rhs)
+    end := literalEnd(masked)
+    if (end == null || end >= masked.size) return false
+    rest := masked[end ..-1].trim
+    if (rest.startsWith("->")) return true
+    if (rest.startsWith("?.")) return rest.size > 2 && rest[2].isAlpha
+    return rest.startsWith(".") && rest.size > 1 && (rest[1].isAlpha || rest[1] == '_')
+  }
+
+  ** Index just past the leading literal of `masked`, or null if none starts it.
+  private static Int? literalEnd(Str masked)
+  {
+    if (masked.isEmpty) return null
+    ch := masked[0]
+    if (ch == '"') return masked.index("\"", 1)?.plus(1)
+    if (ch == '[' || ch.isUpper) return bracketLiteralEnd(masked)
+    if (ch.isDigit || (ch == '-' && masked.size > 1 && masked[1].isDigit))
+      return numericLiteralEnd(masked)
+    if (masked.startsWith("true")) return 4
+    if (masked.startsWith("false")) return 5
+    return null
+  }
+
+  ** End of `[..]`, `[..][..]` or `Type[..]` literal; null for anything else.
+  private static Int? bracketLiteralEnd(Str masked)
+  {
+    start := 0
+    if (masked[0] != '[')
+    {
+      while (start < masked.size && (masked[start].isAlphaNum || masked[start] == '_' || masked[start] == '?'))
+        start++
+      if (start >= masked.size || masked[start] != '[') return null
+    }
+    end := matchBracket(masked, start)
+    if (end == null) return null
+    // typed literal [Type][..]
+    if (masked[0] == '[' && end < masked.size && masked[end] == '[')
+      return matchBracket(masked, end)
+    return end
+  }
+
+  ** Index just past the `]` matching the `[` at `open`, or null.
+  private static Int? matchBracket(Str masked, Int open)
+  {
+    depth := 0
+    i := open
+    while (i < masked.size)
+    {
+      if (masked[i] == '[') depth++
+      else if (masked[i] == ']') { depth--; if (depth == 0) return i + 1 }
+      i++
+    }
+    return null
+  }
+
+  ** Index just past the numeric literal at the start of `masked`.
+  private static Int numericLiteralEnd(Str masked)
+  {
+    i := masked[0] == '-' ? 1 : 0
+    if (masked[i] == '0' && i + 1 < masked.size && (masked[i + 1] == 'x' || masked[i + 1] == 'X'))
+    {
+      i += 2
+      while (i < masked.size && (masked[i].isAlphaNum || masked[i] == '_')) i++
+      return i
+    }
+    while (i < masked.size && (masked[i].isDigit || masked[i] == '_')) i++
+    // fraction: '.' must be followed by a digit (`5.toStr` is a member call)
+    if (i + 1 < masked.size && masked[i] == '.' && masked[i + 1].isDigit)
+    {
+      i++
+      while (i < masked.size && (masked[i].isDigit || masked[i] == '_')) i++
+    }
+    // unit or type suffix (f, F, D, sec, ms, ...)
+    while (i < masked.size && masked[i].isAlpha) i++
+    return i
+  }
+
+  **
+  ** Type of the numeric literal at the start of `rhs`: Int, Float or Duration.
+  **
+  private static Str numericLiteralType(Str rhs)
+  {
+    token := rhs[0 ..< numericLiteralEnd(rhs)]
+    if (token.startsWith("0x") || token.startsWith("-0x") || token.startsWith("0X")) return "sys::Int"
+    k := token.size
+    while (k > 0 && token[k - 1].isAlpha) k--
+    suffix := token[k ..-1]
+    if (suffix == "f" || suffix == "F") return "sys::Float"
+    if (suffix == "D") return "sys::Decimal"
+    if (["ns", "ms", "sec", "min", "hr", "day"].contains(suffix)) return "sys::Duration"
+    return token.contains(".") ? "sys::Float" : "sys::Int"
+  }
+
+  **
   ** Infer type from RHS of an assignment: varName := expr
   ** source and lineNum are needed for resolving method call return types.
   **
   static Str? inferTypeFromAssignment(Str line, Str varName, Str source, Int lineNum, ProjectIndex index)
   {
-    idx := findWordInLine(line, varName)
+    idx := LspUtil.findWord(line, varName)
     if (idx == null) return null
 
     afterVar := idx + varName.size
@@ -235,8 +341,12 @@ class TypeResolver
 
     rhs := line[assignIdx + 2 ..-1].trim
 
-    if (rhs.startsWith("\"")) return "sys::Str"
-    if (rhs.startsWith("["))
+    // `"42".toInt` or `[a, b].join(",")` is typed by the member call, not by
+    // the literal it starts with; skip the literal shortcuts for those.
+    literalMember := isLiteralFollowedByMember(rhs)
+
+    if (!literalMember && rhs.startsWith("\"")) return "sys::Str"
+    if (!literalMember && rhs.startsWith("["))
     {
       if (rhs.startsWith("[:]")) return "sys::Map"
       // Check for typed list/map literal: [Type][...] pattern
@@ -259,7 +369,7 @@ class TypeResolver
     }
     // Typed list/map literals: Type[,] or Type[:] or Type[expr, ...]
     bracketIdx := rhs.index("[")
-    if (bracketIdx != null && bracketIdx > 0)
+    if (!literalMember && bracketIdx != null && bracketIdx > 0)
     {
       beforeBracket := rhs[0..<bracketIdx]
       if (beforeBracket.size > 0 && beforeBracket[0].isUpper &&
@@ -270,17 +380,14 @@ class TypeResolver
         return "sys::List"
       }
     }
-    if (rhs == "true" || rhs == "false" ||
-        rhs.startsWith("true ") || rhs.startsWith("false "))
+    if (!literalMember && (rhs == "true" || rhs == "false" ||
+        rhs.startsWith("true ") || rhs.startsWith("false ")))
       return "sys::Bool"
 
     // Numeric
-    if (rhs.size > 0 && (rhs[0].isDigit || (rhs[0] == '-' && rhs.size > 1 && rhs[1].isDigit)))
-    {
-      if (rhs.contains(".") || rhs.endsWith("f") || rhs.endsWith("F"))
-        return "sys::Float"
-      return "sys::Int"
-    }
+    if (!literalMember && rhs.size > 0 &&
+        (rhs[0].isDigit || (rhs[0] == '-' && rhs.size > 1 && rhs[1].isDigit)))
+      return numericLiteralType(rhs)
 
     // Constructor: TypeName(...)
     parenIdx := rhs.index("(")
@@ -704,22 +811,4 @@ class TypeResolver
     return qname.isEmpty ? null : qname
   }
 
-  **
-  ** Find exact word position in a line (word boundary match).
-  **
-  static Int? findWordInLine(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return null
-      endPos := found + word.size
-      beforeOk := found == 0 || !line[found - 1].isAlphaNum
-      afterOk := endPos >= line.size || !line[endPos].isAlphaNum
-      if (beforeOk && afterOk) return found
-      idx = found + 1
-    }
-    return null
-  }
 }

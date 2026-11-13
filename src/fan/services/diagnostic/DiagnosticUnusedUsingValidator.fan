@@ -26,10 +26,18 @@ class DiagnosticUnusedUsingValidator
         typeName := rest[colonIdx + 2..-1].trim
         if (typeName.isEmpty || !typeName[0].isUpper) continue
 
+        // 'using pod::Foo as Bar' makes the file refer to the type as 'Bar'
+        usedName := typeName
         spaceIdx := typeName.index(" ")
-        if (spaceIdx != null) typeName = typeName[0..<spaceIdx]
+        if (spaceIdx != null)
+        {
+          aliasPart := typeName[spaceIdx..-1].trim
+          typeName = typeName[0..<spaceIdx]
+          usedName = typeName
+          if (aliasPart.startsWith("as ")) usedName = aliasPart["as ".size..-1].trim
+        }
 
-        if (!isTypeUsedInSource(typeName, lines, i))
+        if (!isTypeUsedInSource(usedName, lines, i))
         {
           range := LspRange(LspPosition(i, 0), LspPosition(i, line.size))
           diagnostics.add(LspDiagnostic(range, DiagnosticSeverity.warning,
@@ -70,24 +78,9 @@ class DiagnosticUnusedUsingValidator
       line := lines[i].trim
       if (line.startsWith("using ")) continue
       if (line.startsWith("//") || line.startsWith("**") || line.startsWith("*")) continue
-      if (containsIdentifier(line, typeName)) return true
+      if (LspUtil.containsWord(line, typeName)) return true
     }
     return false
   }
 
-  private Bool containsIdentifier(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return false
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return true
-      idx = found + 1
-    }
-    return false
-  }
 }

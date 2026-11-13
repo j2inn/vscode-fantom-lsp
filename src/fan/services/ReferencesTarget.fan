@@ -28,8 +28,12 @@ class ReferencesTarget
   ** For local: the file URI where the local lives
   const Str? localFileUri
 
+  ** For local: the type that declares the enclosing method (null when unknown)
+  const Str? enclosingType
+
   private new make(Str kind, Str name, Str? ownerType,
-                   Str[] typeFamily, Str? enclosingMethod, Str? localFileUri)
+                   Str[] typeFamily, Str? enclosingMethod, Str? localFileUri,
+                   Str? enclosingType := null)
   {
     this.kind            = kind
     this.name            = name
@@ -37,6 +41,7 @@ class ReferencesTarget
     this.typeFamily      = typeFamily
     this.enclosingMethod = enclosingMethod
     this.localFileUri    = localFileUri
+    this.enclosingType   = enclosingType
   }
 
   ** Build a type target
@@ -50,8 +55,8 @@ class ReferencesTarget
   }
 
   ** Build a local-variable target
-  static ReferencesTarget forLocal(Str name, Str enclosingMethod, Str fileUri) {
-    make("local", name, null, Str[,], enclosingMethod, fileUri)
+  static ReferencesTarget forLocal(Str name, Str enclosingMethod, Str fileUri, Str? enclosingType := null) {
+    make("local", name, null, Str[,], enclosingMethod, fileUri, enclosingType)
   }
 
   // ---------------------------------------------------------------------------
@@ -91,7 +96,7 @@ class ReferencesTarget
     if (sym != null)
     {
       if (sym.kind == SymbolKind.localVar || sym.kind == SymbolKind.param)
-        return forLocal(word, sym.methodName ?: "", sym.fileUri)
+        return forLocal(word, sym.methodName ?: "", sym.fileUri, sym.typeName)
 
       if (sym.kind == SymbolKind.method || sym.kind == SymbolKind.field)
       {

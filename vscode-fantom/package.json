@@ -27,6 +27,12 @@
     "workspaceContains:fan.config.json"
   ],
   "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The Fantom language server runs the fan executable and builds named in fan.config.json, a file that comes with the workspace. Trust the workspace to enable it."
+    }
+  },
   "contributes": {
     "languages": [
       {
@@ -378,7 +384,7 @@
     "watch": "tsc -watch -p ./",
     "pretest": "pnpm run compile",
     "lint": "eslint src --ext ts",
-    "test:extension": "node out/test/declarationRange.test.js && node out/test/shadowDir.test.js && node out/test/serialQueue.test.js",
+    "test:extension": "node out/test/declarationRange.test.js && node out/test/shadowDir.test.js && node out/test/serialQueue.test.js && node out/test/removalSafety.test.js && node out/test/configSafety.test.js && node out/test/download.test.js",
     "test:integration": "node out/test/debugAdapter.test.js",
     "test:integration:vscode": "node out/test/integration/runTest.js",
     "test:grammar": "vscode-tmgrammar-snap -g syntaxes/fantom.tmLanguage.json -s source.fantom \"test/grammar/*.fan\"",

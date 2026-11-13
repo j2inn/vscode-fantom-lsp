@@ -279,6 +279,85 @@ class LspUtil
   }
 
   **
+  ** Find the matching closing parenthesis, handling nesting.
+  **
+  static Int? findMatchingParen(Str line, Int openPos)
+  {
+    depth := 0
+    inStr := false
+    i := openPos
+    while (i < line.size)
+    {
+      ch := line[i]
+      // Block comment: /* ... */
+      if (!inStr && ch == '/' && i + 1 < line.size && line[i + 1] == '*')
+      {
+        i += 2
+        while (i + 1 < line.size && !(line[i] == '*' && line[i + 1] == '/')) i++
+        i++
+        continue
+      }
+      // Double-quoted string literal
+      if (ch == '"') { inStr = !inStr; i++; continue }
+      if (ch == '\\' && inStr) { i += 2; continue }
+      // Single-quoted character literal: 'x' or '\n' etc.
+      if (ch == '\'' && !inStr)
+      {
+        i++
+        if (i < line.size && line[i] == '\\') i++
+        while (i < line.size && line[i] != '\'') i++
+        i++
+        continue
+      }
+      if (inStr) { i++; continue }
+      if (ch == '(' || ch == '[') depth++
+      else if (ch == ')' || ch == ']') { depth--; if (depth == 0) return i }
+      i++
+    }
+    return null
+  }
+
+  **
+  ** Position of the first whole-identifier occurrence of `word` in `line` at or
+  ** after `offset`, or null. `foo` does not match inside `foobar` or `my_foo`.
+  **
+  static Int? findWord(Str line, Str word, Int offset := 0)
+  {
+    idx := offset
+    while (true)
+    {
+      found := line.index(word, idx)
+      if (found == null) return null
+      endPos := found + word.size
+      beforeOk := found == 0 || !isIdentifierChar(line[found - 1])
+      afterOk  := endPos >= line.size || !isIdentifierChar(line[endPos])
+      if (beforeOk && afterOk) return found
+      idx = found + 1
+    }
+    return null
+  }
+
+  ** True if `word` occurs in `line` as a whole identifier (see findWord).
+  static Bool containsWord(Str line, Str word)
+  {
+    return findWord(line, word) != null
+  }
+
+  **
+  ** True if the type name starting at `nameStart` is written `pod::Type` and
+  ** `pod` is not `ownPod`. Such a type lives in another pod, so it must not be
+  ** matched against a project type that happens to share its simple name.
+  **
+  static Bool isForeignQualified(Str line, Int nameStart, Str? ownPod)
+  {
+    if (nameStart < 2 || line[nameStart - 1] != ':' || line[nameStart - 2] != ':') return false
+    podEnd := nameStart - 2
+    podStart := podEnd
+    while (podStart > 0 && isIdentifierChar(line[podStart - 1])) podStart--
+    return line[podStart ..< podEnd] != ownPod
+  }
+
+  **
   ** Return all .pod files visible to the current Fantom environment.
   ** Searches every directory in Env.cur.path when available (Fantom ≥ 1.0.79),
   ** otherwise falls back to Env.cur.homeDir only.

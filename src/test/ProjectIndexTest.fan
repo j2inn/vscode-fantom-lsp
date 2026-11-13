@@ -1026,6 +1026,57 @@ class ProjectIndexTest : Test
       "Str? field must have typeStr=\"Str\" (nullable marker stripped by extractDeclaredType)")
   }
 
+  Void testExtractBaseTypeIgnoresLongerNamesAndComments()
+  {
+    // 'class FooBar : X' must not be read as the header of 'Foo', and a
+    // commented-out header must be ignored.
+    idx := ProjectIndex()
+    idx.indexFile("file:///FooBar.fan",
+      "// class Foo : Wrong\n" +
+      "class FooBar : Other { }\n" +
+      "class Foo : Right { }\n")
+    verifyEq(idx.extractBaseTypeName("Foo"), "Right")
+  }
+
+  Void testGetMethodBoundsMatchesTypeNameToo()
+  {
+    idx := ProjectIndex()
+    idx.indexFile("file:///Two.fan",
+      "class A {\n" +
+      "  Void make() {}\n" +
+      "}\n" +
+      "class B {\n" +
+      "  Void make() {}\n" +
+      "}\n")
+    bounds := idx.getMethodBounds("file:///Two.fan", "make", "B")
+    verifyEq(bounds[0], 4)
+  }
+
+  Void testTextIndexerBracesInLiteralsDoNotHideLaterMethods()
+  {
+    // 'class Foo : Missing' has an unresolvable base, so the text indexer is
+    // used. A '{' char literal, a "}" string and braces in a comment must not
+    // shift the nesting depth and hide the methods declared after them.
+    idx := ProjectIndex()
+    idx.indexFile("file:///Lit.fan",
+      "class Lit : Missing\n" +
+      "{\n" +
+      "  static Bool first(Str s)\n" +
+      "  {\n" +
+      "    if (s[0] == '{') return true\n" +
+      "    x := \"}\" // { {\n" +
+      "    return false\n" +
+      "  }\n" +
+      "\n" +
+      "  static Str second(Obj o) { return o.toStr }\n" +
+      "\n" +
+      "  static Str[] third() { return Str[,] }\n" +
+      "}\n")
+    verify(idx.hasMember("Lit", "first"))
+    verify(idx.hasMember("Lit", "second"), "method after a '{' char literal must be indexed")
+    verify(idx.hasMember("Lit", "third"), "method after a '{' char literal must be indexed")
+  }
+
   Void testGetBaseTypeChainMultiLevel()
   {
     idx := ProjectIndex()

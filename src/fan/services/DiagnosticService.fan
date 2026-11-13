@@ -228,7 +228,7 @@ class DiagnosticService
     // is initialized from another class's field, which may not be loaded yet
     try
     {
-      constInitDiags := constInitValidator.checkCrossClassConstInit(source)
+      constInitDiags := constInitValidator.checkCrossClassConstInit(source, index)
       diagnostics.addAll(constInitDiags)
     }
     catch (Err e)
@@ -272,13 +272,13 @@ class DiagnosticService
 
       // Also filter inherited members: when the class extends a project type
       // that was replaced with Obj, inherited fields/constants become unknown.
-      // E.g., class Foo : IBacnetServer { ... DEVICE_TAG ... }
-      // DEVICE_TAG is inherited from IBacnetServer but invisible after replacement.
+      // E.g., class Foo : IMyBase { ... DEVICE_TAG ... }
+      // DEVICE_TAG is inherited from IMyBase but invisible after replacement.
       if (name != null && isInheritedMember(name, baseTypes, index)) return true
 
       // It-block field assignment: when a project type constructor is replaced
       // with Obj, fields set in it-blocks become "Unknown variable".
-      // E.g., ChartSeriesProps(...) { dis = "hello" } → Obj(...) { dis = "hello" }
+      // E.g., MyProps(...) { dis = "hello" } → Obj(...) { dis = "hello" }
       // Filter when the variable name is a field of any project type and the
       // source line looks like an it-block assignment (name = expr, no :=).
       if (name != null)
@@ -323,7 +323,7 @@ class DiagnosticService
     }
 
     // "Unknown method/slot/field 'pod::Type.slotName'" — multiple causes:
-    // 1. Constructor call: BacnetServer(cx, siteId) where BacnetServer is a project type
+    // 1. Constructor call: MyService(cx, siteId) where MyService is a project type
     // 2. Inherited slot: this.commit() or this.entityId where the base type was
     //    replaced with Obj during preprocessing, hiding inherited slots.
     //    The error format is "Unknown method/slot/field 'pod::CurrentClass.slotName'"
@@ -392,7 +392,7 @@ class DiagnosticService
       return true
 
     // "No constructor found: Obj(...)" — when project types are replaced
-    // with Obj during preprocessing, constructor calls like BacnetServer(cx, siteId)
+    // with Obj during preprocessing, constructor calls like MyService(cx, siteId)
     // become Obj(cx, siteId). The compiler can't find a matching Obj constructor.
     if (msg.startsWith("No constructor found") && msg.contains("Obj("))
       return true
@@ -411,7 +411,7 @@ class DiagnosticService
       return true
 
     // "Expected ',', not ':'" — cascade error from Map type constructors
-    // like Map(Ref:IntesisDeviceData#) when types aren't resolved in
+    // like Map(Ref:MyData#) when types aren't resolved in
     // single-file mode. Only filter when ALL types in the Map() are known
     // (sys types or in the project index).
     if (msg == "Expected ',', not ':'")
@@ -483,7 +483,7 @@ class DiagnosticService
   **
   ** Check if an "Expected ',', not ':'" error is on a Map constructor line
   ** where all referenced types are known (sys types or in the project index).
-  ** E.g., Map(Ref:IntesisDeviceData#) — filter only if both types are known.
+  ** E.g., Map(Ref:MyData#) — filter only if both types are known.
   **
   private Bool isMapConstructorWithKnownTypes(CompilerErr err, ProjectIndex index, Str[] lines)
   {
@@ -609,6 +609,17 @@ class DiagnosticService
   }
 
   **
+  ** Spaces to emit before a shorter replacement token so that columns after
+  ** it match the original line. Only safe when the token is preceded by
+  ** whitespace; otherwise returns an empty string.
+  **
+  private Str columnPadding(Str line, Int start, Int origSize, Int replacementSize)
+  {
+    if (start == 0 || !line[start - 1].isSpace || origSize <= replacementSize) return ""
+    return Str.spaces(origSize - replacementSize)
+  }
+
+  **
   ** Replace project-type literals (TypeName#) with Obj# in source code.
   ** Type literals like `MyClass#.pod` cause parse-stopping errors in
   ** single-file compilation when MyClass is from another file. Replacing
@@ -652,10 +663,13 @@ class DiagnosticService
 
       typeName := nameStart < hashIdx ? line[nameStart ..< hashIdx] : ""
 
-      if (typeName.size > 0 && typeName[0].isUpper && isUncompiledProjectType(typeName, index))
+      if (typeName.size > 0 && typeName[0].isUpper && isUncompiledProjectType(typeName, index) &&
+          !LspUtil.isForeignQualified(line, nameStart, index.podName))
       {
-        // Append everything before the type name, then "Obj#"
+        // Append everything before the type name, then "Obj#". Pad with
+        // leading spaces so later columns on the line stay aligned.
         result.add(line[pos ..< nameStart])
+        result.add(columnPadding(line, nameStart, typeName.size, 3))
         result.add("Obj#")
       }
       else
@@ -886,33 +900,11 @@ class DiagnosticService
 
     // Find matching closing paren
     openParen := superIdx + 5  // position of '('
-    closeParen := findMatchingParen(line, openParen)
+    closeParen := LspUtil.findMatchingParen(line, openParen)
     if (closeParen == null) return line
 
     // Replace super(args) with super()
     return line[0 .. openParen] + ")" + line[closeParen + 1 ..-1]
-  }
-
-  **
-  ** Find the matching closing parenthesis, handling nesting.
-  **
-  private Int? findMatchingParen(Str line, Int openPos)
-  {
-    depth := 0
-    inStr := false
-    for (i := openPos; i < line.size; i++)
-    {
-      ch := line[i]
-      if (ch == '"' && !inStr) inStr = true
-      else if (ch == '"' && inStr) inStr = false
-      else if (ch == '\\' && inStr) { i++; continue }
-      if (!inStr)
-      {
-        if (ch == '(' || ch == '[') depth++
-        else if (ch == ')' || ch == ']') { depth--; if (depth == 0) return i }
-      }
-    }
-    return null
   }
 
   **
@@ -1149,8 +1141,10 @@ class DiagnosticService
         isUnresolvableExt := !isProjectTy && !usingPodIdx.hasType(name) &&
                              usingPodIdx.hasUnloadablePods
         if (!prevIsIdent && !isAllCaps && name.size > 1 && !knownSysTypes.contains(name) &&
+            !LspUtil.isForeignQualified(line, start, index.podName) &&
             ((isProjectTy && !compiledTypes.contains(name)) || isUnresolvableExt))
         {
+          result.add(columnPadding(line, start, name.size, 3))
           result.add("Obj")
           anyReplaced = true
         }
@@ -1374,8 +1368,8 @@ class DiagnosticService
   ** Project-wide check for static const fields that share identical string values.
   ** Returns a map of fileUri -> diagnostics to add for each file.
   **
-  [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources)
+  [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources, |Str->Str?|? podOf := null)
   {
-    return duplicateConstValidator.checkDuplicateConstValues(sources)
+    return duplicateConstValidator.checkDuplicateConstValues(sources, podOf)
   }
 }

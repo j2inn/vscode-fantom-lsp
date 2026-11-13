@@ -20,10 +20,11 @@ class ReferencesScanner
   [Str:Obj?][] scan(Str fileUri, Str source, ReferencesTarget target,
                     ProjectIndex? index := null)
   {
-    lines := source.splitLines
+    // Masked lines: literals and comments (incl. block comments) never match.
+    lines := SourceMask.mask(source).splitLines
     switch (target.kind)
     {
-      case "type":   return scanType(fileUri, lines, target.name)
+      case "type":   return scanType(fileUri, lines, target.name, index)
       case "member": return scanMember(fileUri, lines, target, index)
       case "local":  return scanLocal(fileUri, lines, target, index)
       default:       return [Str:Obj?][,]
@@ -34,19 +35,21 @@ class ReferencesScanner
   // Type references
   // ---------------------------------------------------------------------------
 
-  private [Str:Obj?][] scanType(Str fileUri, Str[] lines, Str name)
+  private [Str:Obj?][] scanType(Str fileUri, Str[] lines, Str name, ProjectIndex? index)
   {
     results := [Str:Obj?][,]
     for (i := 0; i < lines.size; i++)
     {
       line := lines[i]
       if (!line.contains(name)) continue
-      col := findWordInLine(line, name, 0)
+      col := LspUtil.findWord(line, name, 0)
       while (col != null)
       {
-        if (!isInStringOrComment(line, col))
+        // `otherPod::Name` is another pod's type, not this one
+        if (!isInStringOrComment(line, col) &&
+            !LspUtil.isForeignQualified(line, col, index?.podName))
           results.add(loc(fileUri, i, col, name.size))
-        col = findWordInLine(line, name, col + 1)
+        col = LspUtil.findWord(line, name, col + 1)
       }
     }
     return results
@@ -62,9 +65,9 @@ class ReferencesScanner
     results  := [Str:Obj?][,]
     name     := target.name
     family   := target.typeFamily
-    // Receiver-type map: prefer AST-indexed symbols; fall back to text heuristic
-    // only when no index is available (e.g. in isolated unit tests).
-    varTypes := index != null ? index.getVarTypesForFile(fileUri) : resolveVarTypes(lines)
+    // Receiver-type map: prefer AST-indexed symbols of the enclosing method; fall
+    // back to text heuristic only when no index is available (e.g. in unit tests).
+    fileVarTypes := index != null ? null : resolveVarTypes(lines)
 
     for (i := 0; i < lines.size; i++)
     {
@@ -74,7 +77,7 @@ class ReferencesScanner
       col := 0
       while (true)
       {
-        found := findWordInLine(line, name, col)
+        found := LspUtil.findWord(line, name, col)
         if (found == null) break
         col = found + 1
 
@@ -85,7 +88,10 @@ class ReferencesScanner
           ? (index.getEnclosingTypeAtLine(fileUri, i) ?: "")
           : enclosingClassFromText(lines, i)
 
-        if (isAcceptedMemberUsage(line, found, name, curClass, family, varTypes))
+        varTypes := fileVarTypes ?: index.getVarTypesAtLine(fileUri, i)
+        shadowed := index != null && index.isLocalNameAtLine(fileUri, i, name)
+        if (isAcceptedMemberUsage(line, found, name, curClass, family, varTypes,
+                                  shadowed, index?.podName))
           results.add(loc(fileUri, i, found, name.size))
       }
     }
@@ -94,7 +100,8 @@ class ReferencesScanner
 
   private Bool isAcceptedMemberUsage(Str line, Int col, Str name,
                                      Str curClass, Str[] family,
-                                     Str:Str varTypes)
+                                     Str:Str varTypes, Bool shadowedByLocal,
+                                     Str? ownPod)
   {
     // No type family constraint → include all uses
     if (family.isEmpty) return true
@@ -106,7 +113,7 @@ class ReferencesScanner
       while (typeStart > 0 && LspUtil.isIdentifierChar(line[typeStart - 1])) typeStart--
       receiver := line[typeStart ..< col - 1]
       if (receiver.size > 0 && receiver[0].isUpper)
-        return family.contains(receiver)
+        return !LspUtil.isForeignQualified(line, typeStart, ownPod) && family.contains(receiver)
     }
 
     // b) Bare call:  name(  or  name  inside class body — preceding char must not be '.'
@@ -115,7 +122,7 @@ class ReferencesScanner
     if ((col == 0 || !LspUtil.isIdentifierChar(line[col - 1])) && curClass != "")
     {
       if (col == 0 || line[col - 1] != '.')
-        return family.contains(curClass)
+        return !shadowedByLocal && family.contains(curClass)
     }
 
     // c) Instance access:  receiver.name  where receiver has a known type
@@ -149,7 +156,7 @@ class ReferencesScanner
     endLine   := lines.size - 1
     if (index != null)
     {
-      bounds := index.getMethodBounds(fileUri, target.enclosingMethod)
+      bounds := index.getMethodBounds(fileUri, target.enclosingMethod, target.enclosingType)
       if (bounds != null) { startLine = bounds[0]; endLine = bounds[1] }
     }
 
@@ -157,12 +164,12 @@ class ReferencesScanner
     {
       line := lines[i]
       if (!line.contains(name)) continue
-      col := findWordInLine(line, name, 0)
+      col := LspUtil.findWord(line, name, 0)
       while (col != null)
       {
         if (!isInStringOrComment(line, col))
           results.add(loc(fileUri, i, col, name.size))
-        col = findWordInLine(line, name, col + 1)
+        col = LspUtil.findWord(line, name, col + 1)
       }
     }
     return results
@@ -260,23 +267,6 @@ class ReferencesScanner
       "start": ["line": line, "character": col],
       "end":   ["line": line, "character": col + len]
     ]]
-  }
-
-  ** Find the next occurrence of word (whole-identifier) in line starting at offset.
-  private Int? findWordInLine(Str line, Str word, Int offset)
-  {
-    idx := offset
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return null
-      endPos  := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return found
-      idx = found + 1
-    }
-    return null
   }
 
   ** Heuristic: is the character at col inside a string literal or line comment?

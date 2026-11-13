@@ -3,7 +3,9 @@
 **
 class DiagnosticDuplicateConstValidator
 {
-  [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources)
+  ** Duplicates are only reported within one pod: 'podOf' maps a file URI to
+  ** its pod name, so equal values in different pods are not flagged.
+  [Str:LspDiagnostic[]] checkDuplicateConstValues([Str:Str] sources, |Str->Str?|? podOf := null)
   {
     valueMap := Str:Str[][:]
 
@@ -18,7 +20,7 @@ class DiagnosticDuplicateConstValidator
         if (trimmed.isEmpty || trimmed.startsWith("//") ||
             trimmed.startsWith("**") || trimmed.startsWith("*")) continue
 
-        if (!containsIdentifier(trimmed, "const")) continue
+        if (!LspUtil.containsWord(trimmed, "const")) continue
 
         walrusIdx := trimmed.index(":=")
         if (walrusIdx == null) continue
@@ -34,16 +36,19 @@ class DiagnosticDuplicateConstValidator
         varName := words.isEmpty ? "" : words[-1]
 
         record := "${fileUri}\t${i}\t${varName}"
-        existing := valueMap[strVal]
-        if (existing == null) { existing = Str[,]; valueMap[strVal] = existing }
+        podName := podOf?.call(fileUri) ?: ""
+        groupKey := podName + "\u0000" + strVal
+        existing := valueMap[groupKey]
+        if (existing == null) { existing = Str[,]; valueMap[groupKey] = existing }
         existing.add(record)
       }
     }
 
     result := Str:LspDiagnostic[][:]
-    valueMap.each |occList, strVal|
+    valueMap.each |occList, groupKey|
     {
       if (occList.size < 2) return
+      strVal := groupKey[(groupKey.index("\u0000") + 1)..-1]
 
       displayVal := strVal.size > 30 ? strVal[0..29] + "..." : strVal
 
@@ -57,7 +62,7 @@ class DiagnosticDuplicateConstValidator
         source := sources[fileUri] ?: ""
         srcLines := source.splitLines
         lineText := lineNum < srcLines.size ? srcLines[lineNum] : ""
-        col := varName.isEmpty ? 0 : (findIdentifierPos(lineText, varName) ?: 0)
+        col := varName.isEmpty ? 0 : (LspUtil.findWord(lineText, varName) ?: 0)
 
         range := LspRange(
           LspPosition(lineNum, col),
@@ -90,35 +95,4 @@ class DiagnosticDuplicateConstValidator
     return null
   }
 
-  private Int? findIdentifierPos(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return null
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return found
-      idx = found + 1
-    }
-    return null
-  }
-
-  private Bool containsIdentifier(Str line, Str word)
-  {
-    idx := 0
-    while (true)
-    {
-      found := line.index(word, idx)
-      if (found == null) return false
-      endPos := found + word.size
-      beforeOk := found == 0 || !LspUtil.isIdentifierChar(line[found - 1])
-      afterOk  := endPos >= line.size || !LspUtil.isIdentifierChar(line[endPos])
-      if (beforeOk && afterOk) return true
-      idx = found + 1
-    }
-    return false
-  }
 }
