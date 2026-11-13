@@ -2,6 +2,24 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Platform } from '../platform';
 
+/**
+ * Hard-links `src` to `dest`, or copies it when linking is impossible. A hard
+ * link cannot cross volumes (EXDEV), which is common here: the shadow dir is
+ * under %TEMP% on C: while a Fantom installation often lives on another drive.
+ * `link` is injectable for tests.
+ */
+export function hardLinkOrCopy(
+  src: string,
+  dest: string,
+  link: (s: string, d: string) => void = fs.linkSync,
+): void {
+  try {
+    link(src, dest);
+  } catch (_) {
+    fs.copyFileSync(src, dest);
+  }
+}
+
 export class WindowsPlatform implements Platform {
   readonly javaExeName        = 'java.exe';
   readonly javacExeName       = 'javac.exe';
@@ -15,8 +33,11 @@ export class WindowsPlatform implements Platform {
     return /\.(bat|exe|cmd)$/i.test(rawPath) ? [] : [`${rawPath}.bat`];
   }
 
-  /** Hard link: needs no elevation, and unlinking it never touches the original. */
-  linkFile(src: string, dest: string): void { fs.linkSync(src, dest); }
+  /**
+   * Hard link (needs no elevation; unlinking it never touches the original),
+   * falling back to a copy across volumes.
+   */
+  linkFile(src: string, dest: string): void { hardLinkOrCopy(src, dest); }
 
   /** File symlinks need Developer Mode on Windows, so copy instead. */
   linkOrCopyFile(src: string, dest: string): void { fs.copyFileSync(src, dest); }
@@ -37,7 +58,7 @@ export class WindowsPlatform implements Platform {
       if (entry.isDirectory()) {
         this.linkDirectory(from, to);
       } else {
-        try { fs.linkSync(from, to); } catch (_) { fs.copyFileSync(from, to); }
+        hardLinkOrCopy(from, to);
       }
     }
   }
