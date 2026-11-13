@@ -169,6 +169,7 @@ export class ShadowDir {
       log(`WARNING: refusing to remove "${shadowDir}": not a shadow dir created by this user under ${os.tmpdir()}`);
       return;
     }
+    log(`Removing shadow dir ${shadowDir} (pid ${process.pid})`);
     ShadowDir.teardown(shadowDir, log);
   }
 
@@ -374,18 +375,29 @@ export class ShadowDir {
    * deletion of the copied directory, never a recursive rmSync on a junction.
    */
   private static disposeLibJava(shadowDir: string, log: (msg: string) => void): void {
-    const libJava = path.join(shadowDir, 'lib', 'java');
-    try {
-      const stat = fs.lstatSync(libJava);
-      if (stat.isSymbolicLink()) {
-        // Junction or symlink — unlink the leaf entry only, never recurse.
-        fs.unlinkSync(libJava);
-      } else if (stat.isDirectory()) {
-        // Copied fallback — only real files inside, safe to delete entry-by-entry.
-        ShadowDir.removeLeafEntries(libJava, log, shadowDir);
-        ShadowDir.removeRealDirIfEmpty(libJava, log);
+    ShadowDir.removeTree(path.join(shadowDir, 'lib', 'java'), log, shadowDir);
+  }
+
+  /**
+   * Removes `p` without ever recursing through a link: a symlink/junction or
+   * file is unlinked as a leaf; a real directory is emptied entry by entry
+   * (each entry re-checked) and then rmdir'd. Mirrored dirs on Windows hold
+   * hard links, so removing them never touches the real installation.
+   */
+  private static removeTree(p: string, log: (msg: string) => void, root: string): void {
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(p); } catch (_) { return; }
+    if (stat.isSymbolicLink() || stat.isFile()) {
+      try { fs.unlinkSync(p); } catch (e: any) {
+        log(`WARNING: could not remove shadow entry "${p}": ${e.message}`);
       }
-    } catch (_) {}
+      return;
+    }
+    if (!ShadowDir.isRealDirUnder(p, root)) { return; }
+    for (const name of fs.readdirSync(p)) {
+      ShadowDir.removeTree(path.join(p, name), log, root);
+    }
+    ShadowDir.removeRealDirIfEmpty(p, log);
   }
 
   /**
@@ -401,8 +413,15 @@ export class ShadowDir {
     ShadowDir.removeLeafEntries(etcSysDir, log, shadowDir);
     ShadowDir.removeRealDirIfEmpty(etcSysDir, log);
 
-    // etc/<other>/ — each is a junction or symlink leaf; unlink directly.
-    ShadowDir.removeLeafEntries(etcDir, log, shadowDir);
+    // etc/<other> — a symlink leaf (Linux/Mac) or a mirrored real dir (Windows).
+    // Skipped entirely when etc itself is a link: readdir would list the target.
+    if (ShadowDir.isRealDirUnder(etcDir, shadowDir)) {
+      try {
+        for (const name of fs.readdirSync(etcDir)) {
+          ShadowDir.removeTree(path.join(etcDir, name), log, shadowDir);
+        }
+      } catch (_) {}
+    }
     ShadowDir.removeRealDirIfEmpty(etcDir, log);
   }
 

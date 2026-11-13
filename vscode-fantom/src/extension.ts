@@ -21,6 +21,8 @@ import { getPlatform } from './platform';
 import { resolveJavaCmd, checkJavaAndBuildAdapterAtStartup, rebuildDebugAdapterJar, ensureDebugAdapterJar } from './javaSetup';
 import { SerialQueue } from './serialQueue';
 import { ShadowDir } from './shadowDir';
+import { RotatingLog } from './rotatingLog';
+import { auditFanHome, FanHomeSnapshot } from './fanHomeAudit';
 import { FantomFileDecorationProvider } from './fileDecorations';
 
 let client: LanguageClient | undefined;
@@ -68,8 +70,17 @@ function updateDiagnosticStatusItems(): void {
 }
 
 
+/** Persistent forensic log (survives restarts and updates); set at activation. */
+let forensicLog: RotatingLog | undefined;
+
+/** Key under which the last known FAN_HOME snapshot is kept across sessions. */
+const FAN_HOME_SNAPSHOT_KEY = 'fantom.lastFanHomeSnapshot';
+
+let extensionContext: vscode.ExtensionContext | undefined;
+
 function log(msg: string): void {
   outputChannel.appendLine(`[Fantom] ${msg}`);
+  forensicLog?.append(`${new Date().toISOString()} pid=${process.pid} ${msg}`);
   console.log(`[Fantom] ${msg}`);
 }
 
@@ -399,6 +410,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
   currentShadowDir?.dispose(log);
   currentShadowDir = undefined;
   const fanHome = path.dirname(path.dirname(fanExe));
+  auditFanHomeAndRemember('before-shadow-create', fanHome, true);
   const podDir = path.join(fanHome, 'lib', 'fan');
   const newPodSrc = path.join(podDir, POD_FILE_NEW);
   const legacyPodSrc = path.join(podDir, POD_FILE_LEGACY);
@@ -411,6 +423,7 @@ async function startLspClient(context: vscode.ExtensionContext, finConfig: FinCo
 
   if (fs.existsSync(mainPodSrc)) {
     currentShadowDir = ShadowDir.create(mainPodFileName, fanHome, log);
+    auditFanHomeAndRemember('after-shadow-create', fanHome, false);
   }
 
   const serverOptions: ServerOptions = {
@@ -863,13 +876,23 @@ function parseTestMethods(filePath: string): string[] {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Fantom Extension');
-  log('Extension activating...');
+  extensionContext = context;
+  try {
+    fs.mkdirSync(context.globalStorageUri.fsPath, { recursive: true });
+    forensicLog = new RotatingLog(path.join(context.globalStorageUri.fsPath, 'fantom-forensics.log'));
+  } catch (_) { forensicLog = undefined; }
+  log(`Extension activating... version=${context.extension.packageJSON.version} ` +
+    `vscode=${vscode.version} platform=${process.platform} ` +
+    `ppid=${process.ppid} forensicLog=${forensicLog?.filePath ?? 'unavailable'}`);
 
   // --- Clean up shadow dirs orphaned by a previous session that was killed
   //     before it could call dispose() (e.g. VS Code force-restarting itself
   //     to apply an update). Must run before any new shadow dir is created,
   //     and does not depend on this being a Fantom project. ---
+  const snapBeforeSweep = context.globalState.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY);
+  if (snapBeforeSweep) { auditFanHome('activation-before-sweep', snapBeforeSweep.fanHome, log, snapBeforeSweep); }
   ShadowDir.sweepOrphaned(undefined, log);
+  if (snapBeforeSweep) { auditFanHome('activation-after-sweep', snapBeforeSweep.fanHome, log, snapBeforeSweep); }
 
   // --- Register debug adapter (always, even outside Fantom projects) ---
   context.subscriptions.push(
@@ -1637,10 +1660,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await configRestartQueue.enqueue(() => startLspClient(context, finConfig));
 }
 
+/**
+ * Audits the real FAN_HOME and stores the snapshot. When `compare` is set the
+ * snapshot is compared with the one stored by the previous phase or session,
+ * and a loss is reported to the user: it means something deleted installation
+ * files while this extension was not looking (e.g. during an update).
+ */
+function auditFanHomeAndRemember(phase: string, fanHome: string, compare: boolean): void {
+  const state = extensionContext?.globalState;
+  const previous = compare ? state?.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY) : undefined;
+  const { snapshot, losses } = auditFanHome(phase, fanHome, log, previous);
+  if (losses.length === 0) { state?.update(FAN_HOME_SNAPSHOT_KEY, snapshot); }
+  if (losses.length > 0) {
+    vscode.window.showErrorMessage(
+      `Fantom: the installation at ${fanHome} lost files since the last session ` +
+      `(${losses.join('; ')}). Please send "${forensicLog?.filePath ?? 'the Fantom Extension output'}" to the maintainers.`);
+  }
+}
+
 export async function deactivate(): Promise<void> {
   log('Deactivating extension');
+  if (extensionContext && currentShadowDir) {
+    const last = extensionContext.globalState.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY);
+    if (last) { auditFanHome('before-dispose', last.fanHome, log, last); }
+  }
   // Stop the server first: it still reads from the shadow dir until it exits.
   await configRestartQueue.enqueue(stopClient);
   currentShadowDir?.dispose(log);
   currentShadowDir = undefined;
+  const lastSnap = extensionContext?.globalState.get<FanHomeSnapshot>(FAN_HOME_SNAPSHOT_KEY);
+  if (lastSnap) { auditFanHome('after-dispose', lastSnap.fanHome, log, lastSnap); }
+  log('Deactivation complete');
 }
