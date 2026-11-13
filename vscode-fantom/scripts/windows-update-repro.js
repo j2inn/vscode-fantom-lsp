@@ -145,6 +145,12 @@ async function main() {
   const artifacts = path.join(work, 'artifacts');
   fs.mkdirSync(artifacts, { recursive: true });
 
+  // The extension refuses to start the server (and so never creates a shadow
+  // dir) when its bundled pod is missing; bundled-pods/ is a git-ignored build
+  // output, so a fresh CI checkout needs a placeholder.
+  const bundled = path.join(extPath, 'bundled-pods', 'vscodeFantomLsp.pod');
+  if (!fs.existsSync(bundled)) { write(bundled, 'placeholder-pod'); console.log(`created placeholder ${bundled}`); }
+
   const fanHome = makeFakeFanHome(work, path.join(extPath, 'bundled-pods', 'vscodeFantomLsp.pod'));
   const baseline = listFiles(fanHome);
   console.log(`fake fantom: ${fanHome} (${baseline.length} files)`);
