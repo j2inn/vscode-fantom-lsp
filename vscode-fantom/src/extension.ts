@@ -1652,8 +1652,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // --- Step 3: Suggest launch.json if missing ---
+  // Not awaited: the prompt waits for the user, and the language server must
+  // not stay stopped until a notification is dismissed.
   if (folders && folders.length > 0) {
-    await suggestLaunchJson(context, folders[0]);
+    suggestLaunchJson(context, folders[0]).catch(e => log(`ERROR in launch.json suggestion: ${e.message}`));
   }
 
   // --- Step 4: Start LSP server (queued so a config change during startup waits) ---
