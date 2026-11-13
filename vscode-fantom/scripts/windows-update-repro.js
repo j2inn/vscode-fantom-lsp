@@ -73,18 +73,56 @@ function forensicLog(userData) {
   return hits[0];
 }
 
-async function waitFor(what, pred) {
+/** Prints the tail of a text file, for diagnosing a timeout. */
+function dumpTail(file, lines = 60) {
+  try {
+    const all = fs.readFileSync(file, 'utf8').split('\n');
+    console.log(`----- ${file} (last ${Math.min(lines, all.length)} lines)`);
+    console.log(all.slice(-lines).join('\n'));
+  } catch (e) { console.log(`----- ${file}: unreadable (${e.code})`); }
+}
+
+/** Dumps everything useful to understand why the extension did not start. */
+function dumpDiagnostics(ctx) {
+  const art = path.join(ctx.userData, '..', 'artifacts');
+  fs.mkdirSync(art, { recursive: true });
+  codeOutputs.forEach(f => { dumpTail(f); try { fs.copyFileSync(f, path.join(art, path.basename(f))); } catch (_) {} });
+  try { fs.cpSync(path.join(ctx.userData, 'logs'), path.join(art, 'vscode-logs'), { recursive: true }); } catch (_) {}
+  const flog = forensicLog(ctx.userData);
+  console.log(`forensic log: ${flog ?? 'not created (extension did not activate?)'}`);
+  if (flog) dumpTail(flog, 80);
+  const logsDir = path.join(ctx.userData, 'logs');
+  const walk = d => { try { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const f = path.join(d, e.name);
+    if (e.isDirectory()) walk(f); else if (/exthost|renderer|main/i.test(e.name) || /Fantom/i.test(f)) dumpTail(f, 40);
+  } } catch (_) {} };
+  walk(logsDir);
+}
+
+async function waitFor(what, pred, ctx) {
   const end = Date.now() + WAIT_MS;
   while (Date.now() < end) { if (pred()) return; await sleep(POLL_MS); }
+  if (ctx) dumpDiagnostics(ctx);
   throw new Error(`timeout waiting for ${what}`);
 }
 
+/** Output files of every Code process started, dumped when something times out. */
+const codeOutputs = [];
+
 function startCode(codeExe, ctx) {
+  const outFile = path.join(ctx.userData, '..', `code-${codeOutputs.length}.log`);
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  const fd = fs.openSync(outFile, 'w');
+  codeOutputs.push(outFile);
   const child = spawn(codeExe, [
     ctx.workspace, '--user-data-dir', ctx.userData, '--extensions-dir', ctx.extDir,
     '--extensionDevelopmentPath', ctx.extPath, '--disable-gpu', '--disable-workspace-trust',
     '--skip-welcome', '--skip-release-notes', '--disable-updates', '--new-window',
-  ], { stdio: 'ignore', detached: false });
+    // Same flags as the integration runner: without them the renderer cannot
+    // start on a CI runner and the extension host never activates.
+    '--headless', '--no-sandbox', '--verbose',
+  ], { stdio: ['ignore', fd, fd], detached: false });
+  child.on('exit', code => console.log(`  [code pid ${child.pid} exited with ${code}]`));
   return child;
 }
 
@@ -130,7 +168,7 @@ async function main() {
   for (const how of ['cmd', 'powershell', 'node']) {
     console.log(`\n=== scenario: kill + external wipe via ${how} ===`);
     const code = startCode(codeExe, ctx);
-    await waitFor('shadow dir', () => shadowDirs().length > 0);
+    await waitFor('shadow dir', () => shadowDirs().length > 0, ctx);
     console.log(`  shadow dirs: ${shadowDirs().join(', ')}`);
     check(`running-${how}`);
     killTree(code);
@@ -142,13 +180,13 @@ async function main() {
 
   console.log('\n=== scenario: kill, restart (sweep of orphans), kill ===');
   let code = startCode(codeExe, ctx);
-  await waitFor('shadow dir', () => shadowDirs().length > 0);
+  await waitFor('shadow dir', () => shadowDirs().length > 0, ctx);
   killTree(code);
   await sleep(3000);
   const orphans = shadowDirs();
   console.log(`  orphans left by kill: ${orphans.length}`);
   code = startCode(codeExe, ctx);
-  await waitFor('sweep of the orphans', () => orphans.every(o => !fs.existsSync(o)));
+  await waitFor('sweep of the orphans', () => orphans.every(o => !fs.existsSync(o)), ctx);
   check('after-restart-sweep');
   killTree(code);
   shadowDirs().forEach(d => wipe(d, 'node'));
